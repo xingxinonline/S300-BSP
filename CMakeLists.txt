@@ -62,19 +62,11 @@ function(add_s300_image TARGET)
         set(ARG_OUTPUT ${TARGET}.bin)
     endif()
 
-    set(CMD_ARGS generate -o ${CMAKE_BINARY_DIR}/${ARG_OUTPUT} --m4 $<TARGET_FILE:${TARGET}>)
+    # 使用生成的 .bin 文件而不是 .elf 文件
+    get_target_property(TARGET_DIR ${TARGET} BINARY_DIR)
+    set(M4_BIN_FILE ${TARGET_DIR}/${TARGET}.bin)
 
-    if(ARG_M0_BIN)
-        list(APPEND CMD_ARGS --m0 ${ARG_M0_BIN})
-    endif()
-
-    if(ARG_DSP_DIR)
-        list(APPEND CMD_ARGS --dsp ${ARG_DSP_DIR})
-    endif()
-
-    if(ARG_DSP_PRO)
-        list(APPEND CMD_ARGS --dsp-pro ${ARG_DSP_PRO})
-    endif()
+    set(CMD_ARGS generate -o ${CMAKE_BINARY_DIR}/${ARG_OUTPUT} --m4 ${M4_BIN_FILE})
 
     add_custom_target(img_${TARGET}
         COMMAND uv run python s300_image.py ${CMD_ARGS}
