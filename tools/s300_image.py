@@ -165,7 +165,7 @@ class ImageGenerator:
         if not m4_data:
             raise ValueError(f"无法读取Cortex-M4 bin文件: {bin_file}")
         
-        print(f"✅ 读取: {bin_file}")
+        print(f"[OK] 读取: {bin_file}")
         print(f"  原始大小: {len(m4_data)} bytes")
         original_size = len(m4_data)
         
@@ -212,10 +212,10 @@ class ImageGenerator:
         # 读取bin文件
         m0_data = bytearray(self.read_bin_file(bin_file))
         if not m0_data:
-            print("⚠️  未找到Cortex-M0 bin文件，跳过此段")
+            print("[WARN] 未找到Cortex-M0 bin文件，跳过此段")
             return b'', None
         
-        print(f"✅ 读取: {bin_file}")
+        print(f"[OK] 读取: {bin_file}")
         print(f"  大小: {len(m0_data)} bytes")
         
         # M0段通常不需要对齐（如果需要可以添加）
@@ -277,7 +277,7 @@ class ImageGenerator:
             data = bytearray(self.read_bin_file(bin_file))
             
             if len(data) > 0:
-                print(f"✅ 读取: {bin_file}")
+                print(f"[OK] 读取: {bin_file}")
                 print(f"  [{ram_name:>6}] 原始大小: {len(data)} bytes")
                 original_size = len(data)
                 
@@ -505,13 +505,13 @@ class ImageGenerator:
                 print(f"  DSP段:     {len(dsp_data)} bytes (0x{dsp_offset:X}-0x{dsp_offset+len(dsp_data)-1:X})")
             print(f"  总大小:    {len(image)} bytes ({len(image)/1024:.2f} KB)")
             
-            print(f"\n✅ 镜像生成成功: {output_path}")
+            print(f"\n[OK] 镜像生成成功: {output_path}")
             print("=" * 80)
             
             return True
             
         except Exception as e:
-            print(f"\n❌ 生成失败: {e}")
+            print(f"\n[ERR] 生成失败: {e}")
             import traceback
             traceback.print_exc()
             return False
@@ -544,7 +544,7 @@ class ImageExtractor:
         self._extract_m0(header, image_data)
         self._extract_dsp(header, image_data)
         
-        print(f"\n✅ 提取完成: {self.output_dir}")
+        print(f"\n[OK] 提取完成: {self.output_dir}")
         
     def _extract_m4(self, header: bytes, image_data: bytes):
         """提取 Cortex-M4"""
@@ -557,7 +557,7 @@ class ImageExtractor:
         
         data = image_data[flash_addr : flash_addr + length]
         calc_crc = crc32_rom(data, 0)
-        print(f"  CRC验证: {'✅' if calc_crc == crc32 else '❌'}")
+        print(f"  CRC验证: {'[OK]' if calc_crc == crc32 else '[ERR]'}")
         
         out_file = os.path.join(self.output_dir, "cortex_m4.bin")
         with open(out_file, 'wb') as f:
@@ -578,7 +578,7 @@ class ImageExtractor:
         
         data = image_data[flash_addr : flash_addr + length]
         calc_crc = crc32_rom(data, 0)
-        print(f"  CRC验证: {'✅' if calc_crc == crc32 else '❌'}")
+        print(f"  CRC验证: {'[OK]' if calc_crc == crc32 else '[ERR]'}")
         
         out_file = os.path.join(self.output_dir, "cortex_m0.bin")
         with open(out_file, 'wb') as f:
@@ -606,7 +606,7 @@ class ImageExtractor:
             
             data = image_data[flash_addr : flash_addr + size]
             calc_crc = crc32_rom(data, 0)
-            print(f"    CRC: {'✅' if calc_crc == crc32 else '❌'}")
+            print(f"    CRC: {'[OK]' if calc_crc == crc32 else '[ERR]'}")
             
             out_file = os.path.join(self.output_dir, f"dsp_{ram_name.lower()}_boot.bin")
             with open(out_file, 'wb') as f:
@@ -619,7 +619,7 @@ def cmd_generate(args):
     clock_config = None
     if args.clock_config:
         if len(args.clock_config) not in [2, 4]:
-            print(f"❌ --clock-config 需要 2 或 4 个参数")
+            print(f"[ERR] --clock-config 需要 2 或 4 个参数")
             return 1
         clock_config = tuple(args.clock_config)
     
@@ -633,7 +633,7 @@ def cmd_generate(args):
 def cmd_extract(args):
     """extract子命令"""
     if not os.path.exists(args.image):
-        print(f"❌ 文件不存在: {args.image}")
+        print(f"[ERR] 文件不存在: {args.image}")
         return 1
     
     extractor = ImageExtractor(args.image, args.output)
