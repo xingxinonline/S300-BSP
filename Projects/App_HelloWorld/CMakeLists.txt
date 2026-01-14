@@ -62,3 +62,6 @@ add_custom_target(dbg_hello_world
     DEPENDS ${TARGET}
     USES_TERMINAL
 )
+
+# 生成 S300 ROMBOOT 镜像
+add_s300_image(${TARGET} OUTPUT s300_hello_world.bin)

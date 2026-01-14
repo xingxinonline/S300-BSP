@@ -49,6 +49,41 @@ set(CMAKE_EXE_LINKER_FLAGS "-nostartfiles -Wl,--gc-sections -specs=nosys.specs")
 add_subdirectory(CMSIS)
 add_subdirectory(Boards)
 add_subdirectory(Drivers)
+
+# Helper function to add image generation target
+# Usage: add_s300_image(target_name [M0_BIN path] [DSP_DIR path] [OUTPUT name] [DSP_PRO hex])
+function(add_s300_image TARGET)
+    set(options)
+    set(oneValueArgs M0_BIN DSP_DIR OUTPUT DSP_PRO)
+    set(multiValueArgs)
+    cmake_parse_arguments(ARG "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
+
+    if(NOT ARG_OUTPUT)
+        set(ARG_OUTPUT ${TARGET}.bin)
+    endif()
+
+    set(CMD_ARGS generate -o ${CMAKE_BINARY_DIR}/${ARG_OUTPUT} --m4 $<TARGET_FILE:${TARGET}>)
+
+    if(ARG_M0_BIN)
+        list(APPEND CMD_ARGS --m0 ${ARG_M0_BIN})
+    endif()
+
+    if(ARG_DSP_DIR)
+        list(APPEND CMD_ARGS --dsp ${ARG_DSP_DIR})
+    endif()
+
+    if(ARG_DSP_PRO)
+        list(APPEND CMD_ARGS --dsp-pro ${ARG_DSP_PRO})
+    endif()
+
+    add_custom_target(img_${TARGET}
+        COMMAND uv run python s300_image.py ${CMD_ARGS}
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/tools
+        DEPENDS ${TARGET}
+        COMMENT "Generating S300 image: ${ARG_OUTPUT}"
+    )
+endfunction()
+
 add_subdirectory(Projects)
 
 # Add debug target (equivalent to make dbg)

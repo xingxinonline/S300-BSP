@@ -128,3 +128,9 @@ add_custom_target(dbg_face_recognition_demo_model
     DEPENDS ${TARGET}
     USES_TERMINAL
 )
+
+# 生成 S300 ROMBOOT 镜像 (含人脸识别模型)
+add_s300_image(${TARGET}
+    OUTPUT s300_face_recognition_demo.bin
+    DSP_DIR ${ROOT}/Algorithm_Models/Face_Recognition
+)

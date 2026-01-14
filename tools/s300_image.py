@@ -73,11 +73,15 @@ class ImageGenerator:
         """在文件夹中查找.bin文件（递归搜索）
         
         Args:
-            folder: 搜索的文件夹路径
+            folder: 搜索的文件夹路径或直接的文件路径
             core_type: 核心类型，如 'm4', 'm0'，用于优先匹配特定核心的文件
         """
         if not folder or not os.path.exists(folder):
             return None
+            
+        # 如果是文件，直接返回
+        if os.path.isfile(folder):
+            return folder
         
         # 递归搜索所有.bin文件
         bin_files = glob.glob(os.path.join(folder, '**', '*.bin'), recursive=True)
