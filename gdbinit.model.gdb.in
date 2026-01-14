@@ -1,0 +1,51 @@
+set pagination off
+set confirm off
+set remotetimeout 20
+
+# S300 Debug init with Algorithm Model: @MODEL_NAME@
+# Usage:
+#   arm-none-eabi-gdb -q -ex "file <path-to>/target" -ex "target extended-remote :3333" -x <path-to>/gdbinit.@MODEL_KEBAB@.gdb
+
+# Ensure we operate on Cortex-M4 core
+monitor targets ne005.m4
+
+# Halt and soft-reset only the selected core, then load the image into SRAM
+monitor halt
+monitor soft_reset_halt
+# Wait until the target is really halted to avoid register write errors
+monitor wait_halt 2000
+load
+
+# Vector table is linked at 0x20000000 (SRAM1). Set SP and PC from vector.
+set $sp = *(unsigned int*)0x20000000
+set $pc = *(unsigned int*)0x20000004
+
+# Set VTOR to SRAM vector base for proper exception handling
+set {unsigned int}0xE000ED08 = 0x20000000
+
+# Enable required bitfields and give DSP time to bootload
+set {unsigned int}0x4000a018 = (*(unsigned int*)0x4000a018) & ~1
+monitor sleep 100
+
+# Load S300 AI Model: @MODEL_NAME@
+# Model files are in @MODEL_DIR@
+echo \n>>> Loading S300 AI Model: @MODEL_NAME@\n
+@GDB_RESTORE_DTCM@
+@GDB_RESTORE_PTCM@
+@GDB_RESTORE_SRAM0@
+
+# Go!
+echo \n>>> Starting with @MODEL_NAME@ Model initialized...\n
+
+# PSRAM image loading - set breakpoint at function after PSRAM init
+tbreak @PSRAM_BREAKPOINT_FUNC@
+commands
+  echo \n>>> PSRAM initialized. Loading PSRAM image for @MODEL_NAME@...\n
+  @GDB_RESTORE_PSRAM@
+  continue
+end
+
+set {unsigned int}0x4000a018 = 1
+
+# keep paused for inspection; uncomment to run automatically
+continue

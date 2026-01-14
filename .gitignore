@@ -1,0 +1,86 @@
+# S300 BSP .gitignore
+# 防止编译生成文件和临时文件被提交
+
+# 编译生成的文件
+*.o
+*.obj
+*.elf
+*.bin
+*.hex
+*.map
+*.list
+*.lss
+*.sym
+*.disasm
+
+# 但是保留算法模型目录下的 bin 文件
+!Algorithm_Models/**/*.bin
+
+# 构建目录
+build/
+**/build/
+**/GCC/build/
+
+# 编辑器和IDE文件
+.vscode/
+.vs/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Python 缓存
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+
+# 备份文件
+*.backup
+*.bak
+*.old
+*.tmp
+
+# 日志文件
+*.log
+debug.log
+error.log
+
+# 编译器临时文件
+*.dep
+*.d
+
+# 链接器生成文件
+*.a
+*.lib
+
+# 配置临时文件
+*.orig
+*.rej
+
+# 测试文件和报告
+test_report.json
+*.test
+test_*.log
+
+# 系统生成文件
+.Trashes
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+
+# 压缩文件
+*.zip
+*.tar.gz
+*.7z
+
+# 文档生成临时文件
+*.aux
+*.toc
+*.pdf
+
+# 忽略用户配置文件
+.s300_download_config.json

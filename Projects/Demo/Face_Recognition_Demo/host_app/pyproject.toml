@@ -1,0 +1,7 @@
+[project]
+name = "face-transfer-app"
+version = "0.1.0"
+description = "Face transfer app for S300"
+readme = "README.md"
+requires-python = ">=3.8, <3.12"
+dependencies = ["opencv-python", "pyserial", "mediapipe", "numpy"]

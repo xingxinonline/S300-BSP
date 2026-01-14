@@ -1,0 +1,10 @@
+{
+    "name": "Face Recognition",
+    "id": "face_recognition",
+    "version": "1.0.0",
+    "date": "2026-01-14",
+    "description": "MobileFaceNet based recognition model.",
+    "compatibility": {
+        "dsp_fw": ">=1.5.0"
+    }
+}

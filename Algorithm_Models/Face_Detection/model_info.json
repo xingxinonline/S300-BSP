@@ -1,0 +1,10 @@
+{
+    "name": "Face Detection",
+    "id": "face_detection",
+    "version": "1.0.1",
+    "date": "2026-01-13",
+    "description": "Standard face detection model (RetinaFace based).",
+    "compatibility": {
+        "dsp_fw": ">=1.5.0"
+    }
+}
