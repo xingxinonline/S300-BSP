@@ -54,11 +54,11 @@ class ImageGenerator:
     
     # DSP RAM区域配置
     DSP_RAM_CONFIG = [
-        {'name': 'PTCM',  'ram_addr': 0x44A00000, 'file': 'dsp_ptcm_boot.bin'},
-        {'name': 'DTCM',  'ram_addr': 0x44800000, 'file': 'dsp_dtcm_boot.bin'},
-        {'name': 'SRAM0', 'ram_addr': 0x44000000, 'file': 'dsp_sram0_boot.bin'},
-        {'name': 'SRAM1', 'ram_addr': 0x00000000, 'file': 'dsp_sram1_boot.bin'},
-        {'name': 'PSRAM', 'ram_addr': 0x00000000, 'file': 'dsp_psram_boot.bin'},
+        {'name': 'PTCM',  'ram_addr': 0x44A00000, 'file': 'ptcm_boot.bin'},
+        {'name': 'DTCM',  'ram_addr': 0x44800000, 'file': 'dtcm_boot.bin'},
+        {'name': 'SRAM0', 'ram_addr': 0x44000000, 'file': 'sram0_boot.bin'},
+        {'name': 'SRAM1', 'ram_addr': 0x00000000, 'file': 'sram1_boot.bin'},
+        {'name': 'PSRAM', 'ram_addr': 0x00000000, 'file': 'psram_boot.bin'},
     ]
     
     def __init__(self, dsp_pro: Optional[int] = None, clock_config: Optional[Tuple[int, ...]] = None, verbose: bool = False):
@@ -126,21 +126,16 @@ class ImageGenerator:
             ram_name = ram_cfg['name'].lower()
             target_file = ram_cfg['file']
             
-            # 尝试直接匹配文件名
-            direct_path = os.path.join(folder, target_file)
-            if os.path.exists(direct_path):
-                dsp_files[ram_cfg['name']] = direct_path
-                continue
-            
-            # 模糊匹配：包含RAM名称的bin文件
-            pattern = os.path.join(folder, f'*{ram_name}*.bin')
+            # 模糊匹配：匹配任何以 target_file 结尾的文件（忽略前缀）
+            # 例如：匹配 ptcm_boot.bin, model_ptcm_boot.bin, dsp_ptcm_boot.bin 等
+            pattern = os.path.join(folder, f'*{target_file}')
             matched = glob.glob(pattern, recursive=False)
             if matched:
                 dsp_files[ram_cfg['name']] = matched[0]
                 continue
             
             # 递归搜索
-            pattern = os.path.join(folder, '**', f'*{ram_name}*.bin')
+            pattern = os.path.join(folder, '**', f'*{target_file}')
             matched = glob.glob(pattern, recursive=True)
             if matched:
                 dsp_files[ram_cfg['name']] = matched[0]

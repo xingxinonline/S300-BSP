@@ -68,6 +68,21 @@ function(add_s300_image TARGET)
 
     set(CMD_ARGS generate -o ${CMAKE_BINARY_DIR}/${ARG_OUTPUT} --m4 ${M4_BIN_FILE})
 
+    # 如果指定了 M0 bin 文件
+    if(ARG_M0_BIN)
+        list(APPEND CMD_ARGS --m0 ${ARG_M0_BIN})
+    endif()
+
+    # 如果指定了 DSP 目录
+    if(ARG_DSP_DIR)
+        list(APPEND CMD_ARGS --dsp ${ARG_DSP_DIR})
+    endif()
+
+    # 如果指定了 DSP Pro 值
+    if(ARG_DSP_PRO)
+        list(APPEND CMD_ARGS --dsp-pro ${ARG_DSP_PRO})
+    endif()
+
     add_custom_target(img_${TARGET}
         COMMAND uv run python s300_image.py ${CMD_ARGS}
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/tools
