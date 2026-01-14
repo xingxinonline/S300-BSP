@@ -9,7 +9,7 @@ set(TARGET s300_display_demo)
 set(PROJECT_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 set(ROOT ${PROJECT_DIR}/../../..)
 set(DEVICE_DIR ${ROOT}/CMSIS/Device/PiMCHIP/S300)
-set(LD_SCRIPT ${PROJECT_DIR}/ld/sram_demo.ld)
+set(LD_SCRIPT ${ROOT}/ld/sram.ld)
 
 # Includes
 include_directories(
