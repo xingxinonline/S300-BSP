@@ -61,13 +61,14 @@ class ImageGenerator:
         {'name': 'PSRAM', 'ram_addr': 0x00000000, 'file': 'dsp_psram_boot.bin'},
     ]
     
-    def __init__(self, dsp_pro: Optional[int] = None, clock_config: Optional[Tuple[int, ...]] = None):
+    def __init__(self, dsp_pro: Optional[int] = None, clock_config: Optional[Tuple[int, ...]] = None, verbose: bool = False):
         self.header = bytearray(256)
         self.image_data = bytearray()
         # 设置默认的 DSP Pro 字段（Boot Mode 1，适用于大 DSP）
         self.dsp_pro = dsp_pro if dsp_pro is not None else 0x00E00405
         # 设置默认的时钟配置（4个参数：REF Clock, FOUT Clock, PLL Config 0, PLL Config 1）
         self.clock_config = clock_config if clock_config is not None else (0x00989680, 0x05F5E100, 0x00154320, 0x05000000)
+        self.verbose = verbose
     
     def find_bin_file(self, folder: str, core_type: Optional[str] = None) -> Optional[str]:
         """在文件夹中查找.bin文件（递归搜索）
@@ -158,15 +159,17 @@ class ImageGenerator:
     
     def build_cortex_m4_section(self, bin_file: str) -> Tuple[bytes, Dict]:
         """构建Cortex-M4段（必须）"""
-        print("\n【构建Cortex-M4段】")
+        if self.verbose:
+            print("\n【构建Cortex-M4段】")
         
         # 读取bin文件
         m4_data = bytearray(self.read_bin_file(bin_file))
         if not m4_data:
             raise ValueError(f"无法读取Cortex-M4 bin文件: {bin_file}")
         
-        print(f"[OK] 读取: {bin_file}")
-        print(f"  原始大小: {len(m4_data)} bytes")
+        if self.verbose:
+            print(f"[OK] 读取: {bin_file}")
+            print(f"  原始大小: {len(m4_data)} bytes")
         original_size = len(m4_data)
         
         # 对齐到64字节边界
@@ -175,7 +178,8 @@ class ImageGenerator:
         if remainder != 0:
             padding = alignment - remainder
             m4_data.extend(b'\x00' * padding)
-            print(f"  对齐填充: {padding} bytes (对齐后{len(m4_data)} bytes)")
+            if self.verbose:
+                print(f"  对齐填充: {padding} bytes (对齐后{len(m4_data)} bytes)")
         
         # 计算CRC32
         m4_crc32 = crc32_rom(m4_data, 0)
@@ -196,9 +200,10 @@ class ImageGenerator:
             'data': m4_data,
         }
         
-        print(f"  Flash地址: 0x{flash_addr:08X}")
-        print(f"  执行地址: 0x{exe_addr:08X}")
-        print(f"  CRC32: 0x{m4_crc32:08X}")
+        if self.verbose:
+            print(f"  Flash地址: 0x{flash_addr:08X}")
+            print(f"  执行地址: 0x{exe_addr:08X}")
+            print(f"  CRC32: 0x{m4_crc32:08X}")
         
         return bytes(m4_data), info
     
@@ -207,16 +212,19 @@ class ImageGenerator:
         if not bin_file:
             return b'', None
             
-        print("\n【构建Cortex-M0段】")
+        if self.verbose:
+            print("\n【构建Cortex-M0段】")
         
         # 读取bin文件
         m0_data = bytearray(self.read_bin_file(bin_file))
         if not m0_data:
-            print("[WARN] 未找到Cortex-M0 bin文件，跳过此段")
+            if self.verbose:
+                print("[WARN] 未找到Cortex-M0 bin文件，跳过此段")
             return b'', None
         
-        print(f"[OK] 读取: {bin_file}")
-        print(f"  大小: {len(m0_data)} bytes")
+        if self.verbose:
+            print(f"[OK] 读取: {bin_file}")
+            print(f"  大小: {len(m0_data)} bytes")
         
         # M0段通常不需要对齐（如果需要可以添加）
         
@@ -238,8 +246,9 @@ class ImageGenerator:
             'data': m0_data,
         }
         
-        print(f"  Flash地址: 0x{flash_offset:08X}")
-        print(f"  CRC32: 0x{m0_crc32:08X}")
+        if self.verbose:
+            print(f"  Flash地址: 0x{flash_offset:08X}")
+            print(f"  CRC32: 0x{m0_crc32:08X}")
         
         return bytes(m0_data), info
     
@@ -248,7 +257,8 @@ class ImageGenerator:
         if not dsp_files:
             return b'', None
             
-        print("\n【构建DSP/CPT段】")
+        if self.verbose:
+            print("\n【构建DSP/CPT段】")
         
         dsp_data = bytearray()
         ram_info = []
@@ -277,8 +287,9 @@ class ImageGenerator:
             data = bytearray(self.read_bin_file(bin_file))
             
             if len(data) > 0:
-                print(f"[OK] 读取: {bin_file}")
-                print(f"  [{ram_name:>6}] 原始大小: {len(data)} bytes")
+                if self.verbose:
+                    print(f"[OK] 读取: {bin_file}")
+                    print(f"  [{ram_name:>6}] 原始大小: {len(data)} bytes")
                 original_size = len(data)
                 
                 # 对齐到64字节边界
@@ -287,7 +298,8 @@ class ImageGenerator:
                 if remainder != 0:
                     padding = alignment - remainder
                     data.extend(b'\x00' * padding)
-                    print(f"  [{ram_name:>6}] 对齐填充: {padding} bytes (对齐后{len(data)} bytes)")
+                    if self.verbose:
+                        print(f"  [{ram_name:>6}] 对齐填充: {padding} bytes (对齐后{len(data)} bytes)")
                 
                 # 当前RAM段在FLASH中的地址
                 ram_flash_addr = flash_offset + len(dsp_data)
@@ -304,7 +316,8 @@ class ImageGenerator:
                     'crc32': ram_crc32,
                 })
                 
-                print(f"  [{ram_name:>6}] Flash=0x{ram_flash_addr:08X}, RAM=0x{ram_addr:08X}, CRC32=0x{ram_crc32:08X}")
+                if self.verbose:
+                    print(f"  [{ram_name:>6}] Flash=0x{ram_flash_addr:08X}, RAM=0x{ram_addr:08X}, CRC32=0x{ram_crc32:08X}")
                 
                 # 添加数据
                 dsp_data.extend(data)
@@ -327,7 +340,8 @@ class ImageGenerator:
         # 默认值: 0x00E00405 (Boot Mode 1, 适用于大 DSP >50KB)
         # 用户可以通过 --dsp-pro 参数自定义
         pro = self.dsp_pro
-        print(f"  使用 DSP Pro: 0x{pro:08X}")
+        if self.verbose:
+            print(f"  使用 DSP Pro: 0x{pro:08X}")
         
         dsp_flash_addr = flash_offset
         version = b'DSP Core\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
@@ -342,13 +356,15 @@ class ImageGenerator:
             'data': bytes(dsp_data),
         }
         
-        print(f"  DSP总长度: {total_size} bytes")
+        if self.verbose:
+            print(f"  DSP总长度: {total_size} bytes")
         
         return bytes(dsp_data), info
     
     def build_header(self, m4_info: Dict, m0_info: Optional[Dict], dsp_info: Optional[Dict]) -> bytearray:
         """构建256字节header"""
-        print("\n【构建Header】")
+        if self.verbose:
+            print("\n【构建Header】")
         
         header = bytearray(256)
         
@@ -410,7 +426,8 @@ class ImageGenerator:
         if len(self.clock_config) == 2:
             # 仅提供了 0xEC 和 0xF0
             clkconfig0, clkconfig1 = self.clock_config
-            print(f"  使用时钟配置: Config0=0x{clkconfig0:08X}, Config1=0x{clkconfig1:08X}")
+            if self.verbose:
+                print(f"  使用时钟配置: Config0=0x{clkconfig0:08X}, Config1=0x{clkconfig1:08X}")
             
             # 写入配置
             struct.pack_into('<I', header, 0xEC, clkconfig0)
@@ -421,22 +438,23 @@ class ImageGenerator:
         elif len(self.clock_config) == 4:
             # 提供了完整的 4 个时钟配置参数
             clkconfig0, clkconfig1, pllconfig0, pllconfig1 = self.clock_config
-            print(f"  使用时钟配置:")
-            print(f"    0xEC (Clock 0):    0x{clkconfig0:08X}")
-            print(f"    0xF0 (Clock 1):    0x{clkconfig1:08X}")
-            print(f"    0xF4 (PLL Config 0): 0x{pllconfig0:08X}")
-            print(f"    0xF8 (PLL Config 1): 0x{pllconfig1:08X}")
-            
-            # 解析 PLL Config 0 显示
-            timeout = (pllconfig0 >> 18) & 0xFF
-            postdiv2 = (pllconfig0 >> 15) & 0x7
-            postdiv1 = (pllconfig0 >> 12) & 0x7
-            fbdiv = pllconfig0 & 0xFFF
-            print(f"    → PLL: timeout={timeout}, postdiv2={postdiv2}, postdiv1={postdiv1}, fbdiv={fbdiv}")
-            
-            # 解析 PLL Config 1 显示
-            refdiv = (pllconfig1 >> 24) & 0x3F
-            print(f"    → PLL: refdiv={refdiv}")
+            if self.verbose:
+                print(f"  使用时钟配置:")
+                print(f"    0xEC (Clock 0):    0x{clkconfig0:08X}")
+                print(f"    0xF0 (Clock 1):    0x{clkconfig1:08X}")
+                print(f"    0xF4 (PLL Config 0): 0x{pllconfig0:08X}")
+                print(f"    0xF8 (PLL Config 1): 0x{pllconfig1:08X}")
+                
+                # 解析 PLL Config 0 显示
+                timeout = (pllconfig0 >> 18) & 0xFF
+                postdiv2 = (pllconfig0 >> 15) & 0x7
+                postdiv1 = (pllconfig0 >> 12) & 0x7
+                fbdiv = pllconfig0 & 0xFFF
+                print(f"    → PLL: timeout={timeout}, postdiv2={postdiv2}, postdiv1={postdiv1}, fbdiv={fbdiv}")
+                
+                # 解析 PLL Config 1 显示
+                refdiv = (pllconfig1 >> 24) & 0x3F
+                print(f"    → PLL: refdiv={refdiv}")
             
             # 写入配置
             struct.pack_into('<I', header, 0xEC, clkconfig0)
@@ -452,9 +470,10 @@ class ImageGenerator:
         header_crc32 = crc32_rom(header, 0)
         struct.pack_into('<I', header, 0xFC, header_crc32)
         
-        print(f"  Header大小: 256 bytes")
-        print(f"  镜像总大小: {total_image_size} bytes ({total_image_size/1024:.2f} KB)")
-        print(f"  Header CRC32: 0x{header_crc32:08X}")
+        if self.verbose:
+            print(f"  Header大小: 256 bytes")
+            print(f"  镜像总大小: {total_image_size} bytes ({total_image_size/1024:.2f} KB)")
+            print(f"  Header CRC32: 0x{header_crc32:08X}")
         
         return header
     
@@ -462,9 +481,10 @@ class ImageGenerator:
                       dsp_folder: Optional[str] = None) -> bool:
         """生成完整镜像"""
         try:
-            print("=" * 80)
-            print("S300 镜像生成器 V2")
-            print("=" * 80)
+            if self.verbose:
+                print("=" * 80)
+                print("S300 镜像生成器 V2")
+                print("=" * 80)
             
             # 1. 查找M4 bin文件（必须）
             m4_bin = self.find_bin_file(m4_folder, 'm4')
@@ -489,7 +509,8 @@ class ImageGenerator:
             header = self.build_header(m4_info, m0_info, dsp_info)
             
             # 6. 组合完整镜像
-            print("\n【组合镜像】")
+            if self.verbose:
+                print("\n【组合镜像】")
             image = header + m4_data + m0_data + dsp_data
             
             # 7. 写入文件
@@ -497,16 +518,18 @@ class ImageGenerator:
             with open(output_path, 'wb') as f:
                 f.write(image)
             
-            print(f"  Header:    256 bytes (0x000-0x0FF)")
-            print(f"  M4段:      {len(m4_data)} bytes (0x{m4_offset:X}-0x{m4_offset+len(m4_data)-1:X})")
-            if len(m0_data) > 0:
-                print(f"  M0段:      {len(m0_data)} bytes (0x{m0_offset:X}-0x{m0_offset+len(m0_data)-1:X})")
-            if len(dsp_data) > 0:
-                print(f"  DSP段:     {len(dsp_data)} bytes (0x{dsp_offset:X}-0x{dsp_offset+len(dsp_data)-1:X})")
-            print(f"  总大小:    {len(image)} bytes ({len(image)/1024:.2f} KB)")
-            
-            print(f"\n[OK] 镜像生成成功: {output_path}")
-            print("=" * 80)
+            if self.verbose:
+                print(f"  Header:    256 bytes (0x000-0x0FF)")
+                print(f"  M4段:      {len(m4_data)} bytes (0x{m4_offset:X}-0x{m4_offset+len(m4_data)-1:X})")
+                if len(m0_data) > 0:
+                    print(f"  M0段:      {len(m0_data)} bytes (0x{m0_offset:X}-0x{m0_offset+len(m0_data)-1:X})")
+                if len(dsp_data) > 0:
+                    print(f"  DSP段:     {len(dsp_data)} bytes (0x{dsp_offset:X}-0x{dsp_offset+len(dsp_data)-1:X})")
+                print(f"  总大小:    {len(image)} bytes ({len(image)/1024:.2f} KB)")
+                print(f"\n[OK] 镜像生成成功: {output_path}")
+                print("=" * 80)
+            else:
+                print(f"[OK] {output_path} ({len(image)/1024:.2f} KB)")
             
             return True
             
@@ -623,7 +646,7 @@ def cmd_generate(args):
             return 1
         clock_config = tuple(args.clock_config)
     
-    generator = ImageGenerator(dsp_pro=args.dsp_pro, clock_config=clock_config)
+    generator = ImageGenerator(dsp_pro=args.dsp_pro, clock_config=clock_config, verbose=args.verbose)
     
     if generator.generate_image(args.output, args.m4, args.m0, args.dsp):
         return 0
@@ -664,6 +687,8 @@ def main():
                            help='DSP Pro值（默认: 0x00E00405）')
     gen_parser.add_argument('--clock-config', nargs='+', type=lambda x: int(x, 0),
                            help='时钟配置（2或4个十六进制值）')
+    gen_parser.add_argument('-v', '--verbose', action='store_true',
+                           help='显示详细构建信息')
     
     # extract 子命令
     ext_parser = subparsers.add_parser('extract', help='提取镜像',
