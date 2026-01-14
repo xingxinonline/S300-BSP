@@ -57,6 +57,7 @@ void board_init(void)
     board_clock_init();
     board_gpio_clock_init();  /* GPIO 时钟需在引脚配置之前使能 */
     board_debug_uart_init();
+    __enable_irq();
 }
 
 /*===========================================================================
