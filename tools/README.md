@@ -42,5 +42,5 @@ uv run python s300_image.py extract firmware.bin -o extracted/
 uv run python s300_download.py --port COM7 --file firmware.bin
 
 # 串口监控
-uv run s300-monitor read COM7 --baud 115200
+uv run s300-monitor read COM7 --baud 921600
 ```

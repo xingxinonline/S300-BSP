@@ -2,7 +2,7 @@
 
 This demo brings up FreeRTOS on the S300 and provides a tiny UART shell.
 
-- UART: Debug UART (default UART3, 115200 8N1)
+- UART: Debug UART (default UART3, 921600 8N1)
 - Commands: `help`, `tasks`, `tick`, `reboot`
 
 ## Build
@@ -30,7 +30,7 @@ This opens GDB with the SRAM script and connects to :3333.
 
 ## Serial
 
-115200 8N1 on UART3. After reset you should see:
+921600 8N1 on UART3. After reset you should see:
 
 ```text
 S300 FreeRTOS + Shell demo

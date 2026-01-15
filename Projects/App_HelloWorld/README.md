@@ -20,7 +20,7 @@ cmake --build . --target s300_hello_world
 
 1. 连接 S300 开发板
 2. 使用调试器下载程序到 SRAM
-3. 打开串口终端 (115200 8N1)
+3. 打开串口终端 (921600 8N1)
 4. 观察 "Hello, World!" 输出
 
 ## 输出示例
