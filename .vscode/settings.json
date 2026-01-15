@@ -1,0 +1,20 @@
+{
+  // =============================================================================
+  // CMake Tools 配置
+  // =============================================================================
+  // 板子选择: 点击状态栏的 Kit 按钮即可切换
+  // Kit 定义在 .vscode/cmake-kits.json 中，CMake Tools 会自动加载
+
+  "cmake.cmakePath": "cmake",
+  "cmake.buildDirectory": "${workspaceFolder}/build",
+  "cmake.generator": "Ninja",
+
+  // 确保状态栏可见
+  "cmake.options.statusBarVisibility": "visible",
+
+  // 默认构建类型为 Debug
+  "cmake.configureArgs": ["-DCMAKE_BUILD_TYPE=Debug"],
+
+  // 打开项目时自动配置
+  "cmake.configureOnOpen": true
+}

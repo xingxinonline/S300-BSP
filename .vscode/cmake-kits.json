@@ -1,0 +1,32 @@
+[
+    {
+        "name": "Generic EVB [开发板]",
+        "compilers": {
+            "C": "arm-none-eabi-gcc",
+            "CXX": "arm-none-eabi-g++"
+        },
+        "cmakeSettings": {
+            "BOARD": "generic_evb"
+        },
+        "description": "S300 开发板 - 通用评估板配置",
+        "preferredGenerator": {
+            "name": "Ninja"
+        },
+        "isTrusted": true
+    },
+    {
+        "name": "App Board [应用板]",
+        "compilers": {
+            "C": "arm-none-eabi-gcc",
+            "CXX": "arm-none-eabi-g++"
+        },
+        "cmakeSettings": {
+            "BOARD": "app_board"
+        },
+        "description": "S300 应用板 - 产品级应用板配置",
+        "preferredGenerator": {
+            "name": "Ninja"
+        },
+        "isTrusted": true
+    }
+]

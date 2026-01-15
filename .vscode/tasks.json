@@ -1,0 +1,119 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    // =============================================================================
+    // 板子选择任务
+    // =============================================================================
+    {
+      "label": "S300: Select Board",
+      "type": "shell",
+      "command": "echo",
+      "args": ["请从下方选择板子类型，然后运行 'CMake: Configure' 任务"],
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "silent",
+        "close": true
+      },
+      "detail": "选择目标板子"
+    },
+    {
+      "label": "S300: Switch to Generic EVB (开发板)",
+      "type": "shell",
+      "command": "cmake",
+      "args": [
+        "-B",
+        "${workspaceFolder}/build",
+        "-G",
+        "Ninja",
+        "-DBOARD=generic_evb",
+        "${workspaceFolder}"
+      ],
+      "group": "none",
+      "problemMatcher": "$gcc",
+      "detail": "切换到开发板并重新配置 CMake",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      }
+    },
+    {
+      "label": "S300: Switch to App Board (应用板)",
+      "type": "shell",
+      "command": "cmake",
+      "args": [
+        "-B",
+        "${workspaceFolder}/build",
+        "-G",
+        "Ninja",
+        "-DBOARD=app_board",
+        "${workspaceFolder}"
+      ],
+      "group": "none",
+      "problemMatcher": "$gcc",
+      "detail": "切换到应用板并重新配置 CMake",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      }
+    },
+    // =============================================================================
+    // 构建任务
+    // =============================================================================
+    {
+      "label": "Build",
+      "type": "shell",
+      "command": "ninja",
+      "args": [],
+      "options": {
+        "cwd": "${workspaceFolder}/build"
+      },
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": "$gcc",
+      "detail": "编译当前配置的项目"
+    },
+    {
+      "label": "Clean",
+      "type": "shell",
+      "command": "ninja",
+      "args": ["clean"],
+      "options": {
+        "cwd": "${workspaceFolder}/build"
+      },
+      "problemMatcher": [],
+      "detail": "清理构建目录"
+    },
+    {
+      "label": "Rebuild",
+      "type": "shell",
+      "command": "ninja",
+      "args": ["clean"],
+      "options": {
+        "cwd": "${workspaceFolder}/build"
+      },
+      "dependsOn": [],
+      "problemMatcher": "$gcc",
+      "detail": "清理并重新编译"
+    }
+  ],
+  "inputs": [
+    {
+      "id": "boardSelection",
+      "type": "pickString",
+      "description": "选择目标板子",
+      "options": [
+        {
+          "label": "🔧 开发板 (Generic EVB)",
+          "value": "generic_evb"
+        },
+        {
+          "label": "📱 应用板 (App Board)",
+          "value": "app_board"
+        }
+      ],
+      "default": "generic_evb"
+    }
+  ]
+}
