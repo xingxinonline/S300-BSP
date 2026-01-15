@@ -100,7 +100,7 @@ void psram_test_32bit(void)
         if (val != expected) {
             errors++;
             if (errors <= 10) {
-                printf("Error at offset 0x%08X: Expected 0x%08X, Read 0x%08X\r\n", 
+                printf("Error at offset 0x%08X: Expected 0x%08lX, Read 0x%08lX\r\n", 
                        (unsigned int)(i * 4), expected, val);
             }
         }

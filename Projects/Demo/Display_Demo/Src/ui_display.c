@@ -21,7 +21,7 @@
 /* ---- Debug logging ---- */
 /* 开关：UI_DEBUG=0 全关；UI_DEBUG=1 使用分级日志。
  * 等级：0 ERROR, 1 WARN, 2 INFO, 3 DEBUG, 4 VERBOSE
- * 通过编译选项 -DUI_LOG_LEVEL=3 配置；默认 INFO(2)。
+ * 通过编译选项 -DUI_LOG_LEVEL=3 配置；默认 WARN(1)。
  */
 #ifndef UI_DEBUG
 #define UI_DEBUG 1
