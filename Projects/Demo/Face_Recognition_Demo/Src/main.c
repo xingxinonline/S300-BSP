@@ -41,11 +41,11 @@ static volatile uint32_t rx_tail = 0;
 #define IMAGE_BUFFER_ADDR   DSP_SRAM1_BASE
 
 /**
- * @brief UART3中断处理函数
+ * @brief 调试串口中断处理函数
  */
-void UART3_IRQHandler(void)
+void BOARD_DEBUG_UART_IRQHandler(void)
 {
-    S300_UART_TypeDef *U = UART3;
+    S300_UART_TypeDef *U = BOARD_DEBUG_UART;
     uint32_t iir = U->IIR_FCR;
     uint32_t int_id = iir & 0x0F;
 
@@ -223,11 +223,15 @@ static const uint8_t font5x7[96][5] = {
 };
 
 /* --- Display Helper Functions --- */
+/* 注意：本 Demo 假设屏幕物理为 portrait (W < H)，旋转 90° 后逻辑为 landscape */
+#define VISUAL_WIDTH  DISP_IMAGE_HEIGHT  /* 旋转后的逻辑宽度 */
+#define VISUAL_HEIGHT DISP_IMAGE_WIDTH   /* 旋转后的逻辑高度 */
+
 static void draw_pixel_rotated(int vx, int vy, uint16_t color)
 {
-    if (vx < 0 || vx >= 160 || vy < 0 || vy >= 128) return;
+    if (vx < 0 || vx >= VISUAL_WIDTH || vy < 0 || vy >= VISUAL_HEIGHT) return;
 
-    int buffer_x = 127 - vy;
+    int buffer_x = (VISUAL_HEIGHT - 1) - vy;
     int buffer_y = vx;
 
     volatile uint16_t *dst = (volatile uint16_t *)DISP_RFRAME0_ADDR;
@@ -306,9 +310,12 @@ static void calculate_similarity(void)
     /* Score color: Green (>=60) or Red (<60) */
     uint16_t score_color = (best_score >= 60) ? 0x07E0 : 0xF800;  /* RGB565: Green=0x07E0, Red=0xF800 */
 
-    /* Clear and draw score above compare image */
-    draw_rect_fill(92, 26, 68, 8, 0x0000); // Black background
-    draw_string(92, 26, score_buf, score_color);
+    /* Clear and draw score above compare image (右侧，自适应位置) */
+    const int margin = (VISUAL_WIDTH * 8) / 100;
+    const int score_x = VISUAL_WIDTH - margin - 68;
+    const int score_y = (VISUAL_HEIGHT * 20) / 100;  /* 屏幕高度 20% 处 */
+    draw_rect_fill(score_x, score_y, 68, 8, 0x0000); // Black background
+    draw_string(score_x, score_y, score_buf, score_color);
 
     /* Trigger display update */
     REG32(DSP_VIDEO_SS_BASE + 0x50) = 1u;
@@ -341,14 +348,17 @@ static void update_display(uint32_t img_addr, bool is_target)
     uint16_t *dst = (uint16_t *)DISP_RFRAME0_ADDR;
 
     /*
-     * Landscape orientation (160x128).
-     * Physical screen is 128x160 portrait, rotated 90 degrees CCW.
+     * Landscape orientation after rotation.
+     * Physical screen is portrait (W < H), rotated 90 degrees CCW.
+     * 缩略图尺寸按屏幕比例自适应（约占逻辑高度的 44%）
      */
-    int start_vx = is_target ? 12 : 92;          /* Left side vs Right side */
-    int start_vy = (128 - 56) / 2;               /* Centered vertically */
+    const int thumb_size = (VISUAL_HEIGHT * 44) / 100;  /* 自适应缩略图大小 */
+    const int margin = (VISUAL_WIDTH * 8) / 100;        /* 边距约 8% */
+    int start_vx = is_target ? margin : (VISUAL_WIDTH - margin - thumb_size);
+    int start_vy = (VISUAL_HEIGHT - thumb_size) / 2;    /* 垂直居中 */
 
-    printf("[M4] Updating Display (Landscape): %s at visual (%d, %d)\n",
-           is_target ? "Target" : "Compare", start_vx, start_vy);
+    printf("[M4] Updating Display (Landscape): %s at visual (%d, %d), thumb=%d\n",
+           is_target ? "Target" : "Compare", start_vx, start_vy, thumb_size);
 
     /* Draw Target/Compare Label */
     if (is_target) {
@@ -356,11 +366,11 @@ static void update_display(uint32_t img_addr, bool is_target)
         draw_string(start_vx, start_vy - 10, "Target", 0xFFFF);
     }
 
-    for (int iy = 0; iy < 56; iy++) {
-        for (int ix = 0; ix < 56; ix++) {
-            /* Source image is 112x112 RGB888, scale 1/2 to 56x56 */
-            int sy = iy * 2;
-            int sx = ix * 2;
+    for (int iy = 0; iy < thumb_size; iy++) {
+        for (int ix = 0; ix < thumb_size; ix++) {
+            /* Source image is 112x112 RGB888, scale to thumb_size */
+            int sy = (iy * 112) / thumb_size;
+            int sx = (ix * 112) / thumb_size;
             int src_idx = (sy * 112 + sx) * 3;
             uint8_t r = src[src_idx];
             uint8_t g = src[src_idx + 1];
@@ -371,7 +381,7 @@ static void update_display(uint32_t img_addr, bool is_target)
             int vx = start_vx + ix;
             int vy = start_vy + iy;
 
-            int buffer_x = 127 - vy;
+            int buffer_x = (VISUAL_HEIGHT - 1) - vy;
             int buffer_y = vx;
 
             dst[buffer_y * DISP_IMAGE_WIDTH + buffer_x] = rgb565;
@@ -393,17 +403,17 @@ static char file_transfer_mode(void)
     for (volatile int i = 0; i < 10000; i++);
 
     /* Disable UART Interrupt */
-    NVIC_DisableIRQ(UART3_IRQn);
+    NVIC_DisableIRQ(BOARD_DEBUG_UART_IRQn);
 
     /* Flush RX FIFO */
-    while (UART3->LSR & 1) {
-        (void)UART3->RBR_THR_DLL;
+    while (BOARD_DEBUG_UART->LSR & 1) {
+        (void)BOARD_DEBUG_UART->RBR_THR_DLL;
     }
 
     /* Simple polling receive */
     uint8_t cmd = 0;
-    while (!(UART3->LSR & 1));
-    cmd = (uint8_t)(UART3->RBR_THR_DLL & 0xFF);
+    while (!(BOARD_DEBUG_UART->LSR & 1));
+    cmd = (uint8_t)(BOARD_DEBUG_UART->RBR_THR_DLL & 0xFF);
 
     uint32_t write_addr = IMAGE_BUFFER_ADDR;
     if (cmd == 'T') {
@@ -416,22 +426,22 @@ static char file_transfer_mode(void)
     }
 
     /* ACK command */
-    while (!(UART3->LSR & 0x40));
-    UART3->RBR_THR_DLL = 'K';
-    while (!(UART3->LSR & 0x40));
+    while (!(BOARD_DEBUG_UART->LSR & 0x40));
+    BOARD_DEBUG_UART->RBR_THR_DLL = 'K';
+    while (!(BOARD_DEBUG_UART->LSR & 0x40));
 
     /* Receive size (4 bytes) */
     uint32_t file_size = 0;
     uint8_t *p_size = (uint8_t *)&file_size;
     for (int i = 0; i < 4; i++) {
-        while (!(UART3->LSR & 1));
-        p_size[i] = (uint8_t)(UART3->RBR_THR_DLL & 0xFF);
+        while (!(BOARD_DEBUG_UART->LSR & 1));
+        p_size[i] = (uint8_t)(BOARD_DEBUG_UART->RBR_THR_DLL & 0xFF);
     }
 
     /* ACK erase (simulated) */
-    while (!(UART3->LSR & 0x40));
-    UART3->RBR_THR_DLL = 'K';
-    while (!(UART3->LSR & 0x40));
+    while (!(BOARD_DEBUG_UART->LSR & 0x40));
+    BOARD_DEBUG_UART->RBR_THR_DLL = 'K';
+    while (!(BOARD_DEBUG_UART->LSR & 0x40));
 
     /* Receive Data */
     uint32_t received = 0;
@@ -442,8 +452,8 @@ static char file_transfer_mode(void)
         if (chunk_size > 4096) chunk_size = 4096;
 
         for (uint32_t i = 0; i < chunk_size; i++) {
-            while (!(UART3->LSR & 1));
-            chunk_buf[i] = (uint8_t)(UART3->RBR_THR_DLL & 0xFF);
+            while (!(BOARD_DEBUG_UART->LSR & 1));
+            chunk_buf[i] = (uint8_t)(BOARD_DEBUG_UART->RBR_THR_DLL & 0xFF);
         }
 
         /* Write to DSP SRAM0 */
@@ -453,9 +463,9 @@ static char file_transfer_mode(void)
         received += chunk_size;
 
         /* ACK chunk */
-        while (!(UART3->LSR & 0x40));
-        UART3->RBR_THR_DLL = 'K';
-        while (!(UART3->LSR & 0x40));
+        while (!(BOARD_DEBUG_UART->LSR & 0x40));
+        BOARD_DEBUG_UART->RBR_THR_DLL = 'K';
+        while (!(BOARD_DEBUG_UART->LSR & 0x40));
     }
 
     printf("Transfer Complete. %u bytes written to 0x%08X\n",
@@ -466,13 +476,13 @@ static char file_transfer_mode(void)
     rx_tail = 0;
 
     /* Flush RX FIFO one last time */
-    while (UART3->LSR & 1) {
-        (void)UART3->RBR_THR_DLL;
+    while (BOARD_DEBUG_UART->LSR & 1) {
+        (void)BOARD_DEBUG_UART->RBR_THR_DLL;
     }
 
     /* Re-enable UART Interrupt */
-    NVIC_ClearPendingIRQ(UART3_IRQn);
-    NVIC_EnableIRQ(UART3_IRQn);
+    NVIC_ClearPendingIRQ(BOARD_DEBUG_UART_IRQn);
+    NVIC_EnableIRQ(BOARD_DEBUG_UART_IRQn);
 
     return (char)cmd;
 
@@ -482,13 +492,13 @@ exit:
     rx_tail = 0;
 
     /* Flush RX FIFO */
-    while (UART3->LSR & 1) {
-        (void)UART3->RBR_THR_DLL;
+    while (BOARD_DEBUG_UART->LSR & 1) {
+        (void)BOARD_DEBUG_UART->RBR_THR_DLL;
     }
 
     /* Re-enable UART Interrupt */
-    NVIC_ClearPendingIRQ(UART3_IRQn);
-    NVIC_EnableIRQ(UART3_IRQn);
+    NVIC_ClearPendingIRQ(BOARD_DEBUG_UART_IRQn);
+    NVIC_EnableIRQ(BOARD_DEBUG_UART_IRQn);
 
     return 0;
 }
@@ -734,11 +744,11 @@ int main(void)
     REG32(DSP_VIDEO_SS_BASE + 0x70) = 1;   /* CORE_REG_UPDATE */
     REG32(DSP_VIDEO_SS_BASE + 0x1E0) = 1;  /* SPI_REG_UPDATE */
 
-    /* Enable UART3 Interrupts */
-    set_uart_interrupt(UART_IDX3, false, true);
-    NVIC_ClearPendingIRQ(UART3_IRQn);
-    NVIC_SetPriority(UART3_IRQn, 3);
-    NVIC_EnableIRQ(UART3_IRQn);
+    /* Enable Debug UART Interrupts */
+    set_uart_interrupt(BOARD_DEBUG_UART_IDX, false, true);
+    NVIC_ClearPendingIRQ(BOARD_DEBUG_UART_IRQn);
+    NVIC_SetPriority(BOARD_DEBUG_UART_IRQn, 3);
+    NVIC_EnableIRQ(BOARD_DEBUG_UART_IRQn);
 
     /* Default: Reset DSP */
     printf("[S300][Face_Recognition_Demo] Resetting DSP...\r\n");
@@ -752,7 +762,7 @@ int main(void)
         uint8_t c;
         if (uart_getchar_noblock((uint8_t *)&c)) {
             /* Echo back */
-            write_uart(UART_IDX3, UARTTYPE_STD_SERIAL, c);
+            write_uart(BOARD_DEBUG_UART_IDX, UARTTYPE_STD_SERIAL, c);
 
             if (c == '\r' || c == '\n') {
                 printf("\n");
