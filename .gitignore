@@ -22,7 +22,10 @@ build/
 **/GCC/build/
 
 # 编辑器和IDE文件
-.vscode/
+.vscode/*
+!.vscode/cmake-kits.json
+!.vscode/tasks.json
+!.vscode/settings.json
 .vs/
 *.swp
 *.swo
