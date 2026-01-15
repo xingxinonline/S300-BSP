@@ -57,7 +57,7 @@ extern "C" {
 #define BOARD_DEBUG_UART_IDX        BOARD_UART_DEBUG_IDX
 
 #ifndef BOARD_DEBUG_UART_BAUDRATE
-#define BOARD_DEBUG_UART_BAUDRATE   115200
+#define BOARD_DEBUG_UART_BAUDRATE   460800
 #endif
 
 #ifndef BOARD_DEBUG_UART_PORT
@@ -75,6 +75,27 @@ extern "C" {
 
 #ifndef BOARD_DEBUG_UART_FUNCTION
 #define BOARD_DEBUG_UART_FUNCTION   FUNCTION_3
+#endif
+
+/* 调试串口外设指针和 IRQ 映射（根据 BOARD_DEBUG_UART_IDX 自动选择） */
+#if BOARD_DEBUG_UART_IDX == 0
+#define BOARD_DEBUG_UART            UART0
+#define BOARD_DEBUG_UART_IRQn       UART0_IRQn
+#define BOARD_DEBUG_UART_IRQHandler UART0_IRQHandler
+#elif BOARD_DEBUG_UART_IDX == 1
+#define BOARD_DEBUG_UART            UART1
+#define BOARD_DEBUG_UART_IRQn       UART1_IRQn
+#define BOARD_DEBUG_UART_IRQHandler UART1_IRQHandler
+#elif BOARD_DEBUG_UART_IDX == 2
+#define BOARD_DEBUG_UART            UART2
+#define BOARD_DEBUG_UART_IRQn       UART2_IRQn
+#define BOARD_DEBUG_UART_IRQHandler UART2_IRQHandler
+#elif BOARD_DEBUG_UART_IDX == 3
+#define BOARD_DEBUG_UART            UART3
+#define BOARD_DEBUG_UART_IRQn       UART3_IRQn
+#define BOARD_DEBUG_UART_IRQHandler UART3_IRQHandler
+#else
+#error "Invalid BOARD_DEBUG_UART_IDX"
 #endif
 
 /*===========================================================================
