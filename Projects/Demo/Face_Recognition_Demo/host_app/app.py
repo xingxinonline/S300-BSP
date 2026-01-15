@@ -7,6 +7,7 @@ import numpy as np
 import sys
 import threading
 import queue
+import argparse
 
 import re
 
@@ -15,14 +16,45 @@ import os
 from datetime import datetime
 
 # Configuration
-SERIAL_PORT = 'COM7'  # Default, can be changed
-BAUD_RATE = 921600
+DEFAULT_SERIAL_PORT = 'COM7'  # Default serial port
+DEFAULT_BAUD_RATE = 921600    # Default baud rate
 FACE_SIZE = (112, 112)
 CONSOLE_WIDTH = 400  # Width of the debug console panel
 
 
+def parse_args():
+    """解析命令行参数"""
+    parser = argparse.ArgumentParser(
+        description='Face Transfer App - 人脸识别传输工具',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog='''
+示例:
+  python app.py                       # 使用默认串口 COM7，波特率 921600
+  python app.py -p COM3               # 使用 COM3 串口
+  python app.py -p COM3 -b 115200     # 使用 COM3，波特率 115200
+  python app.py --port /dev/ttyUSB0   # Linux 下使用 USB 串口
+        '''
+    )
+    parser.add_argument(
+        '-p', '--port',
+        type=str,
+        default=DEFAULT_SERIAL_PORT,
+        help=f'串口号 (默认: {DEFAULT_SERIAL_PORT})'
+    )
+    parser.add_argument(
+        '-b', '--baud',
+        type=int,
+        default=DEFAULT_BAUD_RATE,
+        help=f'波特率 (默认: {DEFAULT_BAUD_RATE})'
+    )
+    return parser.parse_args()
+
+
 class FaceTransferApp:
-    def __init__(self):
+    def __init__(self, serial_port=DEFAULT_SERIAL_PORT, baud_rate=DEFAULT_BAUD_RATE):
+        self.port_name = serial_port  # 保存串口名称
+        self.baud_rate = baud_rate    # 保存波特率
+        
         self.cap = cv2.VideoCapture(0)
         if not self.cap.isOpened():
             print("Error: Could not open camera.")
@@ -44,10 +76,10 @@ class FaceTransferApp:
 
         try:
             self.serial_port = serial.Serial(
-                SERIAL_PORT, BAUD_RATE, timeout=0.1)  # Short timeout for non-blocking read loop
-            print(f"Opened serial port {SERIAL_PORT}")
+                self.port_name, self.baud_rate, timeout=0.1)  # Short timeout for non-blocking read loop
+            print(f"Opened serial port {self.port_name} @ {self.baud_rate} bps")
         except Exception as e:
-            print(f"Error opening serial port {SERIAL_PORT}: {e}")
+            print(f"Error opening serial port {self.port_name}: {e}")
             print("Running in offline mode (no transfer).")
 
         self.running = True
@@ -679,5 +711,6 @@ class FaceTransferApp:
 
 
 if __name__ == "__main__":
-    app = FaceTransferApp()
+    args = parse_args()
+    app = FaceTransferApp(serial_port=args.port, baud_rate=args.baud)
     app.run()
