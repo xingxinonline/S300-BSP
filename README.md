@@ -76,6 +76,7 @@ ninja dbg_dma_uart3_tx
 | ------ | --------------------------- |
 | CPU    | ARM Cortex-M4 @ 200MHz, FPU |
 | SRAM   | 8KB + 384KB                 |
+| PSRAM  | W956x8MBYA (8MB, OSPI)      |
 | Flash  | W25Q128 (16MB, QSPI)        |
 | 调试器 | ST-Link, J-Link             |
 
