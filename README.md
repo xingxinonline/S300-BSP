@@ -80,6 +80,7 @@ BSP 提供了便捷的 `dbg_` 目标，自动处理 GDB 连接、固件加载与
 
 ## 📖 文档导航
 
+- **[AI 模型演示指南](docs/AI_Model_Demo_Guide.md)**: 🔥 **NEW** 人脸检测/识别、手势识别等 Demo 的详细运行步骤。
 - **[架构设计](docs/S300_BSP_Architecture.md)**: 了解 S300 的存储布局、启动流程与异构架构。
 - **[DMA 使用指南](docs/S300_DMA_LLI_Guide.md)**: 掌握如何使用 DMA 链表传输进行高效数据搬运。
 - **[编码规范](docs/coding_style_cn.md)**: 参与贡献前的必读文档。
