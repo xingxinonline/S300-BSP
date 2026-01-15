@@ -1,86 +1,101 @@
-# S300 BSP
+# PiMCHIP S300 BSP
 
-PiMCHIP S300 (ARM Cortex-M4) 板级支持包，基于CMSIS标准。
+**S300 (ARM Cortex-M4 + AI 子系统)** 的官方板级支持包 (BSP)，基于 CMSIS 标准构建。
 
-## 特性
+本项目提供 S300 芯片的嵌入式开发框架，支持外设驱动、异构核间通信及示例应用。
 
-- CMSIS兼容，符合ARM标准规范
-- GDB直接加载到SRAM调试
-- 支持GCC + OpenOCD + ST-Link/J-Link工具链
-- 丰富的外设驱动和Demo示例
+## 🌟 核心特性
 
-## 目录结构
+- **CMSIS 兼容**：遵循 ARM CMSIS 标准，提供标准化的 Register 定义与 SystemInit。
+- **异构协同**：提供 **Cortex-M4** 与 **AI 算力子系统** 的通信机制 (Mailbox + Shared Memory)，支持调用 AI 算法。
+- **构建系统**：基于 **CMake + Ninja**，支持 Windows/Linux 跨平台开发，提供一键编译与 GDB 调试目标。
+- **驱动支持**：
+  - **DMA LLI**：使用链表传输，降低大数据搬运时的 CPU 负载。
+  - **PSRAM/OSPI**：板外存储驱动优化。
+  - **多媒体**：集成 Camera (OV5640)、Display (LVGL v9)、Audio (I2S) 驱动。
+
+## 📂 目录结构
 
 ```
 S300_BSP/
-├── CMSIS/              # CMSIS标准实现
-│   ├── Core/Include/   # ARM核心头文件
-│   └── Device/PiMCHIP/ # S300设备定义
-├── Drivers/            # 硬件驱动
-│   ├── SoC/            # 片上外设 (UART/GPIO/DMA/QSPI等)
-│   └── External/       # 外部器件 (OV5640/W25Qxx/WM8978)
-├── Boards/             # 板级配置
-├── Projects/           # 示例项目
-│   ├── App_HelloWorld/
-│   └── Demo/
-├── ld/                 # 链接脚本
-├── tools/              # PC端工具
-└── docs/               # 文档
+├── Algorithm_Models/         # AI/算法固件 (预编译的 AI 模型固件)
+├── Boards/                   # 板级配置 (支持 Generic EVB, App Board 等多板型)
+├── CMSIS/                    # CMSIS 标准核心与设备定义
+├── Drivers/                  # 硬件驱动库
+│   ├── SoC/                  # 片上外设 (DMA, UART, GPIO, Video, Mailbox...)
+│   └── External/             # 板载器件 (OV5640, W25Qxx, LCD...)
+├── Projects/                 # 示例工程与应用
+│   ├── App_HelloWorld/       # 基础模板工程
+│   └── Demo/                 # 进阶功能演示 (Display, AI Face Track, Audio...)
+├── docs/                     # 开发文档 (架构设计, 编程规范, DMA指南)
+├── ld/                       # 链接脚本
+└── tools/                    # 辅助开发工具 (Python 脚本)
 ```
 
-## 快速开始
+## 🚀 快速开始
 
-### 环境要求
+### 1. 环境准备
 
-- ARM GNU Toolchain (arm-none-eabi-gcc)
-- CMake + Ninja
-- OpenOCD + ST-Link/J-Link
+请确保已安装以下工具并加入 PATH 环境变量：
+- **ARM GCC Toolchain** (`arm-none-eabi-gcc`)
+- **CMake** (>= 3.16)
+- **Ninja**
+- **OpenOCD** (用于调试连接)
+- **Python 3** (用于辅助脚本)
 
-### 构建
+### 2. 编译工程
+
+在仓库根目录下执行：
 
 ```bash
-mkdir build && cd build
-cmake -G Ninja ..
-ninja
+# 1. 配置工程 (使用 Ninja 生成器)
+cmake -B build -G Ninja
+
+# 2. 编译所有目标
+ninja -C build
 ```
 
-### 调试
-
-每个项目都有对应的`dbg_xxx`目标，自动启动GDB连接OpenOCD：
-
+或者编译指定 Demo：
 ```bash
-# 先启动OpenOCD（另开终端）
-openocd -f s300_openocd.cfg
-
-# 调试UART3_Echo示例
-ninja dbg_uart3_echo
-
-# 调试FreeRTOS_Shell
-ninja dbg_freertos_shell
-
-# 调试DMA传输
-ninja dbg_dma_uart3_tx
+ninja -C build s300_display_demo
 ```
 
-`dbg_xxx`会自动完成：加载ELF → 连接GDB Server → 执行gdbinit.gdb初始化 → 进入调试
+### 3. 调试运行
 
-## 文档
+BSP 提供了便捷的 `dbg_` 目标，自动处理 GDB 连接、固件加载与复位：
 
-- [BSP架构设计](docs/S300_BSP_Architecture.md)
-- [DMA使用指南](docs/S300_DMA_LLI_Guide.md)
-- [编码规范](docs/coding_style_cn.md)
+1.  **启动 OpenOCD** (在一个单独的终端窗口)：
+    ```bash
+    openocd -f s300_openocd.cfg
+    ```
 
-## 芯片规格
+2.  **启动调试** (在另一个终端窗口)：
+    ```bash
+    # 调试基础 UART 示例
+    ninja -C build dbg_uart3_echo
 
-| 项目   | 规格                        |
-| ------ | --------------------------- |
-| CPU    | ARM Cortex-M4 @ 200MHz, FPU |
-| SRAM   | 8KB + 384KB                 |
-| PSRAM  | W956x8MBYA (8MB, OSPI)      |
-| Flash  | W25Q128 (16MB, QSPI)        |
-| 调试器 | ST-Link, J-Link             |
+    # 调试带 AI 人脸检测的显示 Demo
+    ninja -C build dbg_display_face-detection
+    ```
 
-## 许可证
+## 📖 文档导航
 
-MIT License
+- **[架构设计](docs/S300_BSP_Architecture.md)**: 了解 S300 的存储布局、启动流程与异构架构。
+- **[DMA 使用指南](docs/S300_DMA_LLI_Guide.md)**: 掌握如何使用 DMA 链表传输进行高效数据搬运。
+- **[编码规范](docs/coding_style_cn.md)**: 参与贡献前的必读文档。
+
+## 🛠️ 芯片规格摘要
+
+| 模块              | 规格描述                                               |
+| :---------------- | :----------------------------------------------------- |
+| **CPU**           | ARM Cortex-M4F @ 200MHz                                |
+| **Co-Processors** | AI 算力子系统 (运行 CV/Audio 算法)                     |
+| **SRAM**          | 384KB (SRAM1) + 8KB (SRAM0)                            |
+| **Memory**        | 8MB PSRAM (OSPI) + 16MB Flash (QSPI XIP)               |
+| **Connectivity**  | 4x UART, 3x SPI, 2x I2C                                |
+| **Multimedia**    | DVP Camera Interface, RGB Display Interface, I2S Audio |
+
+## 📄 许可证
+
+本项目采用 **MIT License** 开源授权。
 
