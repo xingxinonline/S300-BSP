@@ -80,18 +80,14 @@ static void lcd_spi_init_st7735s(void)
 static void lcd_spi_init_st7789(void)
 {
     /* spi init for ST7789 (D200C2407V0) */
-    REG32(DSP_VIDEO_SS_BASE + 0x100) = 0x0;
-    REG32(DSP_VIDEO_SS_BASE + 0x104) = 0x11;
-    delay_ms(120);
+    
+    #ifndef DISP_ROTATION
+    #define DISP_ROTATION 0xC0  /* 默认旋转 180° (MADCTL_MY | MADCTL_MX) */
+    #endif
 
     /* spi init */
     REG32(DSP_VIDEO_SS_BASE + 0x100) = 0xed56abea; 
-    
-    #ifndef DISP_ROTATION
-    #define DISP_ROTATION 0
-    #endif
-
-    REG32(DSP_VIDEO_SS_BASE + 0x104) = 0x063a0036 | (DISP_ROTATION << 8);
+    REG32(DSP_VIDEO_SS_BASE + 0x104) = 0x063a0036 | (DISP_ROTATION << 8);  /* 0x063ac036 for 180° rotation */
     REG32(DSP_VIDEO_SS_BASE + 0x108) = 0x000c0cb2; 
     REG32(DSP_VIDEO_SS_BASE + 0x10c) = 0x35b73333;
     REG32(DSP_VIDEO_SS_BASE + 0x110) = 0x2cc032bb; 
@@ -217,18 +213,27 @@ void init_video_with_type(emDVP dvp, emCameraFormatPro cameraPro, emMMProcessPro
     }
     else if (lcdType == LCD_ST7789)
     {
-        REG32(DSP_VIDEO_SS_BASE + 0x1c0) = 0x2580003c;
+        /* ST7789 初始化时序 (参考原始配置) */
         
+        /* 1. 发送软复位命令 (0x11: Sleep Out) */
+        REG32(DSP_VIDEO_SS_BASE + 0x100) = 0x0;
+        REG32(DSP_VIDEO_SS_BASE + 0x104) = 0x11;
+        REG32(DSP_VIDEO_SS_BASE + 0x1c0) = 1 | (1 << 30);
+        REG32(DSP_VIDEO_SS_BASE + 0x1e0) = 0x1;
+        delay_ms(120);  /* 等待 LCD 退出睡眠模式 */
+        
+        /* 2. 配置 SPI 初始化寄存器 */
         lcd_spi_init_st7789();
         
-        REG32(DSP_VIDEO_SS_BASE + 0x1e0) = 0x0; // ST7789 logic might be different or this is copy-paste error regarding 0x1e0 usage?
-        // Old code didn't have ST7789 path this clear. Assuming enable is handled inside or needed.
-        // Actually ST7789 block in previous edits had 0x1e0=0 inside?
-        // Let's stick to what was provided for ST7789 but ensure 0x1e0 is handled.
+        /* 3. 配置显示区域寄存器 (针对 240x320) */
+        REG32(DSP_VIDEO_SS_BASE + 0x194) = 0x0000002A;  /* X 坐标命令 */
+        REG32(DSP_VIDEO_SS_BASE + 0x198) = 0x00002BEF;  /* X 结束 + Y 命令 */
+        REG32(DSP_VIDEO_SS_BASE + 0x19c) = 0x002C3F01;  /* Y 结束 + 写入命令 */
         
-        // Regardles, the user uses ST7735S.
-        
+        /* 4. 设置时序控制 */
         REG32(DSP_VIDEO_SS_BASE + 0x1c0) = 0x2580003c;
+        REG32(DSP_VIDEO_SS_BASE + 0x1d0) = 0x10000;
+        REG32(DSP_VIDEO_SS_BASE + 0x1e0) = 0x0;
     }
     else 
     {
