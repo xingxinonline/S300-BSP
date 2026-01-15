@@ -61,6 +61,18 @@ extern "C" {
 #define EYES_DEBUG 0
 #endif
 
+/*
+ * 屏幕自适应配置（比例值，基于屏幕尺寸自动计算）：
+ * - EYE_SPACING_RATIO：眼睛间距占屏幕高度的比例（默认 8%）
+ * - EYE_SPACING_FIXED：固定间距像素值（优先级高于比例，0 表示使用比例计算）
+ */
+#ifndef EYE_SPACING_RATIO
+#define EYE_SPACING_RATIO 0.08f
+#endif
+#ifndef EYE_SPACING_FIXED
+#define EYE_SPACING_FIXED 0
+#endif
+
 /* 资源说明（由生成代码提供，包含图像/动画）： */
 extern const lv_image_dsc_t img_yanbai_rotated_cw;      /* socket bg (top) */
 extern const lv_image_dsc_t img_yanbai1_rotated_cw;     /* socket bg (bottom) */

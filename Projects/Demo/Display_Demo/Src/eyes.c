@@ -63,7 +63,7 @@ static lv_obj_t * g_blink_bot = NULL;
 static int        g_blink_active = 0;
 static int        g_spawn_hidden_once = 0;
 static int32_t    g_eye_h = 16;
-static int32_t    g_eye_spacing = 28;
+static int32_t    g_eye_spacing = 0;  /* 初始化时根据屏幕尺寸计算 */
 static int32_t    g_eye_vis_h = 16;
 static int32_t    g_socket_vis_h = 16;
 static int32_t    g_eye_vis_w = 16;
@@ -164,6 +164,15 @@ static void eyes_ui_create(void)
     const int32_t screen_h = DISP_IMAGE_HEIGHT;
     const int32_t center_x = screen_w / 2;
     const int32_t center_y = screen_h / 2;
+
+    /* 自适应计算眼睛间距：优先使用固定值，否则按屏幕高度比例计算 */
+    if (g_eye_spacing == 0) {
+#if EYE_SPACING_FIXED > 0
+        g_eye_spacing = EYE_SPACING_FIXED;
+#else
+        g_eye_spacing = (int32_t)(screen_h * EYE_SPACING_RATIO);
+#endif
+    }
 
     const int32_t base_x    = center_x - C_EYE_W / 2;
     const int32_t base_x_bg = center_x - C_SOCKET_CENTER_IN_IMG;
