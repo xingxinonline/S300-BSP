@@ -1,128 +1,77 @@
-# Display_Demo + LVGL v9.4（双缓冲 + 局部刷新 + DMA LLI/Scatter）
+# Display_Demo：LVGL v9.4 + 互动眼球 + 人脸追踪
 
-本 demo 演示在 S300 平台上将 LVGL v9.4 与硬件显示深度结合，实现：
+本示例演示 S300 平台的多媒体与显示功能，集成 **LVGL v9.4**、**DMA 加速显示** 与 **AI 人脸追踪**。
 
-- 双硬件读帧 ping-pong（front/back）
-- 帧首整帧基线复制（DMA LLI：front → back）
-- 帧内局部刷新（DMA 目的散射，将 LVGL 的 px_map 矩形搬运至 back）
-- 帧尾呈现（present back 为新的 front）
-- 1Hz 统计叠加（fps/flush/cpu/mem）+ 轻量保活刷新
+**核心特性：**
+1.  **显示框架**：
+    -   **双硬件 Buffer**（Front/Back）+ **DMA LLI**（整帧基线复制）+ **DMA Scatter**（局部脏区搬运）。
+    -   **PARTIAL 渲染模式**：使用小缓冲区（`DRAWBUF_LINES=30`）运行 LVGL。
+    -   支持帧率与 Flush 次数统计。
+2.  **互动演示**：
+    -   **人脸追踪**：通过 Mailbox 获取 AI 算力子系统的人脸坐标。
+    -   **动态眼球**：Eyes UI 根据人脸位置移动，包含眨眼动画与空闲回中逻辑。
+    -   **实时刷新**：人脸状态变化时主动触发刷新，提升响应速度。
 
-适合在内存受限场景使用小 draw buffer 进行 PARTIAL 渲染，同时充分利用 DMA 减少 CPU 搬运。
+## 目录结构
 
-## 获取 LVGL 源码（离线可选）
+- `src/main.c`: 系统初始化与主循环调度
+- `src/display_demo_app.c`: 应用编排（连接 Video、Face Tracker、Eyes）
+- `src/ui_display.c`: 显示驱动适配（DMA LLI/Scatter 逻辑核心）
+- `src/eyes.c`: 眼球 UI 逻辑、动画与平滑算法
+- `src/face_tracker.c`: 接收 AI 子系统人脸坐标并去抖、标准化
+- `CMakeLists.txt`: 构建脚本，自动拉取 LVGL v9.4
 
-默认通过 CMake FetchContent 在线拉取 `https://github.com/lvgl/lvgl.git` `v9.4.0` 标签。如果网络不可用，有两种离线方式：
+## 编译与运行
 
-1. 供应本地路径：
-   - 将 LVGL 源码克隆到本地：
-     - `git clone --depth=1 --branch v9.4.0 https://github.com/lvgl/lvgl.git /path/to/lvgl`
-   - 配置时指定：`-DLVGL_LOCAL_PATH=/path/to/lvgl`
+请在 **S300-BSP 仓库根目录** 下执行以下命令：
 
-2. vendoring（把源码放到仓库目录）：
-   - 将 LVGL 源码放入：`Projects/Demo/Display_Demo/third_party/lvgl/lvgl/`，该目录包含官方 `CMakeLists.txt`。
+1.  **配置工程**：
+    ```bash
+    cmake -B build -G Ninja
+    ```
+    *注意：首次运行会自动下载 LVGL 源码，需保持网络连接或配置本地代理。*
 
-如果你选择方式 (2)，则无需设置 `LVGL_LOCAL_PATH`，CMake 会优先使用 vendor 目录。
+2.  **编译 Demo**：
+    ```bash
+    ninja -C build s300_display_demo
+    ```
 
-## 配置选项
+3.  **烧录/调试**：
+    -   如果你使用 VS Code，直接运行 `Build` 任务，然后使用 `Cortex-Debug` 启动调试。
+    -   或者手动使用 GDB：
+        ```bash
+        # 加载 AI 固件与 Demo 固件
+        ninja -C build dbg_display_face-detection
+        ```
 
-- `LV_CONF_PATH`：默认已指向 `third_party/lvgl/lv_conf.h`。
-- `LVGL_LOCAL_PATH`：离线本地 LVGL 路径（可选）。
+## 架构与配置
 
-## 架构概览
+### 1. 显示链路优化
+- **DMA LLI 帧首复制**：每帧开始时，利用 DMA 链表传输（LLI）瞬间将上一帧内容（Present Buffer）复制到当前绘制帧（Back Buffer），使得本帧只需绘制“变化区域”，未变区域保持原样（避免双缓冲常见的清屏/闪烁问题）。
+- **DMA Scatter 局部搬运**：LVGL 渲染出的不连续小块（px_map），通过 DMA 目的地址散射（Destination Scatter）直接拼接到 Back Buffer 的正确位置，极大降低 CPU 搬运负载。
 
-渲染/显示的帧循环分为三个阶段：
+### 2. 宏配置参数
+可在 `CMakeLists.txt` 或 `Inc/eyes.h` / `Inc/ui_display.h` 中调整：
 
-1) 帧首（LV_EVENT_REFR_START）
-   - 使用 DMA LLI 将“正在显示的 front 帧缓冲”整帧复制到“back 帧缓冲”，作为本帧的基线。
-   - 这样本帧仅需覆盖脏矩形，未更新区域也能保持与上一帧一致，避免撕裂/不同步。
+| 宏名称                       | 默认值   | 说明                                             |
+| :--------------------------- | :------- | :----------------------------------------------- |
+| **UI_STAT_OVERLAY**          | 1        | 开启左上角 FPS/CPU/内存 统计悬浮窗               |
+| **UI_LOG_LEVEL**             | 1 (WARN) | 日志等级 (0=ERR, 1=WARN, 2=INFO...)              |
+| **DRAWBUF_LINES**            | 30       | LVGL 渲染缓冲区行数，越小越省内存但 Flush 越频繁 |
+| **EYE_PER_PX_MS**            | 1.5      | 眼球移动速度（毫秒/像素），越大越慢              |
+| **EYE_SMOOTH_NUM**           | 10       | 运动平滑系数分子（越大越平滑）                   |
+| **FACE_PRESENCE_CONFIRM_MS** | 200      | 人脸持续多久才确认“出现”（防抖动）               |
 
-2) 帧内（多次 flush 回调）
-   - LVGL PARTIAL 模式渲染出紧凑矩形 px_map。
-   - 使用 DMA M2M + 目的散射（destination scatter）按行搬运到 back 对应区域；小块或 DMA 忙时退化到 CPU memcpy。
-   - 根据矩形对齐情况选择 16/32-bit 传输，尽可能提高带宽。
+## 常见问题
 
-3) 帧尾（LV_EVENT_REFR_READY）
-   - “敲门”寄存器将 back 提交为新的 front（present），完成显示切换。
+- **眼球不动/无反应**：
+    - 检查摄像头（OV5640）是否连接牢固。
+    - 确认是否已加载 AI 固件（人脸算法运行在 AI 算力系统上）。
+    - 检查串口日志 `[FACE]` 相关输出。
+- **画面撕裂**：
+    - 通常由 DMA 带宽竞争引起，本 Demo 采用了 LLI 串行化规避，若修改了时序请注意 DMA 通道占用。
+- **编译时 LVGL 下载失败**：
+    - 请参考 `CMakeLists.txt` 中的 `LVGL_LOCAL_PATH` 选项，手动指定本地 LVGL 路径。
 
-### DMA 通道分工
-
-- UI_DMA_CH_LLI（例如 ch3）：帧首整帧 LLI 复制（阻塞调用，时延极短）
-- UI_DMA_CH_SCATTER（例如 ch2）：帧内矩形搬运（带中断，完成后通知 lv_display_flush_ready）
-
-注意：基线 LLI 复制与矩形搬运串行化处理，避免 DMA 通道竞争。
-
-## LVGL 集成与关键点
-
-- 渲染模式：`LV_DISPLAY_RENDER_MODE_PARTIAL` + 两块小 draw buffer（示例：`DRAWBUF_LINES=30`）
-- 事件驱动：
-  - `LV_EVENT_REFR_START`：调用 `do_fullframe_baseline_copy()`
-  - `LV_EVENT_REFR_READY`：`present back` + 统计与叠加刷新
-- 刷新回调：`lvgl_flush_cb()` 内调用 `start_dma_rect_copy()` 来进行 DMA 矩形搬运
-- 轻量保活：默认每 200ms 仅无效化顶层小标签，触发最小区域刷新，防止“无脏区时链路停摆”
-
-## 可视化与统计（叠加层）
-
-- 顶层三行叠加：
-  - 第1行：`fps` 与 `flush`（定宽对齐，列距稳定）
-  - 第2行：`cpu=XX%  mem=YY%`（CPU 使用率 + LVGL 内存池使用率）
-- 竖向显示（从上到下）：启用 `LV_USE_TRANSFORM` 后，通过旋转 90° 将叠加竖排显示。
-- 1Hz 统计日志：`[UI][STAT] fps=.. flush=.. cpu=..% mem=..%`
-
-### 开关与调节
-
-- `UI_STAT_OVERLAY`（默认 1）：是否显示叠加
-- `UI_STAT_VERTICAL`（默认 1）：叠加竖排显示
-- `UI_LOG_LEVEL`（默认 WARN=1）：日志等级，0~4（ERROR~VERBOSE）
-- `DRAWBUF_LINES`：调节部分刷新块高度，权衡帧率/flush 次数/内存
-- `UI_KEEPALIVE_ENABLE`（默认 1）与 `UI_KEEPALIVE_MS`（默认 200ms）：轻量保活周期
-
-### CPU 使用率
-
-- 无 DWT 情况下，使用 SysTick 计数 total/idle ticks 的差值估算，`main.c` 中在空闲段标记 `g_cpu_in_idle`。
-
-### LVGL 内存使用率
-
-- 采用内置 allocator（`LV_USE_STDLIB_MALLOC=LV_STDLIB_BUILTIN`）并固定内存池地址/大小（见 `third_party/lvgl/lv_conf.h`）。
-- `lv_mem_monitor()` 取得 `total/free` 并计算使用率。
-
-## 即时刷新触发（人脸出现/消失）
-
-- 新增接口：`ui_request_refresh()`（`ui_display.h`）
-  - 优先无效化顶部叠加标签（最小矩形），否则无效化当前 screen。
-  - 用于外部事件需要“立即呈现”的场景。
-- 已与人脸跟踪模块对接：
-  - 人脸“确认出现”时（达到 `FACE_PRESENCE_CONFIRM_MS`）→ `ui_request_refresh()`
-  - 人脸“丢失进入 idle”时 → `ui_request_refresh()`
-  - 文件：`Src/face_tracker.c`
-
-## 运行
-
-- 构建：
-  - `cmake -S S300_BSP -B S300_BSP/build`
-  - `cmake --build S300_BSP/build --target s300_display_demo -- -j`
-- 烧录与调试可参见仓库根部文档与 `dbg_display` 目标。
-
-### 可选调试目标（自动拉起 GDB，加载 DSP boot images）
-
-- `ninja -C S300_BSP/build dbg_display_dsp`
-
-## 性能与调优建议
-
-- DMA 32-bit 传输：要求矩形 `x1` 为偶数且 `w` 为偶数，可提升带宽。
-- 小块阈值：过小矩形用 CPU memcpy 反而更省（示例阈值：`pix < 256`）。
-- `DRAWBUF_LINES`：增大可减少 flush 次数，但增大 draw buffer 占用；结合你的 UI 动效进行 A/B 观察 fps/flush。
-- 保活周期：200ms 足以维持“有变化就刷新”的体感；如需更灵敏可适当降低，但注意 DMA/CPU 开销。
-
-## 故障排查
-
-- 叠加被覆盖：确保在 `lv_layer_top()` 上创建；本 demo 已在初始化阶段创建顶层标签。
-- 竖排旋转无效：确认 `LV_USE_TRANSFORM=1`（`lv_conf.h`）。
-- 刷新“偶发停摆”：检查是否误关 `UI_KEEPALIVE_ENABLE`，或外部事件未调用 `ui_request_refresh()`。
-- 链路撕裂/脏区残留：确认帧首 LLI 基线复制正常执行；避免与矩形搬运同时占用 DMA 通道。
-
-## 说明
-
-- SysTick 以 1ms 调用 `lv_tick_inc(1)`。
-- LVGL 使用 PARTIAL 模式 + 小 draw buffer；`flush_cb` 通过 DMA 目的散射搬运矩形，帧尾切换显示。
-- 默认分辨率 128x160，可按硬件调整 `video.h` 的 `DISP_IMAGE_WIDTH/HEIGHT`。
+---
+*基于 LVGL v9.4 构建，适配 PiMCHIP S300。*
