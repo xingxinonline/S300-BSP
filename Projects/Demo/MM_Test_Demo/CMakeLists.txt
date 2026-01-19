@@ -158,5 +158,17 @@ foreach(MODEL_DIR ${ALG_MODELS})
             DEPENDS ${TARGET}
             USES_TERMINAL
         )
+
+        # Generate Image Target
+        set(IMAGE_OUTPUT_FILE "${CMAKE_CURRENT_BINARY_DIR}/s300_mm_test_${MODEL_KEBAB}.bin")
+        add_custom_target(img_mm_test_${MODEL_KEBAB}
+            COMMENT "Generating Image for ${TARGET} with Algorithm Model: ${MODEL_DIR} -> ${IMAGE_OUTPUT_FILE}"
+            COMMAND python3 ${ROOT}/tools/s300_image.py generate
+            -o ${IMAGE_OUTPUT_FILE}
+            --m4 ${CMAKE_CURRENT_BINARY_DIR}/${TARGET}.bin
+            --dsp ${MODEL_DIR_PATH}
+            DEPENDS ${TARGET}
+            USES_TERMINAL
+        )
     endif()
 endforeach()

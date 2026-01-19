@@ -87,13 +87,8 @@
     },
     {
       "label": "Rebuild",
-      "type": "shell",
-      "command": "ninja",
-      "args": ["clean"],
-      "options": {
-        "cwd": "${workspaceFolder}/build"
-      },
-      "dependsOn": [],
+      "dependsOn": ["Clean", "Build"],
+      "dependsOrder": "sequence",
       "problemMatcher": "$gcc",
       "detail": "清理并重新编译"
     }
