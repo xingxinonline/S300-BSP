@@ -1,8 +1,8 @@
 {
     "name": "Human Detection",
     "id": "human_detection",
-    "version": "1.0.0",
-    "date": "2026-01-15",
+    "version": "1.1.0",
+    "date": "2026-01-19",
     "description": "Person detection and tracking model.",
     "compatibility": {
         "dsp_fw": ">=1.5.0"
