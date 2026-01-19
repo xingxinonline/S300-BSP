@@ -5,7 +5,7 @@ add_subdirectory(App_HelloWorld)
 
 # Demo 项目
 add_subdirectory(Demo/Display_Demo)
-add_subdirectory(Demo/MM_Test_Demo)
+add_subdirectory(Demo/Algorithm_Detection_Demo)
 add_subdirectory(Demo/OV5640_I2C1_Init)
 add_subdirectory(Demo/Mailbox_Test)
 add_subdirectory(Demo/UART3_Echo)
