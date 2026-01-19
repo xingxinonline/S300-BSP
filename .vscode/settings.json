@@ -12,6 +12,28 @@
   // 确保状态栏可见
   "cmake.options.statusBarVisibility": "visible",
 
+  // 这里的 Advanced 选项可以单独隐藏特定的按钮
+  "cmake.options.advanced": {
+    "cpack": {
+      "statusBarVisibility": "hidden"
+    },
+    "workflow": {
+      "statusBarVisibility": "hidden"
+    },
+    "launch": {
+      "statusBarVisibility": "hidden"
+    },
+    "launchTarget": {
+      "statusBarVisibility": "hidden"
+    },
+    "debug": {
+      "statusBarVisibility": "hidden"
+    },
+    "buildTarget": {
+      "statusBarVisibility": "visible"
+    }
+  },
+
   // 默认构建类型为 Debug
   "cmake.configureArgs": ["-DCMAKE_BUILD_TYPE=Debug"],
 
