@@ -6,7 +6,8 @@
 
 | 文档 | 说明 |
 |------|------|
-| [AI_Model_Demo_Guide.md](AI_Model_Demo_Guide.md) | **推荐** 人脸/手势/人形检测及识别 Demo 运行指南 |
+| [AI_Model_Demo_Guide.md](AI_Model_Demo_Guide.md) | AI 算法示例运行指南 (人脸/手势/人形检测) |
+| [Development_Environment_Guide.md](Development_Environment_Guide.md) | 开发环境搭建与 VS Code 使用说明 |
 | [S300_BSP_Architecture.md](S300_BSP_Architecture.md) | BSP 架构设计，包含目录结构、分层设计、驱动接口规范 |
 | [S300_DMA_LLI_Guide.md](S300_DMA_LLI_Guide.md) | DMA 链表传输使用指南，大数据搬运的实现方法 |
 | [coding_style_cn.md](coding_style_cn.md) | 编码规范（中文） |
