@@ -24,7 +24,7 @@ include_directories(
     ${ROOT}/Drivers/SoC/MM/Include
     ${ROOT}/Drivers/SoC/PSRAM/Include
     ${ROOT}/Drivers/External/OV5640/Include
-    ${ROOT}/Boards/generic_evb
+    ${ROOT}/Boards/${BOARD}
     ${PROJECT_DIR}/Inc
 )
 
@@ -162,3 +162,10 @@ add_custom_target(dbg_gesture_demo
     COMMAND ${CMAKE_COMMAND} --build . --target dbg_gesture_demo_hand_gesture
     DEPENDS dbg_gesture_demo_hand_gesture
 )
+
+# 生成 S300 ROMBOOT 镜像 (含手势识别模型)
+add_s300_image(${TARGET}
+    OUTPUT s300_gesture_progress_demo.bin
+    DSP_DIR ${HAND_GESTURE_DIR}
+)
+

@@ -68,7 +68,7 @@ typedef enum {
 
 static app_state_t g_state = STATE_CLOSED;
 static uint32_t g_timer_ms = 0;
-#define TARGET_TIME_MS 2000
+#define TARGET_TIME_MS 3000
 
 /* Create UI components */
 static void create_ui(void)

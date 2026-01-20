@@ -124,6 +124,13 @@ typedef enum { EXTRACT_NONE, EXTRACT_TARGET, EXTRACT_COMPARE } extract_type_t;
 static volatile extract_type_t g_extract_type = EXTRACT_NONE;
 
 /* --- Font 5x7 for Display --- */
+/* LCD Width threshold for Font Scaling (1=Normal, 2=Double Size) */
+#if BOARD_LCD_WIDTH > 160
+#define FONT_SCALE 2
+#else
+#define FONT_SCALE 1
+#endif
+
 static const uint8_t font5x7[96][5] = {
     {0x00, 0x00, 0x00, 0x00, 0x00}, // space
     {0x00, 0x00, 0x5F, 0x00, 0x00}, // !
@@ -245,8 +252,13 @@ static void draw_char(int vx, int vy, char c, uint16_t color)
     for (int col = 0; col < 5; col++) {
         uint8_t line = glyph[col];
         for (int row = 0; row < 7; row++) {
-            if (line & (1 << row)) {
-                draw_pixel_rotated(vx + col, vy + row, color);
+            if ((line >> row) & 0x01) {
+                /* Scaled Pixel Drawing */
+                for (int sx = 0; sx < FONT_SCALE; sx++) {
+                    for (int sy = 0; sy < FONT_SCALE; sy++) {
+                        draw_pixel_rotated(vx + col * FONT_SCALE + sx, vy + row * FONT_SCALE + sy, color);
+                    }
+                }
             }
         }
     }
@@ -255,9 +267,8 @@ static void draw_char(int vx, int vy, char c, uint16_t color)
 static void draw_string(int vx, int vy, const char *str, uint16_t color)
 {
     while (*str) {
-        draw_char(vx, vy, *str, color);
-        vx += 6; // 5 + 1 spacing
-        str++;
+        draw_char(vx, vy, *str++, color);
+        vx += 6 * FONT_SCALE; /* 5 pixels char + 1 spacing */
     }
 }
 
@@ -312,9 +323,11 @@ static void calculate_similarity(void)
 
     /* Clear and draw score above compare image (右侧，自适应位置) */
     const int margin = (VISUAL_WIDTH * 8) / 100;
-    const int score_x = VISUAL_WIDTH - margin - 68;
+    const int str_w = 68 * FONT_SCALE;
+    const int str_h = 8 * FONT_SCALE;
+    const int score_x = VISUAL_WIDTH - margin - str_w;
     const int score_y = (VISUAL_HEIGHT * 20) / 100;  /* 屏幕高度 20% 处 */
-    draw_rect_fill(score_x, score_y, 68, 8, 0x0000); // Black background
+    draw_rect_fill(score_x, score_y, str_w, str_h, 0x0000); // Black background
     draw_string(score_x, score_y, score_buf, score_color);
 
     /* Trigger display update */
@@ -359,11 +372,13 @@ static void update_display(uint32_t img_addr, bool is_target)
 
     printf("[M4] Updating Display (Landscape): %s at visual (%d, %d), thumb=%d\n",
            is_target ? "Target" : "Compare", start_vx, start_vy, thumb_size);
+const int lbl_y_offset = 10 * FONT_SCALE;
+    const int lbl_h = 8 * FONT_SCALE;
+    const int lbl_w = 40 * FONT_SCALE;
 
-    /* Draw Target/Compare Label */
     if (is_target) {
-        draw_rect_fill(start_vx, start_vy - 10, 40, 8, 0x0000);
-        draw_string(start_vx, start_vy - 10, "Target", 0xFFFF);
+        draw_rect_fill(start_vx, start_vy - lbl_y_offset, lbl_w, lbl_h, 0x0000);
+        draw_string(start_vx, start_vy - lbl_y_offset, "Target", 0xFFFF);
     }
 
     for (int iy = 0; iy < thumb_size; iy++) {

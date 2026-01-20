@@ -18,7 +18,7 @@ typedef struct FaceRect_ {
 static uint32_t (*s_get_ms)(void) = NULL;
 static volatile uint32_t s_last_face_ms = 0;
 /* 500ms timeout for face detection signal */
-#define FACE_TIMEOUT_MS 500 
+#define FACE_TIMEOUT_MS 300 
 
 void app_mailbox_init(void) {
 }
