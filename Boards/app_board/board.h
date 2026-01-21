@@ -50,14 +50,14 @@ extern "C" {
 
 /* 允许用户覆盖调试 UART 索引 */
 #ifndef BOARD_UART_DEBUG_IDX
-#define BOARD_UART_DEBUG_IDX        1u
+#define BOARD_UART_DEBUG_IDX        3u
 #endif
 
 /* 与 generic_evb 兼容的别名 */
 #define BOARD_DEBUG_UART_IDX        BOARD_UART_DEBUG_IDX
 
 #ifndef BOARD_DEBUG_UART_BAUDRATE
-#define BOARD_DEBUG_UART_BAUDRATE   460800
+#define BOARD_DEBUG_UART_BAUDRATE   921600
 #endif
 
 #ifndef BOARD_DEBUG_UART_PORT
