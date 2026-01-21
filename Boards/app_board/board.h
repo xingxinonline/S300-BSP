@@ -38,6 +38,11 @@ extern "C" {
 #define BOARD_LCD_BL_ENABLE         BOARD_MM_ENABLE
 #endif
 
+/** @brief 启用触摸屏支持 (MM 启用时自动启用) */
+#ifndef BOARD_TOUCH_ENABLE
+#define BOARD_TOUCH_ENABLE          BOARD_MM_ENABLE
+#endif
+
 /** @brief 启用调试 UART */
 #ifndef BOARD_DEBUG_UART_ENABLE
 #define BOARD_DEBUG_UART_ENABLE     1
@@ -232,7 +237,72 @@ extern "C" {
 #endif
 
 /*===========================================================================
- * Section 5: Configuration Validation
+ * Section 5: Touch Panel Configuration (FT6X36)
+ * 电容触摸屏配置
+ *===========================================================================*/
+
+/** @brief 触摸 IC 类型: FT6X36 系列 */
+#ifndef BOARD_TOUCH_IC_TYPE
+#define BOARD_TOUCH_IC_TYPE         0   /* 0=FT6X36 */
+#endif
+
+/** @brief 触摸屏 I2C 地址 (7-bit) */
+#ifndef BOARD_TOUCH_I2C_ADDR
+#define BOARD_TOUCH_I2C_ADDR        0x38
+#endif
+
+/** @brief 触摸屏 I2C 索引 (软件 I2C) */
+#ifndef BOARD_TOUCH_I2C_IDX
+#define BOARD_TOUCH_I2C_IDX         3   /* I2C3: GPIOA4(SCL), GPIOA5(SDA) */
+#endif
+
+#ifndef BOARD_TOUCH_I2C_FREQ
+#define BOARD_TOUCH_I2C_FREQ        50000
+#endif
+
+#ifndef BOARD_TOUCH_I2C_PORT
+#define BOARD_TOUCH_I2C_PORT        GPIOA
+#endif
+
+/** @brief 触摸屏 SCL 引脚: GPIOA4 */
+#ifndef BOARD_TOUCH_I2C_SCL_PIN
+#define BOARD_TOUCH_I2C_SCL_PIN     4
+#endif
+
+/** @brief 触摸屏 SDA 引脚: GPIOA5 */
+#ifndef BOARD_TOUCH_I2C_SDA_PIN
+#define BOARD_TOUCH_I2C_SDA_PIN     5
+#endif
+
+#ifndef BOARD_TOUCH_I2C_FUNCTION
+#define BOARD_TOUCH_I2C_FUNCTION    FUNCTION_2
+#endif
+
+/** @brief 触摸屏复位引脚: GPIOA23 */
+#ifndef BOARD_TOUCH_RST_PORT
+#define BOARD_TOUCH_RST_PORT        GPIOA
+#endif
+
+#ifndef BOARD_TOUCH_RST_PIN
+#define BOARD_TOUCH_RST_PIN         23
+#endif
+
+#ifndef BOARD_TOUCH_RST_FUNCTION
+#define BOARD_TOUCH_RST_FUNCTION    FUNCTION_2
+#endif
+
+/** @brief 触摸屏复位有效电平: 0=低电平复位 */
+#ifndef BOARD_TOUCH_RST_ACTIVE_LEVEL
+#define BOARD_TOUCH_RST_ACTIVE_LEVEL 0
+#endif
+
+/** @brief 最大触摸点数 */
+#ifndef BOARD_TOUCH_MAX_POINTS
+#define BOARD_TOUCH_MAX_POINTS      2
+#endif
+
+/*===========================================================================
+ * Section 6: Configuration Validation
  * 配置有效性检查
  *===========================================================================*/
 
@@ -241,7 +311,7 @@ extern "C" {
 #endif
 
 /*===========================================================================
- * Section 6: Core Board Functions
+ * Section 7: Core Board Functions
  * 核心板级初始化函数
  *===========================================================================*/
 
@@ -270,7 +340,7 @@ void board_debug_uart_init(void);
 void board_uart3_init(void);
 
 /*===========================================================================
- * Section 7: Optional Peripheral Functions
+ * Section 8: Optional Peripheral Functions
  * 可选外设初始化函数 (按需调用)
  *===========================================================================*/
 
@@ -311,6 +381,31 @@ void board_lcd_backlight_on(void);
  */
 void board_lcd_backlight_off(void);
 #endif /* BOARD_LCD_BL_ENABLE */
+
+#if BOARD_TOUCH_ENABLE
+/**
+ * @brief  初始化触摸屏 I2C 引脚
+ */
+void board_touch_i2c_pins_init(void);
+
+/**
+ * @brief  初始化触摸屏控制引脚 (RST)
+ */
+void board_touch_ctrl_pins_init(void);
+
+/**
+ * @brief  触摸屏复位时序
+ * @note   执行硬件复位，等待触摸IC就绪
+ */
+void board_touch_reset(void);
+
+/**
+ * @brief  初始化触摸屏 I2C 通信
+ * @param  i2c  指向 I2C 句柄的指针
+ * @return 0 成功，其他失败
+ */
+int board_touch_i2c_init(void *i2c);
+#endif /* BOARD_TOUCH_ENABLE */
 
 #ifdef __cplusplus
 }

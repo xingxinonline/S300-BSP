@@ -10,7 +10,7 @@
 #include "uart.h"
 #include <stdio.h>
 
-#if BOARD_CAMERA_ENABLE
+#if BOARD_CAMERA_ENABLE || BOARD_TOUCH_ENABLE
 #include "i2c_soft.h"
 #endif
 
@@ -188,3 +188,55 @@ void board_lcd_backlight_off(void)
 #endif
 }
 #endif /* BOARD_LCD_BL_ENABLE */
+
+/*===========================================================================
+ * Touch Panel Functions (FT6X36)
+ *===========================================================================*/
+
+#if BOARD_TOUCH_ENABLE
+void board_touch_i2c_pins_init(void)
+{
+    /* 引脚配置由 board_touch_i2c_init() -> i2c_soft_init_default_idx() 完成 */
+    /* 此函数保留用于兼容性，实际不需要额外配置 */
+}
+
+void board_touch_ctrl_pins_init(void)
+{
+    /* RST Pin */
+    set_gpio_function(BOARD_TOUCH_RST_PORT, BOARD_TOUCH_RST_PIN, BOARD_TOUCH_RST_FUNCTION);
+    set_gpio_mode(BOARD_TOUCH_RST_PORT, BOARD_TOUCH_RST_PIN, GPIO_UP);
+    set_gpio_direction(BOARD_TOUCH_RST_PORT, BOARD_TOUCH_RST_PIN, 1);  /* Output */
+}
+
+void board_touch_reset(void)
+{
+    /* 触摸屏复位时序: RST=0 (复位) -> delay -> RST=1 (释放) -> delay (等待就绪) */
+#if BOARD_TOUCH_RST_ACTIVE_LEVEL
+    gpio_set_data(BOARD_TOUCH_RST_PORT, BOARD_TOUCH_RST_PIN, 1);
+#else
+    gpio_set_data(BOARD_TOUCH_RST_PORT, BOARD_TOUCH_RST_PIN, 0);
+#endif
+    
+    /* 延时约 ~10ms @ 100MHz */
+    for (volatile uint32_t i = 0; i < 1000000u; i++) {
+        __asm volatile("nop");
+    }
+    
+    /* 释放复位 */
+#if BOARD_TOUCH_RST_ACTIVE_LEVEL
+    gpio_set_data(BOARD_TOUCH_RST_PORT, BOARD_TOUCH_RST_PIN, 0);
+#else
+    gpio_set_data(BOARD_TOUCH_RST_PORT, BOARD_TOUCH_RST_PIN, 1);
+#endif
+    
+    /* 延时约 ~50ms，等待触摸IC就绪 */
+    for (volatile uint32_t i = 0; i < 5000000u; i++) {
+        __asm volatile("nop");
+    }
+}
+
+int board_touch_i2c_init(void *i2c)
+{
+    return i2c_soft_init_default_idx(i2c, BOARD_TOUCH_I2C_IDX, BOARD_TOUCH_I2C_FREQ);
+}
+#endif /* BOARD_TOUCH_ENABLE */
