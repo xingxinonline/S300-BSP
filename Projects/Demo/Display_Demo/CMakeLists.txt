@@ -1,3 +1,12 @@
+# =============================================================================
+# Display_Demo - LVGL 显示演示
+# =============================================================================
+# 本项目不使用 s300_add_executable() 的原因:
+# 1. 需要 FetchContent 集成 LVGL
+# 2. 需要 file(GLOB) 动态包含 Assets 图片资源
+# 3. 需要自定义多模型 GDB 调试目标
+# =============================================================================
+
 cmake_minimum_required(VERSION 3.16)
 
 project(Display_Demo)
@@ -8,76 +17,66 @@ set(TARGET s300_display_demo)
 # Paths
 set(PROJECT_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 set(ROOT ${PROJECT_DIR}/../../..)
-set(DEVICE_DIR ${ROOT}/CMSIS/Device/PiMCHIP/S300)
-set(LD_SCRIPT ${ROOT}/ld/sram.ld)
 
-# Includes
+# 使用 s300_resolve_drivers 自动解析驱动依赖
+s300_resolve_drivers(
+    DRIVERS uart dma mm mailbox psram
+    OUT_SRCS DRIVER_SRCS
+    OUT_INCS DRIVER_INCS
+)
+
 include_directories(
-    ${DEVICE_DIR}/Include
-    ${ROOT}/CMSIS/Core/Include
-    ${ROOT}/Drivers/SoC/RCC/Include
-    ${ROOT}/Drivers/SoC/GPIO/Include
-    ${ROOT}/Drivers/SoC/UART/Include
-    ${ROOT}/Drivers/SoC/DMA/Include
-    ${ROOT}/Drivers/SoC/I2CSoft/Include
-    ${ROOT}/Drivers/SoC/MAILBOX/Include
-    ${ROOT}/Drivers/External/OV5640/Include
-    ${ROOT}/Drivers/SoC/MM/Include
-    ${ROOT}/Drivers/SoC/PSRAM/Include
+    ${S300_DEVICE_DIR}/Include
+    ${S300_CORE_INC}
+    ${DRIVER_INCS}
     ${PROJECT_DIR}/Inc
 )
 
-# Integrate LVGL v9.4 (online via FetchContent or offline via local path)
-# Option: provide a local LVGL source tree to avoid network access
-set(LVGL_LOCAL_PATH "" CACHE PATH "Local path to LVGL sources (if set, FetchContent is skipped)")
-set(LVGL_VENDOR_DIR ${PROJECT_DIR}/third_party/lvgl/lvgl)
+# Integrate LVGL v9.4
+# 检查 lvgl 目标是否已存在（可能由其他项目创建）
+if(NOT TARGET lvgl)
+    set(LVGL_LOCAL_PATH "" CACHE PATH "Local path to LVGL sources (if set, FetchContent is skipped)")
+    set(LVGL_VENDOR_DIR ${PROJECT_DIR}/third_party/lvgl/lvgl)
 
-# Point LVGL to our local config header
-set(LV_CONF_PATH ${PROJECT_DIR}/third_party/lvgl/lv_conf.h CACHE STRING "Path to lv_conf.h" FORCE)
+    # Point LVGL to our local config header
+    set(LV_CONF_PATH ${PROJECT_DIR}/third_party/lvgl/lv_conf.h CACHE STRING "Path to lv_conf.h" FORCE)
 
-# Configure LVGL options to keep footprint small on MCU (must be set before adding lvgl)
-set(CONFIG_LV_BUILD_EXAMPLES OFF CACHE BOOL "Build LVGL examples" FORCE)
-set(CONFIG_LV_BUILD_DEMOS OFF CACHE BOOL "Build LVGL demos" FORCE)
-set(CONFIG_LV_USE_THORVG_INTERNAL OFF CACHE BOOL "Use ThorVG internal" FORCE)
-set(LV_BUILD_CONF_PATH ${LV_CONF_PATH} CACHE PATH "Path to lv_conf.h file" FORCE)
+    # Configure LVGL options to keep footprint small on MCU (must be set before adding lvgl)
+    set(CONFIG_LV_BUILD_EXAMPLES OFF CACHE BOOL "Build LVGL examples" FORCE)
+    set(CONFIG_LV_BUILD_DEMOS OFF CACHE BOOL "Build LVGL demos" FORCE)
+    set(CONFIG_LV_USE_THORVG_INTERNAL OFF CACHE BOOL "Use ThorVG internal" FORCE)
+    set(LV_BUILD_CONF_PATH ${LV_CONF_PATH} CACHE PATH "Path to lv_conf.h file" FORCE)
 
-if(EXISTS ${LVGL_VENDOR_DIR}/CMakeLists.txt AND EXISTS ${LVGL_VENDOR_DIR}/lvgl.h)
-    message(STATUS "Using LVGL from vendor directory: ${LVGL_VENDOR_DIR}")
-    add_subdirectory(${LVGL_VENDOR_DIR} ${CMAKE_CURRENT_BINARY_DIR}/lvgl-vendor-build)
-elseif(LVGL_LOCAL_PATH)
-    message(STATUS "Using LVGL from local path: ${LVGL_LOCAL_PATH}")
-    add_subdirectory(${LVGL_LOCAL_PATH} ${CMAKE_CURRENT_BINARY_DIR}/lvgl-local-build)
-else()
-    include(FetchContent)
-    FetchContent_Declare(
-        lvgl
-        GIT_REPOSITORY https://github.com/lvgl/lvgl.git
-        GIT_TAG v9.4.0
-        GIT_SHALLOW TRUE
-    )
-    FetchContent_MakeAvailable(lvgl)
+    if(EXISTS ${LVGL_VENDOR_DIR}/CMakeLists.txt AND EXISTS ${LVGL_VENDOR_DIR}/lvgl.h)
+        message(STATUS "Using LVGL from vendor directory: ${LVGL_VENDOR_DIR}")
+        add_subdirectory(${LVGL_VENDOR_DIR} ${CMAKE_CURRENT_BINARY_DIR}/lvgl-vendor-build)
+    elseif(LVGL_LOCAL_PATH)
+        message(STATUS "Using LVGL from local path: ${LVGL_LOCAL_PATH}")
+        add_subdirectory(${LVGL_LOCAL_PATH} ${CMAKE_CURRENT_BINARY_DIR}/lvgl-local-build)
+    else()
+        include(FetchContent)
+        FetchContent_Declare(
+            lvgl
+            GIT_REPOSITORY https://github.com/lvgl/lvgl.git
+            GIT_TAG v9.4.0
+            GIT_SHALLOW TRUE
+        )
+        FetchContent_MakeAvailable(lvgl)
+    endif()
+
+    # Ensure lvgl sees LV_CONF_PATH
+    if(TARGET lvgl)
+        target_compile_definitions(lvgl PUBLIC LV_CONF_PATH="${LV_CONF_PATH}")
+    endif()
 endif()
 
-# Ensure lvgl sees LV_CONF_PATH
-if(TARGET lvgl)
-    target_compile_definitions(lvgl PUBLIC LV_CONF_PATH="${LV_CONF_PATH}")
-endif()
+add_compile_definitions(BOARD_MM_ENABLE=1)
 
-# Board feature enable macros (启用多媒体子系统)
-add_compile_definitions(
-    BOARD_MM_ENABLE=1
-)
-
-# Sources (board files provided by s300_board library)
+# Sources
 set(SRCS
-    ${DEVICE_DIR}/Source/GCC/startup_S300.S
-    ${ROOT}/CMSIS/Device/PiMCHIP/S300/Source/system_S300.c
-    ${ROOT}/Drivers/SoC/RCC/Source/rcc.c
-    ${ROOT}/Drivers/SoC/GPIO/Source/gpio.c
-    ${ROOT}/Drivers/SoC/UART/Source/uart.c
-    ${ROOT}/Drivers/SoC/DMA/Source/dma.c
-    ${ROOT}/Drivers/SoC/I2CSoft/Source/i2c_soft.c
-    ${ROOT}/Drivers/External/OV5640/Source/ov5640.c
+    ${S300_STARTUP_FILE}
+    ${S300_SYSTEM_FILE}
+    ${DRIVER_SRCS}
     ${PROJECT_DIR}/Src/main.c
     ${PROJECT_DIR}/Src/ui_display.c
     ${PROJECT_DIR}/Src/eyes.c
@@ -90,21 +89,18 @@ set(SRCS
 # Auto-include all generated image assets
 file(GLOB GEN_IMG_SRCS ${PROJECT_DIR}/Assets/generated/*.c)
 list(APPEND SRCS ${GEN_IMG_SRCS})
-set_source_files_properties(${DEVICE_DIR}/Source/GCC/startup_S300.S PROPERTIES LANGUAGE ASM)
+set_source_files_properties(${S300_STARTUP_FILE} PROPERTIES LANGUAGE ASM)
 
 add_executable(${TARGET} ${SRCS})
 
 # Link board support library and other dependencies
 target_link_libraries(${TARGET}
     s300_board
-    s300_video
-    s300_mailbox
-    s300_psram
     lvgl
 )
 
 # Linker script
-set_target_properties(${TARGET} PROPERTIES LINK_FLAGS "-T${LD_SCRIPT}")
+set_target_properties(${TARGET} PROPERTIES LINK_FLAGS "-T${S300_DEFAULT_LD}")
 
 # Post build artifacts (bin/hex/disasm/size)
 add_custom_command(TARGET ${TARGET} POST_BUILD
@@ -129,7 +125,9 @@ add_custom_target(dbg_display
 
 # Use Algorithm_Models/Face_Detection for DSP firmware
 cmake_path(ABSOLUTE_PATH ROOT NORMALIZE OUTPUT_VARIABLE ROOT_ABS)
-set(FACE_DETECTION_DIR ${ROOT_ABS}/Algorithm_Models/Face_Detection)
+set(ALGORITHM_MODELS_DIR ${ROOT_ABS}/Algorithm_Models)
+set(FACE_DETECTION_DIR ${ALGORITHM_MODELS_DIR}/Face_Detection)
+set(HUMAN_DETECTION_DIR ${ALGORITHM_MODELS_DIR}/Human_Detection)
 
 # Helper function to generate GDB restore command for a binary image
 function(generate_gdb_restore_cmd IMAGE_FILE ADDR OUTPUT_VAR)
@@ -179,5 +177,42 @@ add_custom_target(dbg_display_face-detection
 # 生成 S300 ROMBOOT 镜像 (带人脸检测模型)
 add_s300_image(${TARGET}
     OUTPUT s300_display_face_detection.bin
-    DSP_DIR ${ROOT}/Algorithm_Models/Face_Detection
+    DSP_DIR ${FACE_DETECTION_DIR}
+    IMG_TARGET display_face_detection
+)
+
+# =============================================================================
+# Human_Detection 模型支持
+# =============================================================================
+generate_gdb_restore_cmd("${HUMAN_DETECTION_DIR}/model_dtcm_boot.bin" "0x44800000" GDB_RESTORE_DTCM)
+generate_gdb_restore_cmd("${HUMAN_DETECTION_DIR}/model_ptcm_boot.bin" "0x44A00000" GDB_RESTORE_PTCM)
+generate_gdb_restore_cmd("${HUMAN_DETECTION_DIR}/model_sram0_boot.bin" "0x44000000" GDB_RESTORE_SRAM0)
+generate_gdb_restore_cmd("${HUMAN_DETECTION_DIR}/model_psram_boot.bin" "0x80000000" GDB_RESTORE_PSRAM)
+
+set(MODEL_NAME "Human_Detection")
+set(MODEL_KEBAB "human-detection")
+set(MODEL_DIR ${HUMAN_DETECTION_DIR})
+
+configure_file(
+    ${ROOT}/gdbinit.model.gdb.in
+    ${CMAKE_CURRENT_BINARY_DIR}/gdbinit.${MODEL_KEBAB}.gdb
+    @ONLY
+)
+
+# Debug target with Human_Detection model preloaded
+add_custom_target(dbg_display_human-detection
+    COMMENT "Launching GDB for ${TARGET} with Human_Detection model (GDB_PORT=${GDB_PORT})"
+    COMMAND arm-none-eabi-gdb -q
+    -ex "file $<TARGET_FILE:${TARGET}>"
+    -ex "target extended-remote :${GDB_PORT}"
+    -x ${CMAKE_CURRENT_BINARY_DIR}/gdbinit.${MODEL_KEBAB}.gdb
+    DEPENDS ${TARGET}
+    USES_TERMINAL
+)
+
+# 生成 S300 ROMBOOT 镜像 (带人形检测模型)
+add_s300_image(${TARGET}
+    OUTPUT s300_display_human_detection.bin
+    DSP_DIR ${HUMAN_DETECTION_DIR}
+    IMG_TARGET display_human_detection
 )

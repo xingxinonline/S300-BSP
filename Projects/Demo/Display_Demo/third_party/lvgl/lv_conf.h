@@ -38,6 +38,7 @@
 
 /* Fonts: minimize text footprint. Keep only very small UNSCII 8 as default. */
 #define LV_FONT_MONTSERRAT_12 0
+#define LV_FONT_MONTSERRAT_28 1  /* Required for LVGL_Gesture_Progress_Bar */
 #define LV_FONT_UNSCII_8      1
 #define LV_FONT_DEFAULT       &lv_font_unscii_8
 

@@ -1,3 +1,11 @@
+# =============================================================================
+# LVGL_Gesture_Progress_Bar - 手势进度条演示
+# =============================================================================
+# 本项目不使用 s300_add_executable() 的原因:
+#   1. 需要 FetchContent 集成 LVGL
+#   2. 需要自定义多模型 GDB 调试目标
+# =============================================================================
+
 cmake_minimum_required(VERSION 3.16)
 
 project(LVGL_Gesture_Progress_Bar)
@@ -8,94 +16,84 @@ set(TARGET s300_gesture_progress_demo)
 # Paths
 set(PROJECT_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 set(ROOT ${PROJECT_DIR}/../../..)
-set(DEVICE_DIR ${ROOT}/CMSIS/Device/PiMCHIP/S300)
-set(LD_SCRIPT ${PROJECT_DIR}/ld/sram_demo.ld)
 
-# Includes
+# 使用 s300_resolve_drivers 自动解析驱动依赖
+s300_resolve_drivers(
+    DRIVERS uart dma mm mailbox psram
+    OUT_SRCS DRIVER_SRCS
+    OUT_INCS DRIVER_INCS
+)
+
 include_directories(
-    ${DEVICE_DIR}/Include
-    ${ROOT}/CMSIS/Core/Include
-    ${ROOT}/Drivers/SoC/RCC/Include
-    ${ROOT}/Drivers/SoC/GPIO/Include
-    ${ROOT}/Drivers/SoC/UART/Include
-    ${ROOT}/Drivers/SoC/DMA/Include
-    ${ROOT}/Drivers/SoC/I2CSoft/Include
-    ${ROOT}/Drivers/SoC/MAILBOX/Include
-    ${ROOT}/Drivers/SoC/MM/Include
-    ${ROOT}/Drivers/SoC/PSRAM/Include
-    ${ROOT}/Drivers/External/OV5640/Include
-    ${ROOT}/Boards/${BOARD}
+    ${S300_DEVICE_DIR}/Include
+    ${S300_CORE_INC}
+    ${DRIVER_INCS}
+    ${S300_BOARD_DIR}
     ${PROJECT_DIR}/Inc
 )
 
-# Integrate LVGL v9.4 (online via FetchContent or offline via local path)
-# Option: provide a local LVGL source tree to avoid network access
-set(LVGL_LOCAL_PATH "" CACHE PATH "Local path to LVGL sources (if set, FetchContent is skipped)")
-set(LVGL_VENDOR_DIR ${PROJECT_DIR}/third_party/lvgl/lvgl)
+# Integrate LVGL v9.4
+# 检查 lvgl 目标是否已存在（可能由其他项目创建）
+if(NOT TARGET lvgl)
+    set(LVGL_LOCAL_PATH "" CACHE PATH "Local path to LVGL sources (if set, FetchContent is skipped)")
+    set(LVGL_VENDOR_DIR ${PROJECT_DIR}/third_party/lvgl/lvgl)
 
-# Point LVGL to our local config header
-set(LV_CONF_PATH ${PROJECT_DIR}/third_party/lvgl/lv_conf.h CACHE STRING "Path to lv_conf.h" FORCE)
+    # Point LVGL to our local config header
+    set(LV_CONF_PATH ${PROJECT_DIR}/third_party/lvgl/lv_conf.h CACHE STRING "Path to lv_conf.h" FORCE)
 
-# Configure LVGL options to keep footprint small on MCU (must be set before adding lvgl)
-set(CONFIG_LV_BUILD_EXAMPLES OFF CACHE BOOL "Build LVGL examples" FORCE)
-set(CONFIG_LV_BUILD_DEMOS OFF CACHE BOOL "Build LVGL demos" FORCE)
-set(CONFIG_LV_USE_THORVG_INTERNAL OFF CACHE BOOL "Use ThorVG internal" FORCE)
-set(LV_BUILD_CONF_PATH ${LV_CONF_PATH} CACHE PATH "Path to lv_conf.h file" FORCE)
+    # Configure LVGL options to keep footprint small on MCU (must be set before adding lvgl)
+    set(CONFIG_LV_BUILD_EXAMPLES OFF CACHE BOOL "Build LVGL examples" FORCE)
+    set(CONFIG_LV_BUILD_DEMOS OFF CACHE BOOL "Build LVGL demos" FORCE)
+    set(CONFIG_LV_USE_THORVG_INTERNAL OFF CACHE BOOL "Use ThorVG internal" FORCE)
+    set(LV_BUILD_CONF_PATH ${LV_CONF_PATH} CACHE PATH "Path to lv_conf.h file" FORCE)
 
-if(EXISTS ${LVGL_VENDOR_DIR}/CMakeLists.txt AND EXISTS ${LVGL_VENDOR_DIR}/lvgl.h)
-    message(STATUS "Using LVGL from vendor directory: ${LVGL_VENDOR_DIR}")
-    add_subdirectory(${LVGL_VENDOR_DIR} ${CMAKE_CURRENT_BINARY_DIR}/lvgl-vendor-build)
-elseif(LVGL_LOCAL_PATH)
-    message(STATUS "Using LVGL from local path: ${LVGL_LOCAL_PATH}")
-    add_subdirectory(${LVGL_LOCAL_PATH} ${CMAKE_CURRENT_BINARY_DIR}/lvgl-local-build)
-else()
-    include(FetchContent)
-    FetchContent_Declare(
-        lvgl
-        GIT_REPOSITORY https://github.com/lvgl/lvgl.git
-        GIT_TAG v9.4.0
-        GIT_SHALLOW TRUE
-    )
-    FetchContent_MakeAvailable(lvgl)
-endif()
+    if(EXISTS ${LVGL_VENDOR_DIR}/CMakeLists.txt AND EXISTS ${LVGL_VENDOR_DIR}/lvgl.h)
+        message(STATUS "Using LVGL from vendor directory: ${LVGL_VENDOR_DIR}")
+        add_subdirectory(${LVGL_VENDOR_DIR} ${CMAKE_CURRENT_BINARY_DIR}/lvgl-vendor-build)
+    elseif(LVGL_LOCAL_PATH)
+        message(STATUS "Using LVGL from local path: ${LVGL_LOCAL_PATH}")
+        add_subdirectory(${LVGL_LOCAL_PATH} ${CMAKE_CURRENT_BINARY_DIR}/lvgl-local-build)
+    else()
+        include(FetchContent)
+        FetchContent_Declare(
+            lvgl
+            GIT_REPOSITORY https://github.com/lvgl/lvgl.git
+            GIT_TAG v9.4.0
+            GIT_SHALLOW TRUE
+        )
+        FetchContent_MakeAvailable(lvgl)
+    endif()
 
-# Ensure lvgl sees LV_CONF_PATH
-if(TARGET lvgl)
-    target_compile_definitions(lvgl PUBLIC LV_CONF_PATH="${LV_CONF_PATH}")
+    # Ensure lvgl sees LV_CONF_PATH
+    if(TARGET lvgl)
+        target_compile_definitions(lvgl PUBLIC LV_CONF_PATH="${LV_CONF_PATH}")
+    endif()
 endif()
 
 # Sources
 set(SRCS
-    ${DEVICE_DIR}/Source/GCC/startup_S300.S
-    ${ROOT}/Boards/generic_evb/board.c
-    ${ROOT}/Boards/Common/retarget.c
-    ${ROOT}/Boards/Common/syscalls.c
-    ${ROOT}/CMSIS/Device/PiMCHIP/S300/Source/system_S300.c
-    ${ROOT}/Drivers/SoC/RCC/Source/rcc.c
-    ${ROOT}/Drivers/SoC/GPIO/Source/gpio.c
-    ${ROOT}/Drivers/SoC/UART/Source/uart.c
-    ${ROOT}/Drivers/SoC/DMA/Source/dma.c
-    ${ROOT}/Drivers/SoC/PSRAM/Source/psram.c
-    ${ROOT}/Drivers/SoC/I2CSoft/Source/i2c_soft.c
-    ${ROOT}/Drivers/External/OV5640/Source/ov5640.c
+    ${S300_STARTUP_FILE}
+    ${S300_BOARD_DIR}/board.c
+    ${S300_BOARD_COMMON_DIR}/retarget.c
+    ${S300_BOARD_COMMON_DIR}/syscalls.c
+    ${S300_SYSTEM_FILE}
+    ${DRIVER_SRCS}
     ${PROJECT_DIR}/Src/main.c
     ${PROJECT_DIR}/Src/ui_display.c
     ${PROJECT_DIR}/Src/app_mailbox.c
     ${PROJECT_DIR}/Src/camera_ov5640.c
 )
 
-set_source_files_properties(${DEVICE_DIR}/Source/GCC/startup_S300.S PROPERTIES LANGUAGE ASM)
+set_source_files_properties(${S300_STARTUP_FILE} PROPERTIES LANGUAGE ASM)
 
 add_executable(${TARGET} ${SRCS})
 
 # Linker script
-set_target_properties(${TARGET} PROPERTIES LINK_FLAGS "-T${LD_SCRIPT}")
+set_target_properties(${TARGET} PROPERTIES LINK_FLAGS "-T${S300_DEFAULT_LD}")
 
 # Link libraries (including drivers and LVGL)
 target_link_libraries(${TARGET} PRIVATE
     lvgl
-    s300_video
-    s300_mailbox
 )
 
 # Post build artifacts (bin/hex/disasm/size)
@@ -161,9 +159,7 @@ add_custom_target(dbg_gesture_demo
     COMMENT "Launching GDB for ${TARGET} with default DSP images (Hand Gesture)"
     COMMAND ${CMAKE_COMMAND} --build . --target dbg_gesture_demo_hand_gesture
     DEPENDS dbg_gesture_demo_hand_gesture
-)
-
-# 生成 S300 ROMBOOT 镜像 (含手势识别模型)
+) # 生成 S300 ROMBOOT 镜像 (含手势识别模型)
 add_s300_image(${TARGET}
     OUTPUT s300_gesture_progress_demo.bin
     DSP_DIR ${HAND_GESTURE_DIR}
