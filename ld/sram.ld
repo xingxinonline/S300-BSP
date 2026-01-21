@@ -25,11 +25,13 @@ SECTIONS
 
   .bss :
   {
-  _sbss = .;
-  __bss_start__ = _sbss;
-  *(.bss*)
+    _sbss = .;
+    __bss_start__ = _sbss;
+    *(.bss*)
     *(COMMON)
-  _ebss = .;
-  __bss_end__ = _ebss;
+    _ebss = .;
+    __bss_end__ = _ebss;
+    end = __bss_end__;
+    _end = __bss_end__;
   } > SRAM1
 }
