@@ -10,6 +10,7 @@
 | [Development_Environment_Guide.md](Development_Environment_Guide.md) | 开发环境搭建与 VS Code 使用说明 |
 | [S300_BSP_Architecture.md](S300_BSP_Architecture.md) | BSP 架构设计，包含目录结构、分层设计、驱动接口规范 |
 | [S300_DMA_LLI_Guide.md](S300_DMA_LLI_Guide.md) | DMA 链表传输使用指南，大数据搬运的实现方法 |
+| [S300_GPIO_Pinmux_Guide.md](S300_GPIO_Pinmux_Guide.md) | GPIO 与引脚复用配置指南，IO_MATRIX/IO_MUX 使用说明 |
 | [coding_style_cn.md](coding_style_cn.md) | 编码规范（中文） |
 | [coding_style_en.md](coding_style_en.md) | 编码规范（英文） |
 
