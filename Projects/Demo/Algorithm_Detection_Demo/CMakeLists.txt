@@ -1,3 +1,11 @@
+# =============================================================================
+# Algorithm_Detection_Demo - AI 检测算法演示
+# =============================================================================
+# 本项目不使用 s300_add_executable() 的原因:
+#   1. 需要动态遍历 Algorithm_Models/ 目录生成调试目标
+#   2. 每个模型需要独立的 GDB 加载脚本和镜像目标
+# =============================================================================
+
 cmake_minimum_required(VERSION 3.16)
 
 project(Algorithm_Detection_Demo)
@@ -8,40 +16,28 @@ set(TARGET s300_detection_demo)
 # Paths
 set(PROJECT_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 set(ROOT ${PROJECT_DIR}/../../..)
-set(DEVICE_DIR ${ROOT}/CMSIS/Device/PiMCHIP/S300)
-set(LD_SCRIPT ${ROOT}/ld/sram.ld)
 
-# Includes
+# 使用 s300_resolve_drivers 自动解析驱动依赖
+s300_resolve_drivers(
+    DRIVERS uart dma mm mailbox psram
+    OUT_SRCS DRIVER_SRCS
+    OUT_INCS DRIVER_INCS
+)
+
 include_directories(
-    ${DEVICE_DIR}/Include
-    ${ROOT}/CMSIS/Core/Include
-    ${ROOT}/Drivers/SoC/RCC/Include
-    ${ROOT}/Drivers/SoC/GPIO/Include
-    ${ROOT}/Drivers/SoC/UART/Include
-    ${ROOT}/Drivers/SoC/DMA/Include
-    ${ROOT}/Drivers/SoC/I2CSoft/Include
-    ${ROOT}/Drivers/SoC/MAILBOX/Include
-    ${ROOT}/Drivers/External/OV5640/Include
-    ${ROOT}/Drivers/SoC/MM/Include
-    ${ROOT}/Drivers/SoC/PSRAM/Include
+    ${S300_DEVICE_DIR}/Include
+    ${S300_CORE_INC}
+    ${DRIVER_INCS}
     ${PROJECT_DIR}/Inc
 )
 
-# Board feature enable macros (启用多媒体子系统)
-add_compile_definitions(
-    BOARD_MM_ENABLE=1
-)
+add_compile_definitions(BOARD_MM_ENABLE=1)
 
-# Sources (board files provided by s300_board library)
+# Sources
 set(SRCS
-    ${DEVICE_DIR}/Source/GCC/startup_S300.S
-    ${ROOT}/CMSIS/Device/PiMCHIP/S300/Source/system_S300.c
-    ${ROOT}/Drivers/SoC/RCC/Source/rcc.c
-    ${ROOT}/Drivers/SoC/GPIO/Source/gpio.c
-    ${ROOT}/Drivers/SoC/UART/Source/uart.c
-    ${ROOT}/Drivers/SoC/DMA/Source/dma.c
-    ${ROOT}/Drivers/SoC/I2CSoft/Source/i2c_soft.c
-    ${ROOT}/Drivers/External/OV5640/Source/ov5640.c
+    ${S300_STARTUP_FILE}
+    ${S300_SYSTEM_FILE}
+    ${DRIVER_SRCS}
     ${PROJECT_DIR}/Src/main.c
     ${PROJECT_DIR}/Src/camera_ov5640.c
     ${PROJECT_DIR}/Src/face_tracker.c
@@ -49,21 +45,18 @@ set(SRCS
     ${PROJECT_DIR}/Src/display_demo_app.c
 )
 
-set_source_files_properties(${DEVICE_DIR}/Source/GCC/startup_S300.S PROPERTIES LANGUAGE ASM)
+set_source_files_properties(${S300_STARTUP_FILE} PROPERTIES LANGUAGE ASM)
 
 add_executable(${TARGET} ${SRCS})
 
 # Link board support library and other dependencies
 target_link_libraries(${TARGET}
     s300_board
-    s300_video
-    s300_mailbox
-    s300_psram
     m
 )
 
 # Linker script
-set_target_properties(${TARGET} PROPERTIES LINK_FLAGS "-T${LD_SCRIPT}")
+set_target_properties(${TARGET} PROPERTIES LINK_FLAGS "-T${S300_DEFAULT_LD}")
 
 # Post build artifacts (bin/hex/disasm/size)
 add_custom_command(TARGET ${TARGET} POST_BUILD
