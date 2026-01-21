@@ -45,22 +45,50 @@ enable_language(ASM)
 # Set linker flags
 set(CMAKE_EXE_LINKER_FLAGS "-nostartfiles -Wl,--gc-sections -specs=nosys.specs")
 
-# Add subdirectories (order matters: Boards must be added before Drivers/Projects)
+# Add subdirectories
 add_subdirectory(CMSIS)
 add_subdirectory(Boards)
-add_subdirectory(Drivers)
+
+# =============================================================================
+# 包含公共 CMake 函数
+# =============================================================================
+# 提供 s300_add_executable() 等便捷函数，简化项目配置
+include(${CMAKE_SOURCE_DIR}/cmake/s300_common.cmake)
+
+# =============================================================================
+# 全局镜像目标收集器
+# =============================================================================
+# 用于收集所有注册的镜像目标，最终创建统一的 `images` 目标
+set(S300_IMAGE_TARGETS "" CACHE INTERNAL "List of all image targets")
 
 # Helper function to add image generation target
-# Usage: add_s300_image(target_name [M0_BIN path] [DSP_DIR path] [OUTPUT name] [DSP_PRO hex])
+# Usage: add_s300_image(target_name [M0_BIN path] [DSP_DIR path] [OUTPUT name] [DSP_PRO hex] [IMG_TARGET name])
+# Note: 输出文件名会自动追加板型后缀，例如 demo.bin -> demo_generic_evb.bin
+#
+# 使用方式:
+#   ninja img_<target>     - 生成单个镜像
+#   ninja images           - 生成所有已注册的镜像
+#
+# IMG_TARGET: 自定义镜像目标名称（用于同一个 TARGET 生成多个不同模型的镜像）
 function(add_s300_image TARGET)
     set(options)
-    set(oneValueArgs M0_BIN DSP_DIR OUTPUT DSP_PRO)
+    set(oneValueArgs M0_BIN DSP_DIR OUTPUT DSP_PRO IMG_TARGET)
     set(multiValueArgs)
     cmake_parse_arguments(ARG "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
 
     if(NOT ARG_OUTPUT)
         set(ARG_OUTPUT ${TARGET}.bin)
     endif()
+
+    # 自定义镜像目标名称，默认为 img_${TARGET}
+    if(ARG_IMG_TARGET)
+        set(IMG_TARGET_NAME img_${ARG_IMG_TARGET})
+    else()
+        set(IMG_TARGET_NAME img_${TARGET})
+    endif()
+
+    # 自动追加板型后缀到输出文件名 (demo.bin -> demo_${BOARD}.bin)
+    string(REGEX REPLACE "\\.bin$" "_${BOARD}.bin" ARG_OUTPUT "${ARG_OUTPUT}")
 
     # 使用生成的 .bin 文件而不是 .elf 文件
     get_target_property(TARGET_DIR ${TARGET} BINARY_DIR)
@@ -83,15 +111,30 @@ function(add_s300_image TARGET)
         list(APPEND CMD_ARGS --dsp-pro ${ARG_DSP_PRO})
     endif()
 
-    add_custom_target(img_${TARGET}
-        COMMAND uv run python s300_image.py ${CMD_ARGS}
+    add_custom_target(${IMG_TARGET_NAME}
+        COMMAND python s300_image.py ${CMD_ARGS}
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/tools
         DEPENDS ${TARGET}
         COMMENT "Generating S300 image: ${ARG_OUTPUT}"
     )
+
+    # 注册到全局镜像目标列表
+    set(S300_IMAGE_TARGETS ${S300_IMAGE_TARGETS} ${IMG_TARGET_NAME} CACHE INTERNAL "List of all image targets")
 endfunction()
 
 add_subdirectory(Projects)
+
+# =============================================================================
+# 统一镜像生成目标
+# =============================================================================
+# 生成所有已注册的镜像: ninja images
+if(S300_IMAGE_TARGETS)
+    add_custom_target(images
+        DEPENDS ${S300_IMAGE_TARGETS}
+        COMMENT "Generating all S300 images for board: ${BOARD}"
+    )
+    message(STATUS "Registered image targets: ${S300_IMAGE_TARGETS}")
+endif()
 
 # Add debug target (equivalent to make dbg)
 # GDB port can be customized; default OpenOCD/J-Link is :3333
