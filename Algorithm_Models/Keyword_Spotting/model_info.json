@@ -1,0 +1,23 @@
+{
+    "name": "Keyword Spotting",
+    "id": "keyword_spotting",
+    "version": "1.0.0",
+    "date": "2026-01-22",
+    "description": "KWS (Keyword Spotting) audio recognition model for wake word detection.",
+    "source": "Ported from commit 448b850 (kws 语音识别的dsp的bin文件)",
+    "compatibility": {
+        "dsp_fw": ">=1.0.0"
+    },
+    "files": {
+        "model_ptcm_boot.bin": "DSP PTCM boot firmware (110KB)",
+        "model_dtcm_boot.bin": "DSP DTCM boot firmware (41KB)",
+        "model_sram0_boot.bin": "DSP SRAM0 boot segment",
+        "model_sram1_boot.bin": "DSP SRAM1 boot segment (1KB)"
+    },
+    "load_addresses": {
+        "ptcm": "0x44A00000",
+        "dtcm": "0x44800000",
+        "sram0": "0x44000000",
+        "sram1": "0x44040000"
+    }
+}
