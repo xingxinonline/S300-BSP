@@ -28,5 +28,35 @@
             "name": "Ninja"
         },
         "isTrusted": true
+    },
+    {
+        "name": "Gimbal Master [云台主控板]",
+        "compilers": {
+            "C": "arm-none-eabi-gcc",
+            "CXX": "arm-none-eabi-g++"
+        },
+        "cmakeSettings": {
+            "BOARD": "gimbal_master"
+        },
+        "description": "智能云台主控板 - 人脸识别+云台控制",
+        "preferredGenerator": {
+            "name": "Ninja"
+        },
+        "isTrusted": true
+    },
+    {
+        "name": "Gimbal Node [云台AI节点]",
+        "compilers": {
+            "C": "arm-none-eabi-gcc",
+            "CXX": "arm-none-eabi-g++"
+        },
+        "cmakeSettings": {
+            "BOARD": "gimbal_node"
+        },
+        "description": "智能云台AI节点 - mPCIE检测子板",
+        "preferredGenerator": {
+            "name": "Ninja"
+        },
+        "isTrusted": true
     }
 ]

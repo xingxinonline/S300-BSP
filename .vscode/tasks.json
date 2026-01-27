@@ -56,6 +56,46 @@
         "panel": "shared"
       }
     },
+    {
+      "label": "S300: Switch to Gimbal Master (云台主控板)",
+      "type": "shell",
+      "command": "cmake",
+      "args": [
+        "-B",
+        "${workspaceFolder}/build",
+        "-G",
+        "Ninja",
+        "-DBOARD=gimbal_master",
+        "${workspaceFolder}"
+      ],
+      "group": "none",
+      "problemMatcher": "$gcc",
+      "detail": "切换到智能云台主控板并重新配置 CMake",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      }
+    },
+    {
+      "label": "S300: Switch to Gimbal Node (云台AI节点)",
+      "type": "shell",
+      "command": "cmake",
+      "args": [
+        "-B",
+        "${workspaceFolder}/build",
+        "-G",
+        "Ninja",
+        "-DBOARD=gimbal_node",
+        "${workspaceFolder}"
+      ],
+      "group": "none",
+      "problemMatcher": "$gcc",
+      "detail": "切换到智能云台AI节点(mPCIE)并重新配置 CMake",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      }
+    },
     // =============================================================================
     // 构建任务
     // =============================================================================
@@ -106,6 +146,10 @@
         {
           "label": "📱 应用板 (App Board)",
           "value": "app_board"
+        },
+        {
+          "label": "🎯 智能云台主板 (NE005 Gimbal)",
+          "value": "ne005_gimbal"
         }
       ],
       "default": "generic_evb"
