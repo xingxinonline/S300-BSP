@@ -229,7 +229,7 @@ int main(void)
     print_status_all("[DEMO] Status(before tests):");
 
     // 选择一个安全的测试地址，避开可能的Boot/RBL区域
-    uint32_t test_addr = 0x00100000u; // 1MB 偏移
+    uint32_t test_addr = 0x00000000u; // 1MB 偏移
 
     // 基础读写擦测试（STIG 1-1-1）
     int rc = flash_test_rw(test_addr);

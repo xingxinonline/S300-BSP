@@ -37,14 +37,14 @@ int camera_ov5640_preinit(void)
     set_gpio_data(BOARD_CAM_PORT, BOARD_CAM_RST_PIN, 1);
     for (volatile uint32_t i = 0; i < 2400000u; i++) __asm volatile("nop");
 
-    /* I2C Init */
+    /* I2C Init - 需要 FUNCTION_2 (GPIO 模式) */
     i2c_soft_t i2c1;
     i2c_soft_cfg_t cfg = {
         .port = BOARD_CAMERA_I2C_PORT,
         .pin_scl = BOARD_CAMERA_I2C_SCL_PIN,
         .pin_sda = BOARD_CAMERA_I2C_SDA_PIN,
-        .func_scl = BOARD_CAMERA_I2C_FUNCTION,
-        .func_sda = BOARD_CAMERA_I2C_FUNCTION,
+        .func_scl = FUNCTION_2,  /* GPIO 模式用于软件 I2C */
+        .func_sda = FUNCTION_2,
         .pull_mode = GPIO_UP,
         .bus_hz = 50000 /* 50kHz for slow OV5640 I2C */
     };

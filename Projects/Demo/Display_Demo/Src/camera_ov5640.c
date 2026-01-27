@@ -23,13 +23,13 @@ int camera_ov5640_preinit(void)
     board_camera_ctrl_pins_init();
 #endif
 
-    /* I2C 软件初始化 */
+    /* I2C 软件初始化 - 需要 FUNCTION_2 (GPIO 模式) */
     i2c_soft_cfg_t cfg = {
         .port = BOARD_CAMERA_I2C_PORT,
         .pin_scl = BOARD_CAMERA_I2C_SCL_PIN,
         .pin_sda = BOARD_CAMERA_I2C_SDA_PIN,
-        .func_scl = BOARD_CAMERA_I2C_FUNCTION,
-        .func_sda = BOARD_CAMERA_I2C_FUNCTION,
+        .func_scl = FUNCTION_2,  /* GPIO 模式用于软件 I2C */
+        .func_sda = FUNCTION_2,
         .pull_mode = GPIO_UP,
         .bus_hz = 50000
     };
