@@ -72,8 +72,8 @@ set(DRIVER_wm8978_SRCS ${CMAKE_SOURCE_DIR}/Drivers/External/WM8978/Source/wm8978
 set(DRIVER_wm8978_INCS ${CMAKE_SOURCE_DIR}/Drivers/External/WM8978/Include)
 set(DRIVER_wm8978_DEPS i2c_soft i2s)
 
-set(DRIVER_ft6x36_SRCS ${CMAKE_SOURCE_DIR}/Drivers/External/FT6X36/ft6x36.c)
-set(DRIVER_ft6x36_INCS ${CMAKE_SOURCE_DIR}/Drivers/External/FT6X36)
+set(DRIVER_ft6x36_SRCS ${CMAKE_SOURCE_DIR}/Drivers/External/FT6X36/Source/ft6x36.c)
+set(DRIVER_ft6x36_INCS ${CMAKE_SOURCE_DIR}/Drivers/External/FT6X36/Include)
 set(DRIVER_ft6x36_DEPS i2c_soft)
 
 # =============================================================================
