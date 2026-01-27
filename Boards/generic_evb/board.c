@@ -89,7 +89,7 @@ void board_camera_ctrl_pins_init(void)
 void board_lcd_backlight_pin_init(void)
 {
     set_gpio_function(BOARD_LCD_BL_PORT, BOARD_LCD_BL_PIN, FUNCTION_2);
-    set_gpio_mode(BOARD_LCD_BL_PORT, BOARD_LCD_BL_PIN, GPIO_FLOAT);
+    set_gpio_mode(BOARD_LCD_BL_PORT, BOARD_LCD_BL_PIN, GPIO_DOWN);
     set_gpio_direction(BOARD_LCD_BL_PORT, BOARD_LCD_BL_PIN, 1);  /* Output */
 }
 #endif /* BOARD_LCD_BL_ENABLE */

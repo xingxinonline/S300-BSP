@@ -46,7 +46,14 @@ static void lcd_spi_init_st7735s(void)
     #define MADCTL_MX           (1 << 6)  // 列地址顺序（左右翻转）
     #define MADCTL_MV           (1 << 5)  // 页面/列顺序（行列反转）
 
-    #define MADCTL_ROTATE_180   (MADCTL_MY | MADCTL_MX)
+    /* 扫描方向配置：
+     * 0x00 = 左上角起点，向右向下扫描 (正常)
+     * MADCTL_MY = 左下角起点，向右向上扫描
+     * MADCTL_MX = 右上角起点，向左向下扫描
+     * MADCTL_MY|MX = 右下角起点 (180度旋转)
+     * MADCTL_MV = 行列交换 (90度旋转)
+     */
+    #define MADCTL_SCAN_DIR     (MADCTL_MV | MADCTL_MY | MADCTL_MX)  /* 左上角起点 */
 
     REG32(DSP_VIDEO_SS_BASE + 0x100) = 0xFFFDFFFE; 
     REG32(DSP_VIDEO_SS_BASE + 0x104) = 0x072204E0; 
@@ -65,7 +72,7 @@ static void lcd_spi_init_st7735s(void)
     REG32(DSP_VIDEO_SS_BASE + 0x134) = 0x8DC42A8D;//0xb100b066;
     REG32(DSP_VIDEO_SS_BASE + 0x138) = 0x361AC5EE;//0x2b411b0;
     
-    REG32(DSP_VIDEO_SS_BASE + 0x13c) = 0xB1063A00 | MADCTL_ROTATE_180;//0xb70202b6;
+    REG32(DSP_VIDEO_SS_BASE + 0x13c) = 0xB1063A00 | MADCTL_SCAN_DIR;//0xb70202b6;
     REG32(DSP_VIDEO_SS_BASE + 0x140) = 0xB23C3C05;
     REG32(DSP_VIDEO_SS_BASE + 0x144) = 0xB33C3C05;
 

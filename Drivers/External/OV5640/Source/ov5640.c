@@ -232,7 +232,7 @@ static const uint16_t ov5640_yuv422_cfg[][2] =
     {0x3036, 0xA0},//PLL   
     {0x3C07, 0x07},//light meter 1 threshold L
     {0x3820, 0x41},//Sensor flip , ISP flip;Bit[2]: ISP vflip  Bit[1]: Sensor vflip
-    {0x3821, 0x00},//Timing Control Bit[2]: ISP mirror Bit[1]: Sensor mirror
+    {0x3821, 0x06},//Timing Control Bit[2]: ISP mirror Bit[1]: Sensor mirror
     {0x3814, 0x31},//image windowing registers 0x3800-0x3813  timing control registers 0x3800-0x3821
     {0x3815, 0x31},
     {0x3800, 0x00},//图像窗口 Bit[7:4]: Debug mode Bit[3:0]: X address start[11:8]  -0
@@ -369,19 +369,35 @@ int ov5640_set_light(i2c_soft_t *i2c, uint8_t saddr, bool en)
 #define BOARD_CAM_PWDN_PIN 6u
 #endif
 
+/* 检查 PWDN 引脚是否有效 (0xFF 表示未使用) */
+#define OV5640_PWDN_VALID() (BOARD_CAM_PWDN_PIN != 0xFF && BOARD_CAM_PWDN_PIN < 32)
+
 void ov5640_hard_init(void)
 {
     /* 
-     * 引脚配置已由 board_camera_ctrl_pins_init() 完成 (如果 BOARD_CAMERA_ENABLE=1)
-     * 这里只做电源上电时序
+     * 配置 RST/PWDN 引脚为输出并执行上电时序
      */
+
+    /* 配置 RST 引脚为输出 */
+    gpio_set_function(BOARD_CAM_PORT, BOARD_CAM_RST_PIN, FUNCTION_2);
+    gpio_set_direction(BOARD_CAM_PORT, BOARD_CAM_RST_PIN, 1);
+    
+    /* 配置 PWDN 引脚为输出 (如果有效) */
+    if (OV5640_PWDN_VALID()) {
+        gpio_set_function(BOARD_CAM_PORT, BOARD_CAM_PWDN_PIN, FUNCTION_2);
+        gpio_set_direction(BOARD_CAM_PORT, BOARD_CAM_PWDN_PIN, 1);
+    }
 
     // Power On Sequence
     gpio_set_data(BOARD_CAM_PORT, BOARD_CAM_RST_PIN, 0); // RST Low
-    gpio_set_data(BOARD_CAM_PORT, BOARD_CAM_PWDN_PIN, 1); // PWDN High
+    if (OV5640_PWDN_VALID()) {
+        gpio_set_data(BOARD_CAM_PORT, BOARD_CAM_PWDN_PIN, 1); // PWDN High
+    }
     for (volatile uint32_t i = 0; i < 800000u; i++) __asm volatile("nop");
     
-    gpio_set_data(BOARD_CAM_PORT, BOARD_CAM_PWDN_PIN, 0); // PWDN Low
+    if (OV5640_PWDN_VALID()) {
+        gpio_set_data(BOARD_CAM_PORT, BOARD_CAM_PWDN_PIN, 0); // PWDN Low
+    }
     for (volatile uint32_t i = 0; i < 800000u; i++) __asm volatile("nop");
     
     gpio_set_data(BOARD_CAM_PORT, BOARD_CAM_RST_PIN, 1); // RST High
