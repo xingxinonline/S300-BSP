@@ -71,6 +71,9 @@ void display_demo_app_init(uint32_t (*get_millis)(void))
     /* 人脸追踪初始化（依赖 mailbox；提供时间回调实现） */
     face_tracker_init(get_millis);
 
+    /* 启动追踪（发送 CMD_START 给 DSP）*/
+    face_tracker_start();
+
     printf("[S300][MM_Test_Demo] Started.\r\n");
 }
 
