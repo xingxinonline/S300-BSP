@@ -57,15 +57,17 @@ class ImageGenerator:
         {'name': 'PTCM',  'ram_addr': 0x44A00000, 'file': 'ptcm_boot.bin'},
         {'name': 'DTCM',  'ram_addr': 0x44800000, 'file': 'dtcm_boot.bin'},
         {'name': 'SRAM0', 'ram_addr': 0x44000000, 'file': 'sram0_boot.bin'},
-        {'name': 'SRAM1', 'ram_addr': 0x00000000, 'file': 'sram1_boot.bin'},
-        {'name': 'PSRAM', 'ram_addr': 0x00000000, 'file': 'psram_boot.bin'},
+        {'name': 'SRAM1', 'ram_addr': 0x44040000, 'file': 'sram1_boot.bin'},
+        {'name': 'PSRAM', 'ram_addr': 0x80000000, 'file': 'psram_boot.bin'},
     ]
     
     def __init__(self, dsp_pro: Optional[int] = None, clock_config: Optional[Tuple[int, ...]] = None, verbose: bool = False):
         self.header = bytearray(256)
         self.image_data = bytearray()
-        # 设置默认的 DSP Pro 字段（Boot Mode 1，适用于大 DSP）
-        self.dsp_pro = dsp_pro if dsp_pro is not None else 0x00E00405
+        # 设置默认的 DSP Pro 字段
+        # 0x00E00409: 支持 PSRAM 模型加载（RBL 会先初始化 PSRAM）
+        # 0x00E00405: 不支持 PSRAM（仅 SRAM）
+        self.dsp_pro = dsp_pro if dsp_pro is not None else 0x00E00409
         # 设置默认的时钟配置（4个参数：REF Clock, FOUT Clock, PLL Config 0, PLL Config 1）
         self.clock_config = clock_config if clock_config is not None else (0x00989680, 0x05F5E100, 0x00154320, 0x05000000)
         self.verbose = verbose
@@ -302,11 +304,17 @@ class ImageGenerator:
                 # 计算CRC32
                 ram_crc32 = crc32_rom(data, 0)
                 
+                # ram_map 规则：PTCM/DTCM 为 0，SRAM0/SRAM1/PSRAM 等于 ram_addr
+                if ram_name in ('SRAM0', 'SRAM1', 'PSRAM'):
+                    ram_map_val = ram_addr
+                else:
+                    ram_map_val = 0x00000000
+                
                 ram_info.append({
                     'name': ram_name,
                     'flash_addr': ram_flash_addr,
                     'ram_addr': ram_addr,
-                    'ram_map': 0x00000000 if ram_name != 'SRAM0' else 0x44000000,
+                    'ram_map': ram_map_val,
                     'size': len(data),
                     'crc32': ram_crc32,
                 })
@@ -332,7 +340,8 @@ class ImageGenerator:
             return b'', None
         
         # 构建DSP Pro字段
-        # 默认值: 0x00E00405 (Boot Mode 1, 适用于大 DSP >50KB)
+        # 0x00E00409: 支持 PSRAM 模型加载（RBL 会先初始化 PSRAM）
+        # 0x00E00405: 不支持 PSRAM（仅 SRAM）
         # 用户可以通过 --dsp-pro 参数自定义
         pro = self.dsp_pro
         if self.verbose:
@@ -679,7 +688,7 @@ def main():
     gen_parser.add_argument('--m0', help='M0 bin文件夹（可选）')
     gen_parser.add_argument('--dsp', help='DSP bin文件夹（可选）')
     gen_parser.add_argument('--dsp-pro', type=lambda x: int(x, 0),
-                           help='DSP Pro值（默认: 0x00E00405）')
+                           help='DSP Pro值（默认: 0x00E00409，支持PSRAM）')
     gen_parser.add_argument('--clock-config', nargs='+', type=lambda x: int(x, 0),
                            help='时钟配置（2或4个十六进制值）')
     gen_parser.add_argument('-v', '--verbose', action='store_true',

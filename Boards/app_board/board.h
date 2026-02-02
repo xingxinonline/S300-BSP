@@ -71,11 +71,11 @@ extern "C" {
 
 /* UART1: PA16(TX), PA17(RX), FUNCTION_3 */
 #ifndef BOARD_DEBUG_UART_TX_PIN
-#define BOARD_DEBUG_UART_TX_PIN     16
+#define BOARD_DEBUG_UART_TX_PIN     26
 #endif
 
 #ifndef BOARD_DEBUG_UART_RX_PIN
-#define BOARD_DEBUG_UART_RX_PIN     17
+#define BOARD_DEBUG_UART_RX_PIN     27
 #endif
 
 #ifndef BOARD_DEBUG_UART_FUNCTION
