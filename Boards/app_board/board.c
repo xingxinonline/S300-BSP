@@ -10,6 +10,13 @@
 #include "uart.h"
 #include <stdio.h>
 
+#if __has_include("bus_servo.h")
+#include "bus_servo.h"
+#define HAS_BUS_SERVO 1
+#else
+#define HAS_BUS_SERVO 0
+#endif
+
 #if BOARD_CAMERA_ENABLE || BOARD_TOUCH_ENABLE
 #include "i2c_soft.h"
 #endif
@@ -164,7 +171,7 @@ int board_camera_i2c_init(void *i2c)
 void board_lcd_backlight_pin_init(void)
 {
     set_gpio_function(BOARD_LCD_BL_PORT, BOARD_LCD_BL_PIN, FUNCTION_2);
-    set_gpio_mode(BOARD_LCD_BL_PORT, BOARD_LCD_BL_PIN, GPIO_UP);
+    set_gpio_mode(BOARD_LCD_BL_PORT, BOARD_LCD_BL_PIN, GPIO_DOWN);
     set_gpio_direction(BOARD_LCD_BL_PORT, BOARD_LCD_BL_PIN, 1);  /* Output */
 }
 
@@ -240,3 +247,37 @@ int board_touch_i2c_init(void *i2c)
     return i2c_soft_init_default_idx(i2c, BOARD_TOUCH_I2C_IDX, BOARD_TOUCH_I2C_FREQ);
 }
 #endif /* BOARD_TOUCH_ENABLE */
+
+#if BOARD_SERVO_ENABLE
+static void board_servo_pins_init(void)
+{
+    /* UART3 TX/RX */
+    set_gpio_function(BOARD_SERVO_PORT, BOARD_SERVO_UART_TX_PIN, BOARD_SERVO_UART_FUNCTION);
+    set_gpio_function(BOARD_SERVO_PORT, BOARD_SERVO_UART_RX_PIN, BOARD_SERVO_UART_FUNCTION);
+    
+    /* MOTO_BUSEN */
+    set_gpio_function(BOARD_SERVO_PORT, BOARD_MOTO_BUSEN_PIN, BOARD_MOTO_BUSEN_FUNCTION);
+    set_gpio_direction(BOARD_SERVO_PORT, BOARD_MOTO_BUSEN_PIN, 1); /* Output */
+    set_gpio_data(BOARD_SERVO_PORT, BOARD_MOTO_BUSEN_PIN, 1);      /* Default TX */
+}
+
+int board_servo_init(void *servo)
+{
+    /* Enable UART3 Clock (assuming APB1) */
+    set_cortex_m4_apb1_clock(RCC_CM4_APB1_UART3, true);
+    
+    board_servo_pins_init();
+
+#if HAS_BUS_SERVO
+    if (servo != NULL) {
+        return bus_servo_init((bus_servo_t *)servo, 
+                              BOARD_SERVO_UART_IDX, 
+                              BOARD_MOTO_BUSEN_PIN,
+                              rcc_get_clock(RCC_CLOCK_APB1));
+    }
+#else
+    (void)servo;
+#endif
+    return 0;
+}
+#endif

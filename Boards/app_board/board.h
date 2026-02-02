@@ -407,6 +407,67 @@ void board_touch_reset(void);
 int board_touch_i2c_init(void *i2c);
 #endif /* BOARD_TOUCH_ENABLE */
 
+/*===========================================================================
+ * Section 5: Bus Servo Configuration
+ * 总线舵机配置 (UART3 + SN74LVC1G3157)
+ *===========================================================================*/
+
+#ifndef BOARD_SERVO_ENABLE
+#define BOARD_SERVO_ENABLE          1
+#endif
+
+#if BOARD_SERVO_ENABLE
+
+#ifndef BOARD_SERVO_PORT
+#define BOARD_SERVO_PORT            GPIOA
+#endif
+
+/** @brief MOTO_BUSEN: 总线方向控制引脚 (GPIO22)
+ *  控制 SN74LVC1G3157 模拟开关选择 TX/RX
+ *  - HIGH: 选择 B1 (U3TXD) -> 发送模式
+ *  - LOW:  选择 B0 (U3RXD) -> 接收模式
+ */
+#ifndef BOARD_MOTO_BUSEN_PIN
+#define BOARD_MOTO_BUSEN_PIN        22
+#endif
+
+#ifndef BOARD_MOTO_BUSEN_FUNCTION
+#define BOARD_MOTO_BUSEN_FUNCTION   FUNCTION_2
+#endif
+
+/** @brief 总线舵机 UART 索引 (UART3) */
+#ifndef BOARD_SERVO_UART_IDX
+#define BOARD_SERVO_UART_IDX        3
+#endif
+
+/** @brief 总线舵机 UART 波特率 (固定 115200) */
+#ifndef BOARD_SERVO_UART_BAUDRATE
+#define BOARD_SERVO_UART_BAUDRATE   115200
+#endif
+
+/** @brief UART3_TX: GPIO27 (Function3) */
+#ifndef BOARD_SERVO_UART_TX_PIN
+#define BOARD_SERVO_UART_TX_PIN     27
+#endif
+
+/** @brief UART3_RX: GPIO26 (Function3) */
+#ifndef BOARD_SERVO_UART_RX_PIN
+#define BOARD_SERVO_UART_RX_PIN     26
+#endif
+
+#ifndef BOARD_SERVO_UART_FUNCTION
+#define BOARD_SERVO_UART_FUNCTION   FUNCTION_3
+#endif
+
+/**
+ * @brief  初始化总线舵机接口 (UART + 控制引脚)
+ * @param  servo 总线舵机句柄 (bus_servo_t *)
+ * @return 0:成功, other:失败
+ */
+int board_servo_init(void *servo);
+
+#endif /* BOARD_SERVO_ENABLE */
+
 #ifdef __cplusplus
 }
 #endif
