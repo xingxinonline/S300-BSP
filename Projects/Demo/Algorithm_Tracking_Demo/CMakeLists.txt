@@ -11,7 +11,7 @@ cmake_minimum_required(VERSION 3.16)
 project(Algorithm_Tracking_Demo)
 
 # Target
-set(TARGET s300_detection_demo)
+set(TARGET s300_algorithm_tracking_demo)
 
 # Paths
 set(PROJECT_DIR ${CMAKE_CURRENT_SOURCE_DIR})
@@ -64,12 +64,12 @@ add_custom_command(TARGET ${TARGET} POST_BUILD
     COMMAND arm-none-eabi-objcopy -O ihex $<TARGET_FILE:${TARGET}> ${CMAKE_CURRENT_BINARY_DIR}/${TARGET}.hex
     COMMAND arm-none-eabi-objdump -d -S -C -M force-thumb,reg-names-std -j .text $<TARGET_FILE:${TARGET}> > ${CMAKE_CURRENT_BINARY_DIR}/${TARGET}.dis
     COMMAND arm-none-eabi-size $<TARGET_FILE:${TARGET}>
-    COMMENT "Generating binary, hex, disassembly and size info for Detection demo"
+    COMMENT "Generating binary, hex, disassembly and size info for Algorithm Tracking demo"
 )
 
 # Debug target
 set(GDB_PORT 3333 CACHE STRING "GDB server port")
-add_custom_target(dbg_detection_demo
+add_custom_target(dbg_algorithm_tracking_demo
     COMMENT "Launching GDB for ${TARGET} (SRAM: 0x20000000) (GDB_PORT=${GDB_PORT})"
     COMMAND arm-none-eabi-gdb -q
     -ex "file $<TARGET_FILE:${TARGET}>"
@@ -142,7 +142,7 @@ foreach(MODEL_DIR ${ALG_MODELS})
             @ONLY
         )
 
-        add_custom_target(dbg_detection_${MODEL_KEBAB}
+        add_custom_target(dbg_algorithm_tracking_${MODEL_KEBAB}
             COMMENT "Launching GDB for ${TARGET} with Algorithm Model: ${MODEL_DIR} [v${MODEL_VER}]"
             COMMAND arm-none-eabi-gdb -q
             -ex "file $<TARGET_FILE:${TARGET}>"
@@ -153,8 +153,8 @@ foreach(MODEL_DIR ${ALG_MODELS})
         )
 
         # Generate Image Target
-        set(IMAGE_OUTPUT_FILE "${CMAKE_CURRENT_BINARY_DIR}/s300_detection_${MODEL_KEBAB}.bin")
-        add_custom_target(img_detection_${MODEL_KEBAB}
+        set(IMAGE_OUTPUT_FILE "${CMAKE_CURRENT_BINARY_DIR}/s300_algorithm_tracking_${MODEL_KEBAB}.bin")
+        add_custom_target(img_algorithm_tracking_${MODEL_KEBAB}
             COMMENT "Generating Image for ${TARGET} with Algorithm Model: ${MODEL_DIR} -> ${IMAGE_OUTPUT_FILE}"
             COMMAND python3 ${ROOT}/tools/s300_image.py generate
             -o ${IMAGE_OUTPUT_FILE}
