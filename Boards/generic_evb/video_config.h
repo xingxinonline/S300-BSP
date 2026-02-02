@@ -111,6 +111,16 @@ extern "C" {
 #define DISP_WFRAME1_ADDR           (0x80700000 - (SNAP_IMAGE_WIDTH * SNAP_IMAGE_HEIGHT * 7))
 #endif
 
+/* LCD Scan Direction (0x00=TL, 0xC0=180, 0xE0=Rot90+Mirror) */
+#ifndef BOARD_LCD_SCAN_DIR
+#define BOARD_LCD_SCAN_DIR          (0xC0) /* MADCTL_MY | MADCTL_MX (180 degree) */
+#endif
+
+/* OV5640 Sensor/ISP Mirror Flip Config (Register 0x3821) */
+#ifndef BOARD_OV5640_MIRROR_CFG
+#define BOARD_OV5640_MIRROR_CFG     (0x00) /* No mirror */
+#endif
+
 #ifdef __cplusplus
 }
 #endif

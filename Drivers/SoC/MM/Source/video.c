@@ -2,6 +2,7 @@
 #include "video.h"
 #include "s300.h"
 #include "board.h"
+#include "video_config.h"
 #include "gpio.h"
 #include "rcc.h"
 
@@ -47,13 +48,13 @@ static void lcd_spi_init_st7735s(void)
     #define MADCTL_MV           (1 << 5)  // 页面/列顺序（行列反转）
 
     /* 扫描方向配置：
-     * 0x00 = 左上角起点，向右向下扫描 (正常)
-     * MADCTL_MY = 左下角起点，向右向上扫描
-     * MADCTL_MX = 右上角起点，向左向下扫描
-     * MADCTL_MY|MX = 右下角起点 (180度旋转)
-     * MADCTL_MV = 行列交换 (90度旋转)
+     * 优先从 video_config.h 获取 BOARD_LCD_SCAN_DIR
      */
-    #define MADCTL_SCAN_DIR     (MADCTL_MV | MADCTL_MY | MADCTL_MX)  /* 左上角起点 */
+    #ifdef BOARD_LCD_SCAN_DIR
+      #define MADCTL_SCAN_DIR   BOARD_LCD_SCAN_DIR
+    #else
+      #define MADCTL_SCAN_DIR   (MADCTL_MV | MADCTL_MY | MADCTL_MX)
+    #endif
 
     REG32(DSP_VIDEO_SS_BASE + 0x100) = 0xFFFDFFFE; 
     REG32(DSP_VIDEO_SS_BASE + 0x104) = 0x072204E0; 
