@@ -113,12 +113,12 @@ extern "C" {
 
 /* LCD Scan Direction (0x00=TL, 0xC0=180, 0xE0=Rot90+Mirror) */
 #ifndef BOARD_LCD_SCAN_DIR
-#define BOARD_LCD_SCAN_DIR          (0xE0) /* MADCTL_MV | MADCTL_MY | MADCTL_MX */
+#define BOARD_LCD_SCAN_DIR          (0x00) /* Normal (Top-Left) */
 #endif
 
 /* OV5640 Sensor/ISP Mirror Flip Config (Register 0x3821) */
 #ifndef BOARD_OV5640_MIRROR_CFG
-#define BOARD_OV5640_MIRROR_CFG     (0x06) /* ISP mirror + Sensor mirror */
+#define BOARD_OV5640_MIRROR_CFG     (0x00) /* No mirror */
 #endif
 
 #ifdef __cplusplus
