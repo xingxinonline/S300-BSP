@@ -69,7 +69,7 @@ extern "C" {
 #define BOARD_DEBUG_UART_PORT       GPIOA
 #endif
 
-/* UART1: PA16(TX), PA17(RX), FUNCTION_3 */
+/* UART3: PA26(RX), PA27(TX), FUNCTION_3 */
 #ifndef BOARD_DEBUG_UART_TX_PIN
 #define BOARD_DEBUG_UART_TX_PIN     26
 #endif
@@ -328,7 +328,7 @@ void board_init(void);
 void board_clock_init(void);
 
 /**
- * @brief  初始化调试 UART (UART1)
+ * @brief  初始化调试 UART (UART3)
  * @note   仅当 BOARD_DEBUG_UART_ENABLE=1 时有效
  */
 void board_debug_uart_init(void);
@@ -408,7 +408,7 @@ int board_touch_i2c_init(void *i2c);
 #endif /* BOARD_TOUCH_ENABLE */
 
 /*===========================================================================
- * Section 5: Bus Servo Configuration
+ * Section 9: Bus Servo Configuration
  * 总线舵机配置 (UART3 + SN74LVC1G3157)
  *===========================================================================*/
 

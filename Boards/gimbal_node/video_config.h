@@ -154,6 +154,34 @@ typedef struct {
     uint32_t process_time_ms;               /**< 处理耗时 (ms) */
 } ai_detection_result_t;
 
+/*===========================================================================
+ * Camera Orientation Configuration
+ * 摄像头方向配置 (与主板保持一致)
+ *===========================================================================*/
+
+/**
+ * @brief OV5640 镜像/翻转配置 (寄存器 0x3821)
+ * 
+ * 值说明:
+ *   - 0x00 = 无镜像
+ *   - 0x02 = Sensor mirror
+ *   - 0x04 = ISP mirror
+ *   - 0x06 = ISP mirror + Sensor mirror
+ * 
+ * 子板使用 0x06 与主板保持坐标系统一致
+ */
+#ifndef BOARD_OV5640_MIRROR_CFG
+#define BOARD_OV5640_MIRROR_CFG     (0x06)
+#endif
+
+/**
+ * @brief LCD 扫描方向 (可选调试显示)
+ * 子板主要用于 AI 检测，LCD 仅用于调试
+ */
+#ifndef BOARD_LCD_SCAN_DIR
+#define BOARD_LCD_SCAN_DIR          (0xE0)
+#endif
+
 #ifdef __cplusplus
 }
 #endif

@@ -149,6 +149,39 @@ extern "C" {
 #define FACE_REC_INPUT_HEIGHT       (112)
 #endif
 
+/*===========================================================================
+ * LCD / Camera Orientation Configuration (云台跟踪适配)
+ *===========================================================================*/
+
+/**
+ * @brief LCD 扫描方向 (ST7735S MADCTL 寄存器)
+ * 
+ * 值说明:
+ *   - 0x00 = 左上角起点，向右向下扫描 (正常)
+ *   - 0xC0 = 180° 旋转 (MADCTL_MY | MADCTL_MX)
+ *   - 0xE0 = 行列交换+镜像 (MADCTL_MV | MADCTL_MY | MADCTL_MX)
+ * 
+ * 云台主板使用 0xE0 以适配跟踪坐标映射
+ */
+#ifndef BOARD_LCD_SCAN_DIR
+#define BOARD_LCD_SCAN_DIR          (0xE0)
+#endif
+
+/**
+ * @brief OV5640 镜像/翻转配置 (寄存器 0x3821)
+ * 
+ * 值说明:
+ *   - 0x00 = 无镜像
+ *   - 0x02 = Sensor mirror
+ *   - 0x04 = ISP mirror
+ *   - 0x06 = ISP mirror + Sensor mirror
+ * 
+ * 云台主板使用 0x06 以配合 LCD 扫描方向
+ */
+#ifndef BOARD_OV5640_MIRROR_CFG
+#define BOARD_OV5640_MIRROR_CFG     (0x06)
+#endif
+
 #ifdef __cplusplus
 }
 #endif

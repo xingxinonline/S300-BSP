@@ -101,11 +101,11 @@ Gimbal Master 是芯天下智能云台项目的主控板，类似大疆 OM7P 智
 ### 1. 选择板型
 
 ```bash
-cmake -B build -G Ninja -DBOARD=ne005_gimbal .
+cmake -B build -G Ninja -DBOARD=gimbal_master .
 ```
 
 或使用 VS Code 任务：
-- 运行任务 "S300: Switch to NE005 Gimbal (智能云台主板)"
+- 运行任务 "S300: Switch to Gimbal Master (云台主控板)"
 
 ### 2. 编译
 

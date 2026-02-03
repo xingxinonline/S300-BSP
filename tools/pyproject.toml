@@ -12,9 +12,9 @@ dependencies = [
 dev = ["pytest>=7.0.0", "black>=22.0.0"]
 
 [project.scripts]
-s300-monitor = "serial_monitor:main"
 bus-servo-test = "bus_servo_test:main"
 bus-servo-gui = "bus_servo_gui:main"
+gimbal-control = "gimbal_control:main"
 
 [build-system]
 requires = ["hatchling"]
