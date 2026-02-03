@@ -15,9 +15,10 @@
 #include <stdbool.h>
 #include <string.h>
 #include "mailbox.h"
+#include "mailbox_proto.h"
+#include "detection_proto.h"
 #include "video.h"
 #include "face_tracker.h"
-#include "detection_protocol.h"
 
 /*===========================================================================
  * 配置与常量

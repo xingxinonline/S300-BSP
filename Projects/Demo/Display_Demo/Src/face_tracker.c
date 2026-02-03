@@ -2,24 +2,12 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "mailbox.h"
+#include "mailbox_proto.h"
+#include "detection_proto.h"
 #include "video.h"
 #include "eyes.h"
 #include "ui_display.h"
 #include "face_tracker.h"
-
-/* FaceRect from DSP shared memory (base + offset) */
-typedef struct FaceRect_ {
-    float score;
-    int32_t x1;
-    int32_t y1;
-    int32_t x2;
-    int32_t y2;
-    float lm[10];
-} FaceRect;
-
-#ifndef DSP_FACE_BASE_ADDR
-#define DSP_FACE_BASE_ADDR 0x44800000u
-#endif
 
 #ifndef FACE_COORD_SPACE_W
 #define FACE_COORD_SPACE_W DISP_IMAGE_WIDTH
@@ -64,11 +52,39 @@ void face_tracker_poll(void)
 
     while (mailbox_sta_empty_flag_is(MAILBOX_BASE, 0) == 0)
     {
-        uint32_t offset = read_mailbox(MAILBOX_BASE);
-        uintptr_t addr = (uintptr_t)DSP_FACE_BASE_ADDR + (uintptr_t)offset;
-        const FaceRect *fr = (const FaceRect*)addr;
+        uint32_t msg = read_mailbox(MAILBOX_BASE);
+        uint32_t msg_type = MAILBOX_GET_MSG_TYPE(msg);
+        uint32_t payload = MAILBOX_GET_PAYLOAD(msg);
+        
+        const DetectionBox_t *box = NULL;
+        
+        switch (msg_type) {
+        case MAILBOX_MSG_TYPE_MULTI: {
+            uintptr_t addr = (uintptr_t)DSP_DETECTION_BASE_ADDR + (uintptr_t)payload;
+            const DetectionResult_t *result = (const DetectionResult_t*)addr;
+            if (!DETECTION_RESULT_IS_VALID(result) || result->count == 0) {
+                continue;
+            }
+            int idx = (result->selected_idx >= 0 && 
+                      result->selected_idx < (int)result->count) 
+                     ? result->selected_idx : 0;
+            box = &result->boxes[idx];
+            break;
+        }
+        case MAILBOX_MSG_TYPE_SINGLE: {
+            uintptr_t addr = (uintptr_t)DSP_DETECTION_BASE_ADDR + (uintptr_t)payload;
+            box = (const DetectionBox_t*)addr;
+            break;
+        }
+        case MAILBOX_MSG_TYPE_NO_RESULT:
+            continue;
+        default:
+            continue;
+        }
+        
+        if (box == NULL) continue;
 
-        int32_t x1 = fr->x1, y1 = fr->y1, x2 = fr->x2, y2 = fr->y2;
+        int32_t x1 = box->x1, y1 = box->y1, x2 = box->x2, y2 = box->y2;
         if (x2 < x1) { int32_t t = x1; x1 = x2; x2 = t; }
         if (y2 < y1) { int32_t t = y1; y1 = y2; y2 = t; }
 
@@ -82,8 +98,7 @@ void face_tracker_poll(void)
         {
             if ((uint32_t)(now_ms - s_last_invalid_log_ms) >= INVALID_LOG_INTERVAL_MS)
             {
-                printf("RX[M4]: off=0x%08lx addr=%p invalid face=(%ld,%ld)-(%ld,%ld) skip\r\n",
-                       (unsigned long)offset, (void*)addr,
+                printf("RX[M4]: invalid face=(%ld,%ld)-(%ld,%ld) skip\r\n",
                        (long)x1, (long)y1, (long)x2, (long)y2);
                 s_last_invalid_log_ms = now_ms;
             }
@@ -173,8 +188,8 @@ void face_tracker_poll(void)
         bool do_log = ((uint32_t)(now_ms - s_last_move_log_ms) >= MOVE_LOG_MIN_INTERVAL_MS);
         if (do_log)
         {
-            printf("RX[M4]: off=0x%08lx addr=%p center=(%ld,%ld) -> mid=(%ld,%ld) smoothed=(%ld,%ld)\r\n",
-                   (unsigned long)offset, (void*)addr,
+            printf("RX[M4]: type=0x%lx center=(%ld,%ld) -> mid=(%ld,%ld) smoothed=(%ld,%ld)\r\n",
+                   (unsigned long)msg_type,
                    (long)cx_raw, (long)cy_raw, (long)mid_x, (long)mid_y, (long)s_mid_x, (long)s_mid_y);
             eyes_move_to_xy(lim_x, lim_y);
             s_last_move_log_ms = now_ms;

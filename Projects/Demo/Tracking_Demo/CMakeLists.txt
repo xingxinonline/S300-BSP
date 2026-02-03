@@ -34,6 +34,7 @@ include_directories(
     ${S300_CORE_INC}
     ${DRIVER_INCS}
     ${PROJECT_DIR}/Inc
+    ${ROOT}/Algorithm_Models/protocol
 )
 
 add_compile_definitions(BOARD_MM_ENABLE=1)

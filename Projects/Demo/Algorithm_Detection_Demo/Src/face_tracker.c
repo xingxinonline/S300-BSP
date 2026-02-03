@@ -2,22 +2,10 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "mailbox.h"
+#include "mailbox_proto.h"
+#include "detection_proto.h"
 #include "video.h"
 #include "face_tracker.h"
-
-/* FaceRect from DSP shared memory (base + offset) */
-typedef struct FaceRect_ {
-    float score;
-    int32_t x1;
-    int32_t y1;
-    int32_t x2;
-    int32_t y2;
-    float lm[10];
-} FaceRect;
-
-#ifndef DSP_FACE_BASE_ADDR
-#define DSP_FACE_BASE_ADDR 0x44800000u
-#endif
 
 #ifndef FACE_COORD_SPACE_W
 #define FACE_COORD_SPACE_W DISP_IMAGE_WIDTH
@@ -25,6 +13,14 @@ typedef struct FaceRect_ {
 #ifndef FACE_COORD_SPACE_H
 #define FACE_COORD_SPACE_H DISP_IMAGE_HEIGHT
 #endif
+
+/** 调试打印级别: 0=关闭, 1=关键事件, 2=每帧 */
+#ifndef FACE_TRACKER_DEBUG_LEVEL
+#define FACE_TRACKER_DEBUG_LEVEL  1
+#endif
+
+#define FT_LOG(level, fmt, ...) \
+    do { if (FACE_TRACKER_DEBUG_LEVEL >= (level)) printf(fmt, ##__VA_ARGS__); } while(0)
 
 static uint32_t (*s_get_millis)(void) = 0;
 
@@ -90,48 +86,102 @@ static uint32_t s_last_valid_ts = 0;
 
 #define FACE_TIMEOUT_MS 200
 
+/**
+ * @brief 处理单个检测框
+ */
+static void process_detection_box(const DetectionBox_t *box)
+{
+    int32_t x1 = box->x1, y1 = box->y1, x2 = box->x2, y2 = box->y2;
+    
+    /* 坐标排序 */
+    if (x2 < x1) { int32_t t = x1; x1 = x2; x2 = t; }
+    if (y2 < y1) { int32_t t = y1; y1 = y2; y2 = t; }
+
+    /* 有效性检查 */
+    bool valid = true;
+    if (x1 < 0 || y1 < 0 || x2 > FACE_COORD_SPACE_W || y2 > FACE_COORD_SPACE_H) valid = false;
+    if ((x2 - x1) <= 2 || (y2 - y1) <= 2) valid = false;
+
+    if (valid)
+    {
+        s_last_valid_ts = millis();
+
+        /* Clear previous box if it exists */
+        if (s_has_last) {
+            set_rect_alpha(s_last_x1, s_last_y1, s_last_x2, s_last_y2, 0x00);
+        }
+
+        /* Draw new box (Opaque) */
+        set_rect_alpha(x1, y1, x2, y2, 0xFF);
+
+        /* Update state */
+        s_last_x1 = x1;
+        s_last_y1 = y1;
+        s_last_x2 = x2;
+        s_last_y2 = y2;
+        s_has_last = true;
+        
+        FT_LOG(2, "[FT] box: (%ld,%ld)-(%ld,%ld) score=%.2f\r\n", 
+               x1, y1, x2, y2, box->score);
+    }
+}
+
 void face_tracker_poll(void)
 {
     while (mailbox_sta_empty_flag_is(MAILBOX_BASE, 0) == 0)
     {
-        uint32_t offset = read_mailbox(MAILBOX_BASE);
-        uintptr_t addr = (uintptr_t)DSP_FACE_BASE_ADDR + (uintptr_t)offset;
-        const FaceRect *fr = (const FaceRect*)addr;
+        uint32_t msg = read_mailbox(MAILBOX_BASE);
+        uint32_t msg_type = MAILBOX_GET_MSG_TYPE(msg);
+        uint32_t payload = MAILBOX_GET_PAYLOAD(msg);
 
-        int32_t x1 = fr->x1, y1 = fr->y1, x2 = fr->x2, y2 = fr->y2;
-        if (x2 < x1) { int32_t t = x1; x1 = x2; x2 = t; }
-        if (y2 < y1) { int32_t t = y1; y1 = y2; y2 = t; }
-
-        bool valid = true;
-        if (x1 < 0 || y1 < 0 || x2 > FACE_COORD_SPACE_W || y2 > FACE_COORD_SPACE_H) valid = false;
-        if ((x2 - x1) <= 2 || (y2 - y1) <= 2) valid = false;
-
-        if (valid)
-        {
-            s_last_valid_ts = millis();
-
-            /* Clear previous box if it exists */
-            if (s_has_last) {
-                set_rect_alpha(s_last_x1, s_last_y1, s_last_x2, s_last_y2, 0x00);
+        switch (msg_type) {
+        case MAILBOX_MSG_TYPE_MULTI: {
+            /* 新协议：多目标检测结果 */
+            uintptr_t addr = (uintptr_t)DSP_DETECTION_BASE_ADDR + (uintptr_t)payload;
+            const DetectionResult_t *result = (const DetectionResult_t*)addr;
+            
+            /* 校验 magic */
+            if (!DETECTION_RESULT_IS_VALID(result)) {
+                FT_LOG(1, "[FT] Invalid result @0x%08lX (magic=0x%08lX)\r\n", 
+                       (unsigned long)addr, (unsigned long)result->magic);
+                break;
             }
-
-            /* Draw new box (Opaque) */
-            set_rect_alpha(x1, y1, x2, y2, 0xFF);
-
-            /* Update state */
-            s_last_x1 = x1;
-            s_last_y1 = y1;
-            s_last_x2 = x2;
-            s_last_y2 = y2;
-            s_has_last = true;
+            
+            FT_LOG(2, "[FT] frame=%lu cnt=%lu sel=%ld\r\n", 
+                   result->frame_id, result->count, result->selected_idx);
+            
+            /* 优先使用 DSP 选中的目标，否则使用第一个 */
+            if (result->count > 0) {
+                int idx = (result->selected_idx >= 0 && 
+                          result->selected_idx < (int)result->count) 
+                         ? result->selected_idx : 0;
+                process_detection_box(&result->boxes[idx]);
+            } else {
+                /* 无检测目标，清除旧框 */
+                if (s_has_last) {
+                    set_rect_alpha(s_last_x1, s_last_y1, s_last_x2, s_last_y2, 0x00);
+                    s_has_last = false;
+                }
+            }
+            break;
         }
-        else
-        {
-            /* Invalid frame (e.g. face lost), clear previous box */
-            if (s_has_last) {
-                set_rect_alpha(s_last_x1, s_last_y1, s_last_x2, s_last_y2, 0x00);
-                s_has_last = false;
-            }
+        
+        case MAILBOX_MSG_TYPE_SINGLE: {
+            /* 旧协议兼容：单目标 FaceRect */
+            uintptr_t addr = (uintptr_t)DSP_DETECTION_BASE_ADDR + (uintptr_t)payload;
+            const DetectionBox_t *box = (const DetectionBox_t*)addr;
+            process_detection_box(box);
+            break;
+        }
+        
+        case MAILBOX_MSG_TYPE_NO_RESULT:
+            /* 本帧无检测结果 */
+            FT_LOG(2, "[FT] No detection\r\n");
+            break;
+            
+        default:
+            FT_LOG(1, "[FT] Unknown msg type: 0x%08lX\r\n", (unsigned long)msg);
+            break;
         }
     }
 

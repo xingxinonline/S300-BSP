@@ -34,6 +34,8 @@
 #include "video.h"
 #include "psram.h"
 #include "mailbox.h"
+#include "mailbox_proto.h"
+#include "detection_proto.h"
 
 /* Camera */
 #include "camera_ov5640.h"
@@ -46,31 +48,12 @@
  * 配置
  *===========================================================================*/
 
-/** @brief DSP 人脸检测结果基地址 */
-#ifndef DSP_FACE_BASE_ADDR
-#define DSP_FACE_BASE_ADDR 0x44800000u
-#endif
-
 /** @brief 摄像头格式配置 */
 #if BOARD_CAMERA_FORMAT == 0
   #define APP_CAM_FMT CAMREA_RGB565
 #else
   #define APP_CAM_FMT CAMREA_YUV422
 #endif
-
-/*===========================================================================
- * DSP 检测结果结构
- *===========================================================================*/
-
-/** @brief DSP 共享内存中的人脸矩形结构 */
-typedef struct FaceRect_ {
-    float score;            /**< 检测置信度 */
-    int32_t x1;             /**< 左上角 X */
-    int32_t y1;             /**< 左上角 Y */
-    int32_t x2;             /**< 右下角 X */
-    int32_t y2;             /**< 右下角 Y */
-    float lm[10];           /**< 人脸关键点 (5个点 x 2坐标) */
-} FaceRect;
 
 /*===========================================================================
  * 全局变量
@@ -200,6 +183,52 @@ static void draw_rect_border(int x1, int y1, int x2, int y2, uint8_t alpha)
 }
 
 /**
+ * @brief 处理单个检测框
+ */
+static void process_detection_box(const DetectionBox_t *box, tracker_target_t *target)
+{
+    int32_t x1 = box->x1, y1 = box->y1, x2 = box->x2, y2 = box->y2;
+    
+    /* 坐标排序 */
+    if (x2 < x1) { int32_t t = x1; x1 = x2; x2 = t; }
+    if (y2 < y1) { int32_t t = y1; y1 = y2; y2 = t; }
+
+    /* 有效性检查 */
+    bool valid = true;
+    if (x1 < 0 || y1 < 0 || x2 > DISP_IMAGE_WIDTH || y2 > DISP_IMAGE_HEIGHT) valid = false;
+    if ((x2 - x1) <= 2 || (y2 - y1) <= 2) valid = false;
+
+    if (valid)
+    {
+        s_last_detect_time = millis();
+        
+        /* 清除上一帧的框 */
+        if (s_has_last_box) {
+            draw_rect_border(s_last_x1, s_last_y1, s_last_x2, s_last_y2, 0x00);
+        }
+        
+        /* 绘制新框 */
+        draw_rect_border(x1, y1, x2, y2, 0xFF);
+        
+        /* 保存状态 */
+        s_last_x1 = x1;
+        s_last_y1 = y1;
+        s_last_x2 = x2;
+        s_last_y2 = y2;
+        s_has_last_box = true;
+        
+        /* 更新跟踪目标 */
+        target->x1 = x1;
+        target->y1 = y1;
+        target->x2 = x2;
+        target->y2 = y2;
+        target->score = box->score;
+        target->valid = true;
+        target->timestamp = s_last_detect_time;
+    }
+}
+
+/**
  * @brief 处理 DSP 邮箱检测结果
  */
 static void process_detection_mailbox(void)
@@ -210,48 +239,43 @@ static void process_detection_mailbox(void)
     /* 读取所有邮箱消息 */
     while (mailbox_sta_empty_flag_is(MAILBOX_BASE, 0) == 0)
     {
-        uint32_t offset = read_mailbox(MAILBOX_BASE);
-        uintptr_t addr = (uintptr_t)DSP_FACE_BASE_ADDR + (uintptr_t)offset;
-        const FaceRect *fr = (const FaceRect*)addr;
+        uint32_t msg = read_mailbox(MAILBOX_BASE);
+        uint32_t msg_type = MAILBOX_GET_MSG_TYPE(msg);
+        uint32_t payload = MAILBOX_GET_PAYLOAD(msg);
 
-        int32_t x1 = fr->x1, y1 = fr->y1, x2 = fr->x2, y2 = fr->y2;
-        
-        /* 坐标排序 */
-        if (x2 < x1) { int32_t t = x1; x1 = x2; x2 = t; }
-        if (y2 < y1) { int32_t t = y1; y1 = y2; y2 = t; }
-
-        /* 有效性检查 */
-        bool valid = true;
-        if (x1 < 0 || y1 < 0 || x2 > DISP_IMAGE_WIDTH || y2 > DISP_IMAGE_HEIGHT) valid = false;
-        if ((x2 - x1) <= 2 || (y2 - y1) <= 2) valid = false;
-
-        if (valid)
-        {
-            s_last_detect_time = millis();
+        switch (msg_type) {
+        case MAILBOX_MSG_TYPE_MULTI: {
+            uintptr_t addr = (uintptr_t)DSP_DETECTION_BASE_ADDR + (uintptr_t)payload;
+            const DetectionResult_t *result = (const DetectionResult_t*)addr;
             
-            /* 清除上一帧的框 */
-            if (s_has_last_box) {
-                draw_rect_border(s_last_x1, s_last_y1, s_last_x2, s_last_y2, 0x00);
+            if (!DETECTION_RESULT_IS_VALID(result)) break;
+            
+            if (result->count > 0) {
+                int idx = (result->selected_idx >= 0 && 
+                          result->selected_idx < (int)result->count) 
+                         ? result->selected_idx : 0;
+                process_detection_box(&result->boxes[idx], &target);
+            } else {
+                if (s_has_last_box) {
+                    draw_rect_border(s_last_x1, s_last_y1, s_last_x2, s_last_y2, 0x00);
+                    s_has_last_box = false;
+                }
             }
+            break;
+        }
+        
+        case MAILBOX_MSG_TYPE_SINGLE: {
+            uintptr_t addr = (uintptr_t)DSP_DETECTION_BASE_ADDR + (uintptr_t)payload;
+            const DetectionBox_t *box = (const DetectionBox_t*)addr;
+            process_detection_box(box, &target);
+            break;
+        }
+        
+        case MAILBOX_MSG_TYPE_NO_RESULT:
+            break;
             
-            /* 绘制新框 */
-            draw_rect_border(x1, y1, x2, y2, 0xFF);
-            
-            /* 保存状态 */
-            s_last_x1 = x1;
-            s_last_y1 = y1;
-            s_last_x2 = x2;
-            s_last_y2 = y2;
-            s_has_last_box = true;
-            
-            /* 更新跟踪目标 */
-            target.x1 = x1;
-            target.y1 = y1;
-            target.x2 = x2;
-            target.y2 = y2;
-            target.score = fr->score;
-            target.valid = true;
-            target.timestamp = s_last_detect_time;
+        default:
+            break;
         }
     }
     

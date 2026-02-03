@@ -1,19 +1,8 @@
 #include "app_mailbox.h"
 #include "mailbox.h"
+#include "mailbox_proto.h"
+#include "detection_proto.h"
 #include <stdio.h>
-
-#ifndef DSP_FACE_BASE_ADDR
-#define DSP_FACE_BASE_ADDR 0x44800000u
-#endif
-
-typedef struct FaceRect_ {
-    float score;
-    int32_t x1;
-    int32_t y1;
-    int32_t x2;
-    int32_t y2;
-    float lm[10];
-} FaceRect;
 
 static uint32_t (*s_get_ms)(void) = NULL;
 static volatile uint32_t s_last_face_ms = 0;
@@ -30,15 +19,39 @@ void app_mailbox_set_time_callback(uint32_t (*get_ms)(void)) {
 void app_mailbox_poll(void) {
     uint32_t now = (s_get_ms != NULL) ? s_get_ms() : 0;
     while (mailbox_sta_empty_flag_is(MAILBOX_BASE, 0) == 0) {
-        uint32_t offset = 0;
-        int ret = mailbox_read_u32(MAILBOX_BASE, &offset, 100);
+        uint32_t msg = 0;
+        int ret = mailbox_read_u32(MAILBOX_BASE, &msg, 100);
         if (ret != 0) break;
         
-        uintptr_t addr = (uintptr_t)DSP_FACE_BASE_ADDR + (uintptr_t)offset;
-        const FaceRect *fr = (const FaceRect*)addr;
+        uint32_t msg_type = MAILBOX_GET_MSG_TYPE(msg);
+        uint32_t payload = MAILBOX_GET_PAYLOAD(msg);
         
-        if (fr->x1 < 0 && fr->y1 < 0 && fr->x2 < 0 && fr->y2 < 0) continue;
-        s_last_face_ms = now;
+        bool has_valid_face = false;
+        
+        switch (msg_type) {
+        case MAILBOX_MSG_TYPE_MULTI: {
+            uintptr_t addr = (uintptr_t)DSP_DETECTION_BASE_ADDR + (uintptr_t)payload;
+            const DetectionResult_t *result = (const DetectionResult_t*)addr;
+            if (DETECTION_RESULT_IS_VALID(result) && result->count > 0) {
+                has_valid_face = true;
+            }
+            break;
+        }
+        case MAILBOX_MSG_TYPE_SINGLE: {
+            uintptr_t addr = (uintptr_t)DSP_DETECTION_BASE_ADDR + (uintptr_t)payload;
+            const DetectionBox_t *box = (const DetectionBox_t*)addr;
+            if (!(box->x1 < 0 && box->y1 < 0 && box->x2 < 0 && box->y2 < 0)) {
+                has_valid_face = true;
+            }
+            break;
+        }
+        default:
+            break;
+        }
+        
+        if (has_valid_face) {
+            s_last_face_ms = now;
+        }
     }
 }
 

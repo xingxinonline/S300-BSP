@@ -33,6 +33,7 @@ include_directories(
     ${S300_CORE_INC}
     ${DRIVER_INCS}
     ${PROJECT_DIR}/Inc
+    ${ROOT}/Algorithm_Models/protocol
 
     # 复用 Tracking_Demo 的 gimbal_ctrl
     ${ROOT}/Projects/Demo/Tracking_Demo/Inc

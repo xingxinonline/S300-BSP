@@ -30,6 +30,7 @@ include_directories(
     ${S300_CORE_INC}
     ${DRIVER_INCS}
     ${PROJECT_DIR}/Inc
+    ${ROOT}/Algorithm_Models/protocol
 )
 
 # Integrate LVGL v9.4
