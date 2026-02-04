@@ -1,6 +1,12 @@
 /**
  * @file    target_tracker.h
- * @brief   目标跟踪模块 (PID控制器)
+ * @brief   目标跟踪模块 (PID控制器 + 双缓冲显示)
+ * 
+ * 支持特性：
+ *   - track_id 跨帧关联
+ *   - 卡尔曼滤波置信度 (kf_confidence)
+ *   - 速度箭头渲染
+ *   - 双缓冲无撕裂显示
  */
 #ifndef TARGET_TRACKER_H
 #define TARGET_TRACKER_H
@@ -16,11 +22,20 @@ extern "C" {
  * 跟踪目标结构
  *===========================================================================*/
 
+/** @brief 跟踪目标信息（从 DSP 检测结果解析）*/
 typedef struct {
-    int32_t x1, y1, x2, y2;     /* 目标框坐标 */
-    float score;                 /* 置信度 */
-    bool valid;                  /* 是否有效 */
-    uint32_t timestamp;          /* 时间戳 */
+    int32_t x1, y1, x2, y2;     /**< 目标框坐标 */
+    float score;                 /**< 置信度 */
+    bool valid;                  /**< 是否有效 */
+    uint32_t timestamp;          /**< 时间戳 */
+    
+    /* 新增：协议 v2.x 字段 */
+    uint8_t track_id;            /**< 跟踪ID（用于跨帧关联，0表示未分配）*/
+    int8_t  vx;                  /**< X方向速度 (像素/帧, 卡尔曼输出) */
+    int8_t  vy;                  /**< Y方向速度 (像素/帧, 卡尔曼输出) */
+    uint8_t speed;               /**< 速度大小 [0-255]，用于箭头渲染 */
+    uint8_t kf_confidence;       /**< 卡尔曼滤波置信度 (0-100) */
+    bool    selected;            /**< 是否为选中目标 */
 } tracker_target_t;
 
 /*===========================================================================
@@ -67,6 +82,17 @@ void tracker_set_pid(float kp, float ki, float kd);
  * @brief  设置死区 (像素)
  */
 void tracker_set_deadzone(int pixels);
+
+/**
+ * @brief  获取当前跟踪的 track_id
+ * @return 当前跟踪的 track_id，0表示无跟踪
+ */
+uint8_t tracker_get_current_track_id(void);
+
+/**
+ * @brief  重置跟踪器（清除当前跟踪的 track_id）
+ */
+void tracker_reset(void);
 
 #ifdef __cplusplus
 }
