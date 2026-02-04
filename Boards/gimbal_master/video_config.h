@@ -29,15 +29,15 @@ extern "C" {
 #endif
 
 #ifndef BINNING_SIZE
-#define BINNING_SIZE            (1) // binning = 2 @ Sensor image size (576*720)
+#define BINNING_SIZE            (2) // binning = 2 @ Sensor image size
 #endif
 
-/* binning */
+/* binning - 后级处理后的图像尺寸 */
 #ifndef BINNING_IMAGE_WIDTH
-#define BINNING_IMAGE_WIDTH         (450)
+#define BINNING_IMAGE_WIDTH         (320)   /* 1280/2 = 640 */
 #endif
 #ifndef BINNING_IMAGE_HEIGHT
-#define BINNING_IMAGE_HEIGHT        (360)
+#define BINNING_IMAGE_HEIGHT        (240)   /* 960/2 = 480 */
 #endif
 
 /* sensor */

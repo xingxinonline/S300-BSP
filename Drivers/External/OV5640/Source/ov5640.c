@@ -229,38 +229,38 @@ static const uint16_t ov5640_yuv422_cfg[][2] =
 {
     {0x4300, 0x61},//bit[7:4] 0x3 YUV422 ,bit[3:0] 0x0 Output sequence: YUYV
     {0x501F, 0x01},//Format select 0x01 ISP  RGB , 0x00 ISP YUV422
-    {0x3035, 0x41},//PLL 
-    {0x3036, 0xA0},//PLL   
-    {0x3C07, 0x07},//light meter 1 threshold L
+    {0x3035, 0x11},//PLL - VGA 30fps (datasheet 4.1.2)
+    {0x3036, 0x46},//PLL - PCLK = 56MHz @ 24MHz input
+    {0x3C07, 0x08},//light meter 1 threshold L (datasheet)
     {0x3820, 0x41},//Sensor flip , ISP flip;Bit[2]: ISP vflip  Bit[1]: Sensor vflip
     {0x3821, BOARD_OV5640_MIRROR_CFG},//Timing Control Bit[2]: ISP mirror Bit[1]: Sensor mirror
-    {0x3814, 0x31},//image windowing registers 0x3800-0x3813  timing control registers 0x3800-0x3821
-    {0x3815, 0x31},
-    {0x3800, 0x00},//图像窗口 Bit[7:4]: Debug mode Bit[3:0]: X address start[11:8]  -0
-    {0x3801, 0x00}, //图像窗口 Bit[7:0]: X address start[7:0]
-    {0x3802, 0x00}, //图像窗口 Bit[7:4]: Debug mode Bit[3:0]: Y address start[11:8]  -0
-    {0x3803, 0xFA}, //图像窗口 Bit[7:0]: Y address start[7:0]
-    {0x3804, 0x0A}, //图像窗口 xend      Bit[7:4]: Debug mode Bit[3:0]: X address end[11:8]   -2623
-    {0x3805, 0x3F}, //图像窗口 xend      Bit[7:0]: X address end[7:0]
-    {0x3806, 0x06}, //图像窗口 yend      Bit[7:3]: Debug mode Bit[2:0]: Y address end[10:8]  -1705
-    {0x3807, 0xA9}, //图像窗口 yend      Bit[7:0]: Y address end[7:0]
-    {0x3808, (SENSOR_IMAGE_WIDTH >> 8) & 0xff}, //图像窗口 after scaling      x    Bit[7:4]: Debug mod  Bit[3:0]: DVP output horizontal width[11:8] -2560  0x1e0 480
-    {0x3809, SENSOR_IMAGE_WIDTH & 0xff}, //图像窗口 after scaling      x    Bit[7:0]: DVP output horizontal width[7:0]
-    {0x380A, (SENSOR_IMAGE_HEIGHT >> 8) & 0xff}, //图像窗口 after scaling      y    Bit[7:3]: Debug mode Bit[2:0]: DVP output vertical height[10:8]  -1440    0x140 320
-    {0x380B, SENSOR_IMAGE_HEIGHT & 0xff}, //图像窗口 after scaling      y    Bit[7:0]: DVP output vertical height[7:0]
-    {0x380C, 0x07},
-    {0x380D, 0x64},
-    {0x380E, 0x02},
-    {0x380F, 0xE4},
-    {0x3813, 0x04}, //图像窗口  Y offeset     Bit[7:0]: Vertical offset[7:0]
+    {0x3814, 0x31},//X INC - 2x2 subsample
+    {0x3815, 0x31},//Y INC - 2x2 subsample
+    {0x3800, 0x00},//图像窗口 X start [11:8]
+    {0x3801, 0x00},//图像窗口 X start [7:0] = 0
+    {0x3802, 0x00},//图像窗口 Y start [10:8]
+    {0x3803, 0x04},//图像窗口 Y start [7:0] = 4 (datasheet VGA)
+    {0x3804, 0x0A},//图像窗口 X end [11:8]
+    {0x3805, 0x3F},//图像窗口 X end [7:0] = 2623
+    {0x3806, 0x07},//图像窗口 Y end [10:8]
+    {0x3807, 0x9B},//图像窗口 Y end [7:0] = 1947 (datasheet VGA)
+    {0x3808, (SENSOR_IMAGE_WIDTH >> 8) & 0xff}, //DVP output width[11:8]
+    {0x3809, SENSOR_IMAGE_WIDTH & 0xff}, //DVP output width[7:0]
+    {0x380A, (SENSOR_IMAGE_HEIGHT >> 8) & 0xff}, //DVP output height[10:8]
+    {0x380B, SENSOR_IMAGE_HEIGHT & 0xff}, //DVP output height[7:0]
+    {0x380C, 0x07},  // HTS[15:8] = 0x07
+    {0x380D, 0x68},  // HTS[7:0]  = 0x68, HTS = 1896 (datasheet VGA)
+    {0x380E, 0x03},  // VTS[15:8] = 0x03
+    {0x380F, 0xD8},  // VTS[7:0]  = 0xD8, VTS = 984 (datasheet VGA)
+    {0x3813, 0x06}, //Timing Voffset (datasheet VGA)
     {0x3618, 0x00},
     {0x3612, 0x29},
     {0x3709, 0x52},
     {0x370C, 0x03},
-    {0x3A02, 0x02},
-    {0x3A03, 0xE0},
-    {0x3A14, 0x02},
-    {0x3A15, 0xE0},
+    {0x3A02, 0x17},//60Hz max exposure (datasheet VGA night mode 5fps)
+    {0x3A03, 0x10},//60Hz max exposure
+    {0x3A14, 0x17},//50Hz max exposure (datasheet VGA night mode 5fps)
+    {0x3A15, 0x10},//50Hz max exposure
     {0x4004, 0x02},
     {0x3002, 0x1C},
     {0x3006, 0xC3},
