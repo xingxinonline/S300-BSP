@@ -166,7 +166,20 @@ foreach(MODEL_DIR ${TRACKING_SUPPORTED_MODELS})
             USES_TERMINAL
         )
 
+        # Generate Image Target
+        set(IMAGE_OUTPUT_FILE "${CMAKE_CURRENT_BINARY_DIR}/s300_tracking_${MODEL_KEBAB}.bin")
+        add_custom_target(img_tracking_${MODEL_KEBAB}
+            COMMENT "Generating Image for ${TARGET} with Algorithm Model: ${MODEL_DIR} -> ${IMAGE_OUTPUT_FILE}"
+            COMMAND python3 ${ROOT}/tools/s300_image.py generate
+            -o ${IMAGE_OUTPUT_FILE}
+            --m4 ${CMAKE_CURRENT_BINARY_DIR}/${TARGET}.bin
+            --dsp ${MODEL_DIR_PATH}
+            DEPENDS ${TARGET}
+            USES_TERMINAL
+        )
+
         message(STATUS "Tracking_Demo: Created debug target dbg_tracking_${MODEL_KEBAB} [v${MODEL_VER}]")
+        message(STATUS "Tracking_Demo: Created image target img_tracking_${MODEL_KEBAB}")
     endif()
 endforeach()
 
