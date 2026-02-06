@@ -302,6 +302,106 @@ extern "C" {
 #endif
 
 /*===========================================================================
+ * Section 5.1: Audio Configuration (ES7210 + ES8311)
+ * 音频配置 - I2S1 接口 + ES7210(ADC) + ES8311(DAC)
+ * I2C: GPIO0(SCL), GPIO1(SDA)
+ * I2S1: GPIO3(MCLK), GPIO6(CK), GPIO7(WS), GPIO8(DOUT), GPIO9(DIN)
+ * PA_EN: 默认下拉，不需要GPIO控制
+ *===========================================================================*/
+
+/** @brief 启用音频子系统 */
+#ifndef BOARD_AUDIO_ENABLE
+#define BOARD_AUDIO_ENABLE          0
+#endif
+
+#if BOARD_AUDIO_ENABLE
+
+/** @brief 使用 ES7210 + ES8311 编解码器组合 */
+#define BOARD_AUDIO_CODEC_ES7210    1
+#define BOARD_AUDIO_CODEC_ES8311    1
+
+/* 音频 I2C 配置 (与摄像头共用 I2C1) */
+#ifndef BOARD_AUDIO_I2C_IDX
+#define BOARD_AUDIO_I2C_IDX         1
+#endif
+
+#ifndef BOARD_AUDIO_I2C_FREQ
+#define BOARD_AUDIO_I2C_FREQ        100000
+#endif
+
+#ifndef BOARD_AUDIO_I2C_PORT
+#define BOARD_AUDIO_I2C_PORT        GPIOA
+#endif
+
+/** @brief I2C SCL: GPIO0 (Function2) */
+#ifndef BOARD_AUDIO_I2C_SCL_PIN
+#define BOARD_AUDIO_I2C_SCL_PIN     0
+#endif
+
+/** @brief I2C SDA: GPIO1 (Function2) */
+#ifndef BOARD_AUDIO_I2C_SDA_PIN
+#define BOARD_AUDIO_I2C_SDA_PIN     1
+#endif
+
+#ifndef BOARD_AUDIO_I2C_FUNCTION
+#define BOARD_AUDIO_I2C_FUNCTION    FUNCTION_2
+#endif
+
+/* I2C 设备地址定义 */
+/** @brief ES8311 音频Codec I2C 地址 (CE=0) */
+#define BOARD_AUDIO_ADDR_ES8311     0x18
+
+/** @brief ES7210 音频ADC I2C 地址 (AD1=0, AD0=1) */
+#define BOARD_AUDIO_ADDR_ES7210     0x41
+
+/* I2S1 引脚配置 */
+#ifndef BOARD_I2S_MCLK_PORT
+#define BOARD_I2S_MCLK_PORT         GPIOA
+#endif
+
+/** @brief I2S_MCLK: GPIO3 (Function1 - CLKOUT2) */
+#ifndef BOARD_I2S_MCLK_PIN
+#define BOARD_I2S_MCLK_PIN          3
+#endif
+
+#ifndef BOARD_I2S_MCLK_FUNCTION
+#define BOARD_I2S_MCLK_FUNCTION     FUNCTION_1
+#endif
+
+#ifndef BOARD_I2S1_PORT
+#define BOARD_I2S1_PORT             GPIOA
+#endif
+
+/** @brief I2S1_CK: GPIO6 (Function3) */
+#ifndef BOARD_I2S1_CK_PIN
+#define BOARD_I2S1_CK_PIN           6
+#endif
+
+/** @brief I2S1_WS: GPIO7 (Function3) */
+#ifndef BOARD_I2S1_WS_PIN
+#define BOARD_I2S1_WS_PIN           7
+#endif
+
+/** @brief I2S1_DATA_DOUT: GPIO8 (Function3) */
+#ifndef BOARD_I2S1_DATA_DOUT_PIN
+#define BOARD_I2S1_DATA_DOUT_PIN    8
+#endif
+
+/** @brief I2S1_DATA_DIN: GPIO9 (Function3) */
+#ifndef BOARD_I2S1_DATA_DIN_PIN
+#define BOARD_I2S1_DATA_DIN_PIN     9
+#endif
+
+#ifndef BOARD_I2S1_FUNCTION
+#define BOARD_I2S1_FUNCTION         FUNCTION_3
+#endif
+
+/** @brief PA_EN: 无需GPIO控制（默认下拉） */
+#define BOARD_PA_EN_AVAILABLE       0
+
+#endif /* BOARD_AUDIO_ENABLE */
+
+/*===========================================================================
  * Section 6: Configuration Validation
  * 配置有效性检查
  *===========================================================================*/

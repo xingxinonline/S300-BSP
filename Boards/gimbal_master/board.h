@@ -363,6 +363,10 @@ extern "C" {
 
 #if BOARD_AUDIO_ENABLE
 
+/** @brief 使用 ES7210 + ES8311 编解码器组合 */
+#define BOARD_AUDIO_CODEC_ES7210    1
+#define BOARD_AUDIO_CODEC_ES8311    1
+
 /* I2S1 引脚配置 */
 #ifndef BOARD_I2S_MCLK_PORT
 #define BOARD_I2S_MCLK_PORT         GPIOA
@@ -410,14 +414,36 @@ extern "C" {
 #define BOARD_PA_EN_PORT            GPIOA
 #endif
 
-/** @brief PA_EN: GPIO14 (Function2) */
+/** @brief PA_EN: GPIO13 (Function2) - 高电平使能 */
 #ifndef BOARD_PA_EN_PIN
-#define BOARD_PA_EN_PIN             14
+#define BOARD_PA_EN_PIN             13
 #endif
 
 #ifndef BOARD_PA_EN_FUNCTION
 #define BOARD_PA_EN_FUNCTION        FUNCTION_2
 #endif
+
+/** @brief PA_EN 可用标志 */
+#define BOARD_PA_EN_AVAILABLE       1
+
+/* 音频 I2C 配置 (与摄像头共用 I2C3) */
+#ifndef BOARD_AUDIO_I2C_IDX
+#define BOARD_AUDIO_I2C_IDX         3
+#endif
+
+#ifndef BOARD_AUDIO_I2C_FREQ
+#define BOARD_AUDIO_I2C_FREQ        100000
+#endif
+
+/** @brief 音频 I2C 使用与 I2C3 相同的引脚 */
+#define BOARD_AUDIO_I2C_PORT        BOARD_I2C3_PORT
+#define BOARD_AUDIO_I2C_SCL_PIN     BOARD_I2C3_SCL_PIN   /* GPIO4 */
+#define BOARD_AUDIO_I2C_SDA_PIN     BOARD_I2C3_SDA_PIN   /* GPIO5 */
+#define BOARD_AUDIO_I2C_FUNCTION    BOARD_I2C3_FUNCTION
+
+/* 音频设备地址别名 */
+#define BOARD_AUDIO_ADDR_ES8311     BOARD_I2C3_ADDR_ES8311   /* 0x18 */
+#define BOARD_AUDIO_ADDR_ES7210     BOARD_I2C3_ADDR_ES7210   /* 0x41 */
 
 #endif /* BOARD_AUDIO_ENABLE */
 

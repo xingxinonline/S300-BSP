@@ -76,6 +76,23 @@ set(DRIVER_ft6x36_SRCS ${CMAKE_SOURCE_DIR}/Drivers/External/FT6X36/Source/ft6x36
 set(DRIVER_ft6x36_INCS ${CMAKE_SOURCE_DIR}/Drivers/External/FT6X36/Include)
 set(DRIVER_ft6x36_DEPS i2c_soft)
 
+set(DRIVER_es7210_SRCS ${CMAKE_SOURCE_DIR}/Drivers/External/ES7210/Source/es7210.c)
+set(DRIVER_es7210_INCS ${CMAKE_SOURCE_DIR}/Drivers/External/ES7210/Include)
+set(DRIVER_es7210_DEPS i2c_soft)
+
+set(DRIVER_es8311_SRCS ${CMAKE_SOURCE_DIR}/Drivers/External/ES8311/Source/es8311.c)
+set(DRIVER_es8311_INCS ${CMAKE_SOURCE_DIR}/Drivers/External/ES8311/Include)
+set(DRIVER_es8311_DEPS i2c_soft)
+
+# QMI8658A 六轴IMU传感器驱动
+set(DRIVER_qmi8658a_SRCS ${CMAKE_SOURCE_DIR}/Drivers/External/QMI8658A/Source/qmi8658a.c)
+set(DRIVER_qmi8658a_INCS ${CMAKE_SOURCE_DIR}/Drivers/External/QMI8658A/Include)
+set(DRIVER_qmi8658a_DEPS i2c_soft)
+
+# IMU 姿态解算库
+set(DRIVER_imu_SRCS ${CMAKE_SOURCE_DIR}/Drivers/External/IMU/Source/imu.c)
+set(DRIVER_imu_INCS ${CMAKE_SOURCE_DIR}/Drivers/External/IMU/Include)
+
 # =============================================================================
 # 核心路径定义
 # =============================================================================

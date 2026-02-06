@@ -1,6 +1,11 @@
 # BusServo - 总线舵机驱动 (Hiwonder 协议)
 # 支持半双工 UART 通信的总线舵机控制
 
+# 防止重复定义 (多个 Demo 使用时)
+if(TARGET bus_servo)
+    return()
+endif()
+
 add_library(bus_servo STATIC
     Source/bus_servo.c
 )

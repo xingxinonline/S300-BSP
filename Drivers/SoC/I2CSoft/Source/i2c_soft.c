@@ -121,24 +121,24 @@ int i2c_soft_write_byte(i2c_soft_t *i2c, uint8_t byte)
 uint8_t i2c_soft_read_byte(i2c_soft_t *i2c, bool ack)
 {
     uint8_t v = 0;
-    sda_in(i2c);
+    sda_in(i2c);       /* 切换 SDA 为输入模式 */
+    sda_high(i2c);     /* 释放 SDA，由上拉电阻拉高 */
     for (int b = 0; b < 8; ++b)
     {
-        scl_low(i2c);
         delay_us_busy(SystemCoreClock, i2c->half_period_us);
         scl_high(i2c);
-        delay_us_busy(SystemCoreClock, i2c->half_period_us / 2u + 1u);
+        delay_us_busy(SystemCoreClock, i2c->half_period_us);
         v = (uint8_t)((v << 1) | (sda_read(i2c) ? 1u : 0u));
-        delay_us_busy(SystemCoreClock, i2c->half_period_us / 2u + 1u);
+        scl_low(i2c);
     }
     /* 发送 ACK/NACK */
     if (ack) sda_low(i2c);
     else sda_high(i2c);
-    delay_us_busy(SystemCoreClock, i2c->half_period_us / 2u + 1u);
+    delay_us_busy(SystemCoreClock, i2c->half_period_us);
     scl_high(i2c);
     delay_us_busy(SystemCoreClock, i2c->half_period_us);
     scl_low(i2c);
-    sda_high(i2c); /* 释放 */
+    sda_high(i2c); /* 释放 SDA */
     return v;
 }
 
