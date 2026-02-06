@@ -1,8 +1,12 @@
 # =============================================================================
 # Audio_KWS_Demo - 音频采集与关键词检测 Demo
 # =============================================================================
-# 功能：使用 I2S + WM8978 进行音频采集与播放，配合 DSP 进行 KWS 检测
+# 功能：使用 I2S 进行音频采集与播放，配合 DSP 进行 KWS 检测
 # 参考自 gitlab/feature/i2s-kws-audio-processing 分支
+#
+# 支持的音频编解码器：
+#   - generic_evb:              WM8978
+#   - app_board, gimbal_master: ES7210 (ADC) + ES8311 (DAC)
 #
 # DSP 通信协议 (共享内存):
 # - 0x44040000: dsp_in_block  - 音频输入数据 (CM4 -> DSP)
@@ -26,9 +30,18 @@ set(TARGET s300_audio_kws_demo)
 set(PROJECT_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 set(ROOT ${PROJECT_DIR}/../../..)
 
+# 根据板子类型选择音频编解码器驱动
+if(BOARD STREQUAL "app_board" OR BOARD STREQUAL "gimbal_master")
+    set(AUDIO_CODEC_DRIVERS es7210 es8311)
+    message(STATUS "Audio_KWS_Demo: Using ES7210+ES8311 codec for ${BOARD}")
+else()
+    set(AUDIO_CODEC_DRIVERS wm8978)
+    message(STATUS "Audio_KWS_Demo: Using WM8978 codec for ${BOARD}")
+endif()
+
 # 使用 s300_resolve_drivers 自动解析驱动依赖
 s300_resolve_drivers(
-    DRIVERS rcc gpio uart dma i2s i2c_soft wm8978
+    DRIVERS rcc gpio uart dma i2s i2c_soft mailbox ${AUDIO_CODEC_DRIVERS}
     OUT_SRCS DRIVER_SRCS
     OUT_INCS DRIVER_INCS
 )
@@ -37,6 +50,7 @@ include_directories(
     ${S300_DEVICE_DIR}/Include
     ${S300_CORE_INC}
     ${DRIVER_INCS}
+    ${ROOT}/Algorithm_Models/protocol
 )
 
 # Sources
@@ -46,6 +60,7 @@ set(SRCS
     ${DRIVER_SRCS}
     ${PROJECT_DIR}/Src/main.c
     ${PROJECT_DIR}/Src/audio_app.c
+    ${PROJECT_DIR}/Src/audio_codec.c
 )
 
 set_source_files_properties(${S300_STARTUP_FILE} PROPERTIES LANGUAGE ASM)
@@ -53,6 +68,20 @@ set_source_files_properties(${S300_STARTUP_FILE} PROPERTIES LANGUAGE ASM)
 add_executable(${TARGET} ${SRCS})
 target_link_libraries(${TARGET} s300_board)
 set_target_properties(${TARGET} PROPERTIES LINK_FLAGS "-T${S300_DEFAULT_LD}")
+
+# 根据板子类型添加编解码器定义
+if(BOARD STREQUAL "app_board" OR BOARD STREQUAL "gimbal_master")
+    target_compile_definitions(${TARGET} PRIVATE
+        BOARD_AUDIO_CODEC_ES7210=1
+        BOARD_AUDIO_CODEC_ES8311=1
+        BOARD_AUDIO_ENABLE=1
+    )
+else()
+    target_compile_definitions(${TARGET} PRIVATE
+        BOARD_AUDIO_CODEC_WM8978=1
+        BOARD_AUDIO_ENABLE=1
+    )
+endif()
 
 # Post build artifacts
 add_custom_command(TARGET ${TARGET} POST_BUILD

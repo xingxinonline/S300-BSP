@@ -8,6 +8,12 @@
 cmake_minimum_required(VERSION 3.16)
 project(Touch_Test)
 
+# 仅在 app_board 上编译此 Demo（其他板无触摸屏硬件）
+if(NOT BOARD STREQUAL "app_board")
+    message(STATUS "Touch_Test: Skipped (only supported on app_board)")
+    return()
+endif()
+
 # ft6x36 -> i2c_soft -> gpio -> rcc (自动解析)
 s300_add_executable(
     TARGET s300_touch_test

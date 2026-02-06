@@ -1,11 +1,13 @@
 /**
  * @file    audio_app.c
- * @brief   音频应用层实现 - I2S DMA 双缓冲 + WM8978 Codec
+ * @brief   音频应用层实现 - I2S DMA 双缓冲 + 多编解码器支持
  * @note    移植自 gitlab/feat/kws:test_kcx_audio/cortex-m4-kcx/app/main.c
  *          适配到 S300-BSP SDK 架构
+ *          支持多种编解码器: WM8978 (EVB), ES7210+ES8311 (应用板/云台主控)
  */
 
 #include "audio_app.h"
+#include "audio_codec.h"
 #include "s300.h"
 #include "board.h"
 #include "rcc.h"
@@ -13,7 +15,6 @@
 #include "dma.h"
 #include "i2s.h"
 #include "i2c_soft.h"
-#include "wm8978.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -68,8 +69,8 @@
 /* 音频上下文 */
 static audio_ctx_t g_audio_ctx;
 
-/* WM8978 I2C 句柄 */
-static i2c_soft_t g_wm8978_i2c;
+/* 音频编解码器句柄 (抽象层) */
+static audio_codec_t g_audio_codec;
 
 /*===========================================================================
  * 内部辅助函数
@@ -107,61 +108,6 @@ static void audio_i2s_pins_init(void)
     }
 }
 
-/**
- * @brief 初始化 WM8978 软件 I2C
- *
- * I2C 软件模拟索引配置 (来自 i2c_soft.c):
- *   idx=0: PA14(SCL), PA15(SDA)
- *   idx=1: PA0(SCL),  PA1(SDA)  - 原始 gitlab/feature/i2s-kws-audio-processing 使用 EM_I2C1
- *   idx=2: PA2(SCL),  PA3(SDA)
- *   idx=3: PA4(SCL),  PA5(SDA)
- */
-static void audio_wm8978_i2c_init(void)
-{
-    /* 使用 idx=1: PA0(SCL), PA1(SDA)，与原始代码 EM_I2C1 一致 */
-    printf("[Audio] I2C init: PA0(SCL), PA1(SDA), 100kHz\r\n");
-    i2c_soft_init_default_idx(&g_wm8978_i2c, 1, 100000);
-}
-
-/**
- * @brief 配置 WM8978 Codec
- */
-static int audio_wm8978_config(void)
-{
-    int ret;
-
-    /* 初始化 WM8978 */
-    ret = wm8978_init(&g_wm8978_i2c);
-    if (ret != 0)
-    {
-        printf("[Audio] WM8978 init failed: %d\r\n", ret);
-        printf("[Audio] Check WM8978 connection: PA0(SCL), PA1(SDA)\r\n");
-        return ret;
-    }
-
-    /* 配置音量 (与原 demo 对齐) */
-    wm8978_set_hp_vol(&g_wm8978_i2c, 40, 40);   /* 耳机音量 */
-    wm8978_set_spk_vol(&g_wm8978_i2c, 50);      /* 扬声器音量 */
-
-    /* 配置 ADC/DAC */
-    wm8978_set_adda(&g_wm8978_i2c, true, true); /* 开启 ADC + DAC */
-
-    /* 配置输入: MIC + LINE IN */
-    wm8978_set_input(&g_wm8978_i2c, true, true, false);
-
-    /* 配置输出: DAC 到输出 */
-    wm8978_set_output(&g_wm8978_i2c, true, false);
-
-    /* 配置 MIC 增益 */
-    wm8978_set_mic_gain(&g_wm8978_i2c, 46);
-
-    /* 配置 I2S 格式: fmt=2 (I2S 标准), len=0 (16-bit) */
-    wm8978_i2s_cfg(&g_wm8978_i2c, 2, 0);
-
-    printf("[Audio] WM8978 configured\r\n");
-    return 0;
-}
-
 /*===========================================================================
  * 公开 API 实现
  *===========================================================================*/
@@ -194,6 +140,7 @@ int audio_init(void)
     int ret;
 
     printf("[Audio] Initializing...\r\n");
+    printf("[Audio] Using codec: %s\r\n", audio_codec_get_name(audio_codec_get_board_type()));
 
     /* 清零上下文 */
     memset(&g_audio_ctx, 0, sizeof(g_audio_ctx));
@@ -203,11 +150,11 @@ int audio_init(void)
     audio_i2s_pins_init();
     printf("[Audio] I2S pins initialized\r\n");
 
-    /* 2. 初始化 WM8978 I2C 并配置 Codec */
-    audio_wm8978_i2c_init();
-    ret = audio_wm8978_config();
+    /* 2. 初始化音频编解码器 (16kHz for KWS) */
+    ret = audio_codec_init(&g_audio_codec, 16000);
     if (ret != 0)
     {
+        printf("[Audio] Codec init failed: %d\r\n", ret);
         return ret;
     }
 
@@ -238,6 +185,9 @@ int audio_init(void)
                  (uint8_t *)g_audio_ctx.in_buf,
                  (uint8_t *)g_audio_ctx.out_buf,
                  AUDIO_DMA_BUFFER_LEN * 2);
+
+    /* 9. 启动编解码器 (包含使能功放) */
+    audio_codec_start(&g_audio_codec);
 
     printf("[Audio] Initialization complete\r\n");
     return 0;
