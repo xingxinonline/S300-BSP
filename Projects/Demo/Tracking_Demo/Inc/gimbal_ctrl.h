@@ -27,8 +27,8 @@ extern "C" {
 #define GIMBAL_YAW_MAX          (90.0f)
 
 /** @brief Pitch 范围 (度) */
-#define GIMBAL_PITCH_MIN        (-90.0f)
-#define GIMBAL_PITCH_MAX        (0.0f)
+#define GIMBAL_PITCH_MIN        (-60.0f)
+#define GIMBAL_PITCH_MAX        (-30.0f)
 
 /*===========================================================================
  * API

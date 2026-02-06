@@ -13,13 +13,17 @@
  * 舵机脉冲参数
  *===========================================================================*/
 
-#define YAW_MIN_PULSE       125
-#define YAW_MID_PULSE       500
-#define YAW_MAX_PULSE       875
+/*
+ * 舵机脉冲换算：0-1000 对应 240°，中点 500 = 0°
+ * 每度 = 1000/240 ≈ 4.167 pulse
+ */
+#define YAW_MIN_PULSE       125     /* -90° */
+#define YAW_MID_PULSE       500     /*   0° */
+#define YAW_MAX_PULSE       875     /* +90° */
 
-#define PITCH_MIN_PULSE     125
-#define PITCH_MID_PULSE     312     /* -45° */
-#define PITCH_MAX_PULSE     500
+#define PITCH_MIN_PULSE     250     /* -60°: 500 + (-60)*4.167 ≈ 250 */
+#define PITCH_MID_PULSE     312     /* -45°: 500 + (-45)*4.167 ≈ 312 */
+#define PITCH_MAX_PULSE     375     /* -30°: 500 + (-30)*4.167 ≈ 375 */
 
 /*===========================================================================
  * 私有变量
@@ -96,7 +100,24 @@ int gimbal_init(uint32_t (*get_millis)(void))
     /* 等待舵机上电 */
     delay_ms(500);
     
-    /* 使能舵机 */
+    /* 使能并初始化未使用的舵机 (ID 2, 3, 5)，防止抖动 */
+    /* 设置到中间位置 (500) 并使能 */
+    bus_servo_set_load(&s_servo, 2, true);
+    delay_ms(10);
+    bus_servo_move_raw(&s_servo, 2, 500, 1000);
+    delay_ms(10);
+    
+    bus_servo_set_load(&s_servo, 3, true);
+    delay_ms(10);
+    bus_servo_move_raw(&s_servo, 3, 500, 1000);
+    delay_ms(10);
+    
+    bus_servo_set_load(&s_servo, 5, true);
+    delay_ms(10);
+    bus_servo_move_raw(&s_servo, 5, 500, 1000);
+    delay_ms(10);
+    
+    /* 使能云台舵机 (ID 4, 6) */
     bus_servo_set_load(&s_servo, GIMBAL_YAW_ID, true);
     delay_ms(10);
     bus_servo_set_load(&s_servo, GIMBAL_PITCH_ID, true);
@@ -111,9 +132,9 @@ void gimbal_center(void)
     s_yaw_deg = 0.0f;
     s_pitch_deg = -45.0f;
     
-    bus_servo_move_raw(&s_servo, GIMBAL_YAW_ID, YAW_MID_PULSE, 500);
+    bus_servo_move_raw(&s_servo, GIMBAL_YAW_ID, YAW_MID_PULSE, 1000);
     delay_ms(5);
-    bus_servo_move_raw(&s_servo, GIMBAL_PITCH_ID, PITCH_MID_PULSE, 500);
+    bus_servo_move_raw(&s_servo, GIMBAL_PITCH_ID, PITCH_MID_PULSE, 1000);
 }
 
 void gimbal_move(float yaw_deg, float pitch_deg, uint16_t time_ms)

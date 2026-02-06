@@ -35,6 +35,7 @@ typedef struct {
     int8_t  vy;                  /**< Y方向速度 (像素/帧, 卡尔曼输出) */
     uint8_t speed;               /**< 速度大小 [0-255]，用于箭头渲染 */
     uint8_t kf_confidence;       /**< 卡尔曼滤波置信度 (0-100) */
+    uint8_t edge_flags;          /**< 边缘标记: bit0=左, bit1=右, bit2=上, bit3=下 */
     bool    selected;            /**< 是否为选中目标 */
 } tracker_target_t;
 
@@ -88,6 +89,27 @@ void tracker_set_deadzone(int pixels);
  * @return 当前跟踪的 track_id，0表示无跟踪
  */
 uint8_t tracker_get_current_track_id(void);
+
+/**
+ * @brief  获取最后一次跟踪位置
+ * @param  out_cx 输出 X 坐标
+ * @param  out_cy 输出 Y 坐标
+ */
+void tracker_get_last_position(int16_t *out_cx, int16_t *out_cy);
+
+/**
+ * @brief  获取丢失状态和丢失位置
+ * @param  out_cx 输出丢失时的 X 坐标 (可为 NULL)
+ * @param  out_cy 输出丢失时的 Y 坐标 (可为 NULL)
+ * @return true=当前处于 LOST 状态
+ */
+bool tracker_is_lost(int16_t *out_cx, int16_t *out_cy);
+
+/**
+ * @brief  获取 LOST 状态的持续时间
+ * @return LOST 状态持续的毫秒数，非 LOST 状态返回 0
+ */
+uint32_t tracker_get_lost_duration_ms(void);
 
 /**
  * @brief  重置跟踪器（清除当前跟踪的 track_id）
