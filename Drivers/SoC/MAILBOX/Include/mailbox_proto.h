@@ -56,25 +56,120 @@ extern "C" {
 #define MAILBOX_MSG_TYPE_NO_RESULT    0xF0000000u
 
 /*===========================================================================
- * M4 → DSP 命令类型 (高 4 位 = 0x8 ~ 0xF)
+ * M4 → DSP 命令协议 (v3.1)
+ * 
+ * 命令格式:
+ *   ┌────────┬────────┬────────────────────┐
+ *   │ 31..28 │ 27..24 │       23..0        │
+ *   │  0x8   │ CmdGrp │      Payload       │
+ *   └────────┴────────┴────────────────────┘
  *===========================================================================*/
 
-/** 启动追踪/检测 */
-#define MAILBOX_CMD_START             0x80000000u
+/** 命令消息类型 (Type = 0x8) */
+#define MAILBOX_CMD_TYPE              0x80000000u
 
-/** 停止追踪/检测 */
-#define MAILBOX_CMD_STOP              0x90000000u
+/* 命令组定义 (CmdGrp) */
+#define MAILBOX_CMD_GRP_BASIC         0x00  /**< 基础控制 */
+#define MAILBOX_CMD_GRP_SELECT        0x01  /**< 目标选择 */
+#define MAILBOX_CMD_GRP_MODE          0x02  /**< 模式设置 */
+#define MAILBOX_CMD_GRP_GIMBAL        0x03  /**< 云台控制 */
+#define MAILBOX_CMD_GRP_CONFIG        0x04  /**< 配置参数 */
+#define MAILBOX_CMD_GRP_SYSTEM        0x0F  /**< 系统命令 */
 
-/** 重置选中目标 */
-#define MAILBOX_CMD_RESET_SELECTION   0xA0000000u
+/*---------------------------------------------------------------------------
+ * 基础控制命令 (CmdGrp = 0x0)
+ *---------------------------------------------------------------------------*/
+/** 启动追踪 */
+#define MAILBOX_CMD_START_TRACK       0x80000001u
 
-/** 切换模型/算法模式 */
-#define MAILBOX_CMD_SWITCH_MODEL      0xB0000000u
+/** 停止追踪（保持检测） */
+#define MAILBOX_CMD_STOP_TRACK        0x80000002u
 
-/** 音频数据就绪通知（payload = 音频数据偏移地址）*/
-#define MAILBOX_CMD_AUDIO_DATA        0xC0000000u
+/** 重置当前目标 */
+#define MAILBOX_CMD_RESET_TRACK       0x80000003u
 
-/** 保留 0xD0000000 ~ 0xE0000000 供未来扩展 */
+/* 兼容旧代码 */
+#define MAILBOX_CMD_START             MAILBOX_CMD_START_TRACK
+#define MAILBOX_CMD_STOP              MAILBOX_CMD_STOP_TRACK
+
+/*---------------------------------------------------------------------------
+ * 目标选择命令 (CmdGrp = 0x1)
+ *---------------------------------------------------------------------------*/
+/** 选择目标: 0x81000000 | det_idx */
+#define MAILBOX_CMD_SELECT_TARGET     0x81000000u
+
+/*---------------------------------------------------------------------------
+ * 模式设置命令 (CmdGrp = 0x2)
+ *---------------------------------------------------------------------------*/
+/** 设置选择模式: 0x82000000 | mode (0=中心,1=最大,2=手动) */
+#define MAILBOX_CMD_SET_SELECT_MODE   0x82000000u
+
+/*---------------------------------------------------------------------------
+ * 云台控制命令 (CmdGrp = 0x3, v3.1)
+ * 
+ * 格式: 0x83000000 | (pan_q7 << 8) | tilt_q7
+ * 
+ *   ┌────────────┬──────────┬──────────┬──────────┐
+ *   │   31..24   │  23..16  │  15..8   │   7..0   │
+ *   │    0x83    │ reserved │  pan_q7  │ tilt_q7  │
+ *   └────────────┴──────────┴──────────┴──────────┘
+ * 
+ * pan_q7/tilt_q7: 有符号 Q7 定点数 (°/frame × 128), int8_t
+ * 范围: ±1.0°/frame, 精度: ~0.008°
+ *---------------------------------------------------------------------------*/
+/** 云台角速度命令前缀 */
+#define MAILBOX_CMD_SET_GIMBAL_VEL    0x83000000u
+
+/** @brief 将浮点角速度编码为 Q7 定点 (int8_t) */
+#define MAILBOX_VEL_TO_Q7(deg)  \
+    ((int8_t)((deg) * 128.0f))
+
+/** @brief 从 Q7 定点解码为浮点角速度 */
+#define MAILBOX_Q7_TO_VEL(q7)  \
+    ((float)((int8_t)(q7)) / 128.0f)
+
+/** @brief 构造云台角速度消息 (v3.1 格式) */
+#define MAILBOX_MAKE_GIMBAL_VEL(pan_deg, tilt_deg)  \
+    (MAILBOX_CMD_SET_GIMBAL_VEL |                   \
+     (((uint8_t)MAILBOX_VEL_TO_Q7(pan_deg)) << 8) | \
+     ((uint8_t)MAILBOX_VEL_TO_Q7(tilt_deg)))
+
+/** @brief 从消息中提取 pan 角速度 (°/帧) */
+#define MAILBOX_GET_GIMBAL_PAN_VEL(msg)  \
+    MAILBOX_Q7_TO_VEL(((msg) >> 8) & 0xFF)
+
+/** @brief 从消息中提取 tilt 角速度 (°/帧) */
+#define MAILBOX_GET_GIMBAL_TILT_VEL(msg)  \
+    MAILBOX_Q7_TO_VEL((msg) & 0xFF)
+
+/*---------------------------------------------------------------------------
+ * 配置命令 (CmdGrp = 0x4, v3.1 预留)
+ * 
+ * 格式: 0x84000000 | (param_id << 8) | value
+ *---------------------------------------------------------------------------*/
+/** 配置命令前缀 */
+#define MAILBOX_CMD_SET_CONFIG        0x84000000u
+
+/* 配置参数 ID */
+#define MAILBOX_CFG_CONF_THRESHOLD    0x01  /**< 检测置信度阈值 (0-100) */
+#define MAILBOX_CFG_IOU_THRESH        0x02  /**< IOU 匹配阈值 (0-100) */
+#define MAILBOX_CFG_APPEAR_THRESH     0x03  /**< 外观相似度阈值 (0-100) */
+#define MAILBOX_CFG_MAX_LOST_FRAMES   0x04  /**< 最大丢失搜索帧数 (0-255) */
+#define MAILBOX_CFG_SELECT_MODE       0x05  /**< 目标选择模式 (0-2) */
+
+/*---------------------------------------------------------------------------
+ * 系统命令 (CmdGrp = 0xF)
+ *---------------------------------------------------------------------------*/
+/** 心跳测试 */
+#define MAILBOX_CMD_PING              0x8F000000u
+
+/*---------------------------------------------------------------------------
+ * 旧命令兼容 (已废弃，保留用于过渡)
+ *---------------------------------------------------------------------------*/
+#define MAILBOX_CMD_RESET_SELECTION   0xA0000000u  /**< @deprecated 使用 RESET_TRACK */
+#define MAILBOX_CMD_SWITCH_MODEL      0xB0000000u  /**< @deprecated */
+#define MAILBOX_CMD_AUDIO_DATA        0xC0000000u  /**< 音频数据通知 */
+#define MAILBOX_CMD_IMU_DATA          0xD0000000u  /**< IMU 数据通知 */
 
 /*===========================================================================
  * 消息解析宏

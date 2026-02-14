@@ -16,7 +16,7 @@
  *   3. M4 读取 Mailbox，提取 offset，从共享内存解析 DetectionResult
  *   4. M4 根据 result.count 遍历所有检测目标
  * 
- * 版本: 2.2 (Kalman filter support)
+ * 版本: 2.3 (SORT multi-target tracking, miss_count field)
  * 
  * @see mailbox_proto.h 通用邮箱消息格式
  */
@@ -35,7 +35,7 @@ extern "C" {
  *===========================================================================*/
 
 /** 协议版本号，M4/DSP 握手时可用于版本校验 */
-#define DETECTION_PROTOCOL_VERSION    0x0202u  /* v2.2 */
+#define DETECTION_PROTOCOL_VERSION    0x0300u  /* v3.0 — miss_count + CM4↔DSP双向通信 */
 
 /** 最大支持的检测目标数量 */
 #define MAX_DETECTION_COUNT           10
@@ -47,8 +47,8 @@ extern "C" {
  * 速度箭头渲染配置
  *===========================================================================*/
 
-#define ARROW_SHOW_THRESHOLD  25    /**< 箭头显示阈值（speed > 此值时显示）*/
-#define ARROW_HIDE_THRESHOLD  8     /**< 箭头隐藏阈值（speed < 此值时隐藏）*/
+#define ARROW_SHOW_THRESHOLD  2     /**< 箭头显示阈值（speed > 此值时显示）*/
+#define ARROW_HIDE_THRESHOLD  1     /**< 箭头隐藏阈值（speed < 此值时隐藏）*/
 #define ARROW_SCALE           8     /**< 速度到箭头长度的比例因子 */
 #define ARROW_HEAD_RATIO      0.35f /**< 箭头头部占总长度的比例 */
 #define ARROW_WIDTH_BASE      2     /**< 基础线宽 */
@@ -87,7 +87,8 @@ typedef enum {
  *   Offset 63: int8_t  vy            (1 byte)   - Y方向速度 (像素/帧)
  *   Offset 64: uint8_t speed         (1 byte)   - 速度大小 (0-255)
  *   Offset 65: uint8_t kf_confidence (1 byte)   - 卡尔曼滤波置信度 (0-100)
- *   Offset 66: uint8_t reserved[2]   (2 bytes)  - 预留字段
+ *   Offset 66: uint8_t miss_count    (1 byte)   - DSP侧连续漏检帧数 (0=真实检测, >0=Kalman coast)
+ *   Offset 67: uint8_t reserved      (1 byte)   - 预留字段
  *   Total: 68 bytes
  */
 typedef struct __attribute__((packed)) {
@@ -103,7 +104,8 @@ typedef struct __attribute__((packed)) {
     int8_t   vy;              /**< Y方向速度 (像素/帧, 卡尔曼输出) */
     uint8_t  speed;           /**< 速度大小 [0-255]，用于箭头渲染 */
     uint8_t  kf_confidence;   /**< 卡尔曼滤波置信度 (0-100) */
-    uint8_t  reserved[2];     /**< 预留字段 */
+    uint8_t  miss_count;      /**< DSP侧连续漏检帧数 (0=真实CNN检测, >0=Kalman coast预测) */
+    uint8_t  reserved;        /**< 预留对齐 */
 } DetectionBox_t;
 
 /** 兼容旧版本的类型别名 */
