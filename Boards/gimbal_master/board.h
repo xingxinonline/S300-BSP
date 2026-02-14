@@ -182,7 +182,7 @@ extern "C" {
 #if BOARD_UART2_ENABLE
 
 #ifndef BOARD_UART2_BAUDRATE
-#define BOARD_UART2_BAUDRATE        921600
+#define BOARD_UART2_BAUDRATE        115200
 #endif
 
 #ifndef BOARD_UART2_PORT
