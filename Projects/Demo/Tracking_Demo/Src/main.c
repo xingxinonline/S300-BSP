@@ -35,6 +35,7 @@
 /* Board and subsystems */
 #include "rcc.h"
 #include "board.h"
+#include "uart.h"
 #include "video.h"
 #include "psram.h"
 #include "mailbox.h"
@@ -100,6 +101,24 @@ static volatile uint32_t g_tick_ms = 0;
 static uint8_t g_front_idx = 0;
 
 /*===========================================================================
+ * 串口控制命令
+ *===========================================================================*/
+
+/** @brief Follow mode state */
+typedef enum {
+    FOLLOW_MODE_IDLE = 0,      /**< Idle mode, not following */
+    FOLLOW_MODE_WAITING,       /**< Waiting for target */
+    FOLLOW_MODE_ACTIVE,        /**< Actively tracking */
+} FollowMode_t;
+
+/** @brief Follow control context */
+static struct {
+    FollowMode_t mode;         /**< Current follow mode */
+    uint32_t wait_start_ts;    /**< Wait start timestamp */
+    bool print_waiting;        /**< Whether waiting message printed */
+} g_follow = {0};
+
+/*===========================================================================
  * 跟踪目标状态（用于双缓冲绘制）
  *===========================================================================*/
 
@@ -125,9 +144,11 @@ typedef struct {
     uint8_t  kf_confidence;    /**< 卡尔曼置信度 */
     uint8_t  score_pct;        /**< 检测置信度 (0-100) */
     uint8_t  edge_flags;       /**< 边缘标志 (EDGE_FLAG_xxx) */
+    uint8_t  miss_count;       /**< DSP侧连续漏检帧数 (0=真实检测, >0=coast预测) */
     bool     valid;            /**< 是否有效 */
     bool     selected;         /**< 是否选中 */
     bool     arrow_visible;    /**< 箭头是否可见 */
+    bool     crosshair_visible; /**< 十字准星是否可见（追踪时无箭头显示此标记）*/
 } DisplayBox_t;
 
 /** @brief 上一帧状态（用于增量清除）*/
@@ -137,6 +158,7 @@ typedef struct {
     int8_t   vx, vy;
     bool     valid;
     bool     arrow_visible;
+    bool     crosshair_visible;
 } PrevBox_t;
 
 /** @brief 显示状态上下文 */
@@ -165,7 +187,7 @@ static struct {
  * 防止误检测导致的框闪烁
  */
 #define BOX_CONFIRM_FRAMES      2       /**< 确认需要的连续帧数 */
-#define BOX_CONFIRM_WINDOW_MS   300     /**< 确认窗口时间 (ms) */
+#define BOX_CONFIRM_WINDOW_MS   500     /**< 确认窗口时间 (ms) */
 #define BOX_CONFIRM_DIST_MAX    40      /**< 位置最大偏移 (像素) */
 #define BOX_EXPIRE_FRAMES       3       /**< 丢失后保持显示的帧数 */
 
@@ -375,6 +397,386 @@ static inline uint32_t millis(void)
 }
 
 /*===========================================================================
+ * KWS Command Reception (UART2) - Interrupt-based
+ *===========================================================================*/
+
+/** @brief Command buffer size */
+#define CMD_BUFFER_SIZE     64
+
+/** @brief UART RX ring buffer size (must be power of 2) */
+#define UART_RX_BUF_SIZE    256
+
+/** @brief UART RX ring buffer */
+static volatile struct {
+    uint8_t buf[UART_RX_BUF_SIZE];
+    volatile uint32_t head;     /**< Write index (ISR) */
+    volatile uint32_t tail;     /**< Read index (main) */
+} g_uart_rx = {0};
+
+/** @brief UART2 RX interrupt handler */
+void BOARD_DEBUG_UART_IRQHandler(void)
+{
+    S300_UART_TypeDef *U = BOARD_DEBUG_UART;
+    uint32_t iir = U->IIR_FCR;
+    uint32_t int_id = iir & 0x0F;
+    
+    /* IIR: 0x04=RX data, 0x0C=timeout, 0x06=line status */
+    if ((int_id == 0x04) || (int_id == 0x0C)) {
+        /* Read all available data */
+        while (U->LSR & 0x01) {
+            uint8_t data = (uint8_t)(U->RBR_THR_DLL & 0xFF);
+            uint32_t next_head = (g_uart_rx.head + 1) & (UART_RX_BUF_SIZE - 1);
+            if (next_head != g_uart_rx.tail) {
+                g_uart_rx.buf[g_uart_rx.head] = data;
+                g_uart_rx.head = next_head;
+            }
+            /* else: buffer full, discard */
+        }
+    } else if (int_id == 0x06) {
+        /* Line status - read LSR to clear */
+        volatile uint32_t lsr = U->LSR;
+        (void)lsr;
+    }
+}
+
+/** @brief Command reception context */
+static struct {
+    char buffer[CMD_BUFFER_SIZE];   /**< Command line buffer */
+    uint8_t index;                   /**< Current buffer index */
+    bool discard_until_eol;          /**< Discard chars until end of line (after overflow) */
+} g_cmd = {0};
+
+/* Forward declarations */
+static void render_and_swap(void);
+static bool is_box_still_valid(uint8_t track_id);
+static void cmd_start_follow(void);
+static void cmd_stop_follow(void);
+
+/**
+ * @brief UART2 non-blocking read (for KWS commands)
+ * @param c Output character
+ * @return 1=success, 0=no data
+ * @note Reads from interrupt-driven ring buffer
+ */
+static int uart2_getchar_noblock(uint8_t *c)
+{
+    if (g_uart_rx.tail != g_uart_rx.head) {
+        *c = g_uart_rx.buf[g_uart_rx.tail];
+        g_uart_rx.tail = (g_uart_rx.tail + 1) & (UART_RX_BUF_SIZE - 1);
+        return 1;
+    }
+    return 0;
+}
+
+/*===========================================================================
+ * KWS Command Debounce
+ *===========================================================================*/
+
+/** @brief Debounce time window for same command (ms) */
+#define KWS_DEBOUNCE_MS     1000
+
+/** @brief Global cooldown after any command execution (ms) - prevents rapid switching */
+#define KWS_CMD_COOLDOWN_MS 3000
+
+/** @brief Minimum confidence threshold for start follow command (0-255) */
+#define KWS_CONF_START_FOLLOW  100
+
+/** @brief Minimum confidence threshold for stop follow command (0-255) */
+#define KWS_CONF_STOP_FOLLOW   100
+
+/** @brief KWS command types */
+typedef enum {
+    KWS_CMD_NONE = 0,
+    KWS_CMD_START_FOLLOW,
+    KWS_CMD_STOP_FOLLOW,
+} KwsCmdType_t;
+
+/** @brief KWS debounce state */
+static struct {
+    KwsCmdType_t last_cmd;      /**< Last executed command */
+    uint32_t last_cmd_ts;       /**< Last command timestamp (for same-cmd debounce) */
+    uint32_t cooldown_ts;       /**< Global cooldown timestamp (for any-cmd cooldown) */
+} g_kws_debounce = {0};
+
+/**
+ * @brief Process received KWS command line
+ * @param cmd Null-terminated command string (without \r\n)
+ * 
+ * Expected formats:
+ *   - "qidonggensui:xx"  - Start follow (xx = confidence 0-255)
+ *   - "jieshugensui:xx"  - Stop follow (xx = confidence 0-255)
+ * 
+ * Features:
+ *   - Debounce: Ignores repeated commands within 1 second window
+ *   - Confidence threshold: Ignores low confidence commands
+ */
+static void process_kws_command(const char *cmd)
+{
+    /* Find the colon separator */
+    const char *colon = strchr(cmd, ':');
+    if (!colon) {
+        printf("[KWS] Invalid format (no ':'): \"%s\"\r\n", cmd);
+        return;
+    }
+    
+    /* Extract command name length */
+    size_t cmd_len = (size_t)(colon - cmd);
+    
+    /* Parse confidence value after colon */
+    int confidence = 0;
+    const char *val_str = colon + 1;
+    while (*val_str >= '0' && *val_str <= '9') {
+        confidence = confidence * 10 + (*val_str - '0');
+        val_str++;
+    }
+    if (confidence > 255) confidence = 255;
+    
+    /* Determine command type and get corresponding confidence threshold */
+    KwsCmdType_t cmd_type = KWS_CMD_NONE;
+    uint8_t min_conf = 255;  /* Default: reject */
+    
+    if (cmd_len == 12 && strncmp(cmd, "qidonggensui", 12) == 0) {
+        cmd_type = KWS_CMD_START_FOLLOW;
+        min_conf = KWS_CONF_START_FOLLOW;
+    }
+    else if (cmd_len == 12 && strncmp(cmd, "jieshugensui", 12) == 0) {
+        cmd_type = KWS_CMD_STOP_FOLLOW;
+        min_conf = KWS_CONF_STOP_FOLLOW;
+    }
+    
+    /* Unknown command: print and ignore */
+    if (cmd_type == KWS_CMD_NONE) {
+        printf("[KWS] unknown: \"%.*s\" conf=%d\r\n", (int)cmd_len, cmd, confidence);
+        return;
+    }
+    
+    /* Check confidence threshold for known commands */
+    if (confidence < min_conf) {
+        /* Low confidence, print debug info and ignore */
+        printf("[KWS] rejected: \"%.*s\" conf=%d < %d\r\n", 
+               (int)cmd_len, cmd, confidence, min_conf);
+        return;
+    }
+    
+    /* Check global cooldown first (prevents rapid start/stop switching) */
+    uint32_t now = millis();
+    if ((now - g_kws_debounce.cooldown_ts) < KWS_CMD_COOLDOWN_MS) {
+        /* Still in global cooldown period, silently ignore */
+        return;
+    }
+    
+    /* Check same-command debounce */
+    if (cmd_type == g_kws_debounce.last_cmd && 
+        (now - g_kws_debounce.last_cmd_ts) < KWS_DEBOUNCE_MS) {
+        /* Same command within debounce window, ignore */
+        return;
+    }
+    
+    /* Debug: Print received command with confidence */
+    printf("[KWS] cmd=\"%.*s\" conf=%d\r\n", (int)cmd_len, cmd, confidence);
+    
+    /* Execute command */
+    switch (cmd_type) {
+    case KWS_CMD_START_FOLLOW:
+        printf("[KWS] -> Start follow\r\n");
+        cmd_start_follow();
+        g_kws_debounce.last_cmd = KWS_CMD_START_FOLLOW;
+        g_kws_debounce.last_cmd_ts = now;
+        g_kws_debounce.cooldown_ts = now;  /* Start global cooldown */
+        break;
+        
+    case KWS_CMD_STOP_FOLLOW:
+        printf("[KWS] -> Stop follow\r\n");
+        cmd_stop_follow();
+        g_kws_debounce.last_cmd = KWS_CMD_STOP_FOLLOW;
+        g_kws_debounce.last_cmd_ts = now;
+        g_kws_debounce.cooldown_ts = now;  /* Start global cooldown */
+        break;
+        
+    default:
+        printf("[KWS] Unknown command: \"%.*s\"\r\n", (int)cmd_len, cmd);
+        break;
+    }
+}
+
+/**
+ * @brief 清除跟踪显示状态
+ */
+static void clear_tracking_display(void)
+{
+    for (uint32_t i = 0; i < MAX_DETECTION_COUNT; i++) {
+        g_display.boxes[i].valid = false;
+    }
+    g_display.count = 0;
+    g_display.selected_idx = -1;
+    g_display.has_tracked_id = false;
+    g_display.tracked_track_id = 0;
+    
+    /* 清除目标确认状态 */
+    memset(&g_box_confirm, 0, sizeof(g_box_confirm));
+}
+
+/**
+ * @brief 启动跟随控制
+ * @note 选择居中目标，如果没有目标则进入等待模式
+ */
+static void cmd_start_follow(void)
+{
+    printf("\r\n[CMD] Start follow\r\n");
+    
+    /* 通知 DSP 启动追踪 */
+    write_mailbox(MAILBOX_BASE, MAILBOX_CMD_START);
+    
+    /* 启用跟踪器 */
+    tracker_set_enable(true);
+    
+    /* 检查是否有可跟踪的目标 */
+    bool has_target = false;
+    for (uint32_t i = 0; i < g_display.count; i++) {
+        if (g_display.boxes[i].valid && is_box_still_valid(g_display.boxes[i].track_id)) {
+            has_target = true;
+            break;
+        }
+    }
+    
+    if (has_target) {
+        /* 有目标，直接进入跟随模式 */
+        g_follow.mode = FOLLOW_MODE_ACTIVE;
+        printf("[FOLLOW] Active - target acquired\r\n");
+    } else {
+        /* 无目标，进入等待模式 */
+        g_follow.mode = FOLLOW_MODE_WAITING;
+        g_follow.wait_start_ts = millis();
+        g_follow.print_waiting = false;
+        printf("[FOLLOW] Waiting for target...\r\n");
+    }
+}
+
+/**
+ * @brief 结束跟随控制
+ * @note 清空追踪信息，复位回中
+ */
+static void cmd_stop_follow(void)
+{
+    printf("\r\n[CMD] Stop follow\r\n");
+    
+    /* 通知 DSP 停止追踪 */
+    write_mailbox(MAILBOX_BASE, MAILBOX_CMD_STOP);
+    
+    /* 禁用跟踪器 */
+    tracker_set_enable(false);
+    
+    /* 重置跟踪器状态 */
+    tracker_reset();
+    
+    /* 清除显示状态 */
+    clear_tracking_display();
+    
+    /* 刷新显示（清除边界框）*/
+    render_and_swap();
+    
+    /* 云台归中 */
+    printf("[FOLLOW] Centering gimbal...\r\n");
+    gimbal_center();
+    
+    /* 设置为空闲模式 */
+    g_follow.mode = FOLLOW_MODE_IDLE;
+    
+    printf("[FOLLOW] Stopped\r\n");
+}
+
+/**
+ * @brief Print command help
+ */
+static void cmd_print_help(void)
+{
+    printf("\r\n");
+    printf("========== KWS Commands (UART2) ==========\r\n");
+    printf("  Format: command:value\\r\\n\r\n");
+    printf("  qidonggensui:xx - Start follow\r\n");
+    printf("  jieshugensui:xx - Stop follow\r\n");
+    printf("==========================================\r\n");
+}
+
+/**
+ * @brief Process KWS commands from UART2
+ * 
+ * Receives line-based commands in format: "command:value\r\n"
+ * Uses buffer to accumulate characters until \r or \n received.
+ */
+static void process_serial_command(void)
+{
+    uint8_t c;
+    
+    while (uart2_getchar_noblock(&c)) {
+        /* Handle line ending */
+        if (c == '\r' || c == '\n') {
+            if (g_cmd.discard_until_eol) {
+                /* End of discarded line, resume normal processing */
+                g_cmd.discard_until_eol = false;
+                g_cmd.index = 0;
+                continue;
+            }
+            if (g_cmd.index > 0) {
+                /* Null-terminate and process command */
+                g_cmd.buffer[g_cmd.index] = '\0';
+                process_kws_command(g_cmd.buffer);
+                g_cmd.index = 0;
+            }
+            continue;
+        }
+        
+        /* Skip all chars if in discard mode */
+        if (g_cmd.discard_until_eol) {
+            continue;
+        }
+        
+        /* Accumulate printable characters */
+        if (c >= 0x20 && c < 0x7F) {
+            if (g_cmd.index < CMD_BUFFER_SIZE - 1) {
+                g_cmd.buffer[g_cmd.index++] = (char)c;
+            } else {
+                /* Buffer overflow - discard rest of this line */
+                printf("[KWS] WARN: Command buffer overflow, discarding line\r\n");
+                g_cmd.discard_until_eol = true;
+                g_cmd.index = 0;
+            }
+        }
+    }
+}
+
+/**
+ * @brief 更新跟随模式状态
+ */
+static void update_follow_mode(void)
+{
+    if (g_follow.mode == FOLLOW_MODE_WAITING) {
+        /* 检查是否有可跟踪的目标 */
+        bool has_target = false;
+        for (uint32_t i = 0; i < g_display.count; i++) {
+            if (g_display.boxes[i].valid && is_box_still_valid(g_display.boxes[i].track_id)) {
+                has_target = true;
+                break;
+            }
+        }
+        
+        if (has_target) {
+            /* 目标出现，切换到跟随模式 */
+            g_follow.mode = FOLLOW_MODE_ACTIVE;
+            printf("[FOLLOW] Target acquired - now tracking\r\n");
+        } else {
+            /* 每秒打印一次等待消息 */
+            uint32_t now = millis();
+            if (!g_follow.print_waiting || (now - g_follow.wait_start_ts) % 1000 < 10) {
+                if (!g_follow.print_waiting) {
+                    g_follow.print_waiting = true;
+                }
+            }
+        }
+    }
+}
+
+/*===========================================================================
  * 视频初始化
  *===========================================================================*/
 
@@ -399,6 +801,10 @@ static void video_subsystem_init(void)
         uint32_t pixels = DISP_IMAGE_WIDTH * DISP_IMAGE_HEIGHT;
         uint32_t alpha_words = pixels / 2;
         
+        /* 调试：打印缓冲区地址 */
+        printf("[Tracking] fb0=0x%08lX fb1=0x%08lX\r\n", (unsigned long)fb0, (unsigned long)fb1);
+        printf("[Tracking] alpha0=0x%08lX alpha1=0x%08lX\r\n", (unsigned long)alpha0, (unsigned long)alpha1);
+        
         /* 填充背景色（绿色 0x07E0）*/
         for (uint32_t i = 0; i < pixels; i++) {
             fb0[i] = 0x07E0;
@@ -421,6 +827,13 @@ static void video_subsystem_init(void)
     init_mailbox(MAILBOX_BASE, 4, MAILBOX_IRQ_NONE);
     set_dsp_warm_reset(true);
     write_mailbox(MAILBOX_BASE, 0x5A5A5A5A);
+    
+    /*
+     * 等待 DSP 完成启动消息打印，避免 M4/DSP 串口输出交错
+     * DSP 启动时会打印多行诊断信息，大约需要 300-500ms
+     */
+    for (volatile int i = 0; i < 500000; i++) { /* ~500ms delay */ }
+    
     printf("[Tracking] DSP mailbox initialized.\r\n");
 }
 
@@ -819,6 +1232,36 @@ static void clear_velocity_arrow(int cx, int cy, int8_t vx, int8_t vy)
     draw_line(x2, y2, hx2, hy2, 0x0000, 0x00);
 }
 
+/** @brief 十字准星大小 */
+#define CROSSHAIR_SIZE  8
+
+/**
+ * @brief 绘制追踪十字准星
+ * 
+ * 当追踪目标在画面中相对静止时（速度很小），用十字准星标记选中目标
+ */
+static void draw_tracking_crosshair(int cx, int cy, uint16_t color)
+{
+    /* 水平线 */
+    draw_line(cx - CROSSHAIR_SIZE, cy, cx - 3, cy, color, 0xFF);
+    draw_line(cx + 3, cy, cx + CROSSHAIR_SIZE, cy, color, 0xFF);
+    
+    /* 垂直线 */
+    draw_line(cx, cy - CROSSHAIR_SIZE, cx, cy - 3, color, 0xFF);
+    draw_line(cx, cy + 3, cx, cy + CROSSHAIR_SIZE, color, 0xFF);
+}
+
+/**
+ * @brief 清除追踪十字准星
+ */
+static void clear_tracking_crosshair(int cx, int cy)
+{
+    draw_line(cx - CROSSHAIR_SIZE, cy, cx - 3, cy, 0x0000, 0x00);
+    draw_line(cx + 3, cy, cx + CROSSHAIR_SIZE, cy, 0x0000, 0x00);
+    draw_line(cx, cy - CROSSHAIR_SIZE, cx, cy - 3, 0x0000, 0x00);
+    draw_line(cx, cy + 3, cx, cy + CROSSHAIR_SIZE, 0x0000, 0x00);
+}
+
 /*===========================================================================
  * 双缓冲绘制管理
  *===========================================================================*/
@@ -840,6 +1283,7 @@ static void save_current_to_back_prev(void)
         g_display.prev_boxes_buf[back_idx][i].vy = g_display.boxes[i].vy;
         g_display.prev_boxes_buf[back_idx][i].valid = g_display.boxes[i].valid;
         g_display.prev_boxes_buf[back_idx][i].arrow_visible = g_display.boxes[i].arrow_visible;
+        g_display.prev_boxes_buf[back_idx][i].crosshair_visible = g_display.boxes[i].crosshair_visible;
     }
     g_display.prev_count_buf[back_idx] = g_display.count;
 }
@@ -847,16 +1291,16 @@ static void save_current_to_back_prev(void)
 /**
  * @brief 清除后台缓冲区的整个 Alpha 层
  * 
- * 简单粗暴但有效的方法：每帧都清除整个 overlay
- * 160x128 = 20480 像素 = 10240 words，性能可接受
+ * 使用 32-bit 写入加速清除
+ * 160x128 = 20480 像素 = 5120 个 32-bit words
  */
 static void clear_back_alpha_layer(void)
 {
-    volatile uint16_t *ab16 = get_back_alphabuffer();
-    uint32_t alpha_words = (DISP_IMAGE_WIDTH * DISP_IMAGE_HEIGHT) / 2;
+    volatile uint32_t *ab32 = (volatile uint32_t *)get_back_alphabuffer();
+    uint32_t count = (DISP_IMAGE_WIDTH * DISP_IMAGE_HEIGHT) / 4;
     
-    for (uint32_t i = 0; i < alpha_words; i++) {
-        ab16[i] = 0x0000;
+    for (uint32_t i = 0; i < count; i++) {
+        ab32[i] = 0x00000000;
     }
 }
 
@@ -900,10 +1344,11 @@ static void draw_all_boxes(void)
         
         drawn_count++;
         bool is_selected = ((int32_t)i == g_display.selected_idx);
+        bool is_tracking_active = tracker_is_enabled() && is_selected;
         g_display.boxes[i].selected = is_selected;
         
-        /* 选择边界框颜色 */
-        uint16_t box_color = is_selected ? COLOR_GREEN : COLOR_BLUE;
+        /* 选择边界框颜色：追踪激活时选中目标用绿色，否则用蓝色 */
+        uint16_t box_color = is_tracking_active ? COLOR_GREEN : COLOR_BLUE;
         
         /* 绘制边界框 */
         draw_color_rect_border(
@@ -933,13 +1378,19 @@ static void draw_all_boxes(void)
             int text_y = g_display.boxes[i].y1 - 9;  /* 7 像素高 + 2 像素间距 */
             if (text_y < 0) text_y = g_display.boxes[i].y2 + 2;  /* 如果超出上边界，放到下方 */
             
-            /* 选中目标用绿色，其他用黄色 */
-            uint16_t text_color = is_selected ? COLOR_GREEN : COLOR_YELLOW;
+            /* 追踪激活时选中目标用绿色，否则用黄色 */
+            uint16_t text_color = is_tracking_active ? COLOR_GREEN : COLOR_YELLOW;
             draw_string(text_x, text_y, score_str, text_color);
         }
         
-        /* 绘制速度箭头（仅对选中目标且有卡尔曼置信度时）*/
-        if (is_selected && g_display.boxes[i].kf_confidence > 0) {
+        /* 绘制速度箭头（仅对追踪激活且有卡尔曼置信度时）*/
+        if (is_tracking_active) {
+            TRK_LOG(3, "[ARROW] id=%u spd=%u kf=%u vx=%d vy=%d\r\n",
+                   g_display.boxes[i].track_id, g_display.boxes[i].speed,
+                   g_display.boxes[i].kf_confidence,
+                   (int)g_display.boxes[i].vx, (int)g_display.boxes[i].vy);
+        }
+        if (is_tracking_active && g_display.boxes[i].kf_confidence > 0) {
             uint8_t spd = g_display.boxes[i].speed;
             
             /* 滞后逻辑：防止箭头频繁闪烁 */
@@ -959,9 +1410,26 @@ static void draw_all_boxes(void)
                     g_display.boxes[i].vx, g_display.boxes[i].vy,
                     COLOR_CYAN
                 );
+                g_display.boxes[i].crosshair_visible = false;
+            } else {
+                /* 追踪时无速度箭头：显示十字准星 */
+                draw_tracking_crosshair(
+                    g_display.boxes[i].cx, g_display.boxes[i].cy,
+                    COLOR_GREEN
+                );
+                g_display.boxes[i].crosshair_visible = true;
             }
+        } else if (is_tracking_active) {
+            /* 追踪激活但无卡尔曼：也显示十字准星 */
+            draw_tracking_crosshair(
+                g_display.boxes[i].cx, g_display.boxes[i].cy,
+                COLOR_GREEN
+            );
+            g_display.boxes[i].crosshair_visible = true;
+            g_display.boxes[i].arrow_visible = false;
         } else {
             g_display.boxes[i].arrow_visible = false;
+            g_display.boxes[i].crosshair_visible = false;
         }
     }
     
@@ -1090,13 +1558,15 @@ static void parse_multi_detection(const DetectionResult_t *result, tracker_targe
         if (y1 <= EDGE_MARGIN)                         edge_flags |= EDGE_FLAG_TOP;
         if (y2 >= (int32_t)(DISP_IMAGE_HEIGHT - EDGE_MARGIN)) edge_flags |= EDGE_FLAG_BOTTOM;
         g_display.boxes[i].edge_flags = edge_flags;
+        g_display.boxes[i].miss_count = box->miss_count;
         
         g_display.boxes[i].valid = true;
         g_display.boxes[i].selected = false;
         
-        TRK_LOG(3, "[BOX] [%lu] id=%u score=%u%% v=(%d,%d) kf=%u\r\n",
+        TRK_LOG(3, "[BOX] [%lu] id=%u score=%u%% v=(%d,%d) kf=%u miss=%u miss=%u\r\n",
                (unsigned long)i, box->track_id, score_pct,
-               (int)box->vx, (int)box->vy, (unsigned)box->kf_confidence);
+               (int)box->vx, (int)box->vy, (unsigned)box->kf_confidence,
+               (unsigned)box->miss_count);
     }
     g_display.count = count;
     
@@ -1230,6 +1700,7 @@ static void parse_multi_detection(const DetectionResult_t *result, tracker_targe
         out_target->speed = sel->speed;
         out_target->kf_confidence = sel->kf_confidence;
         out_target->edge_flags = sel->edge_flags;
+        out_target->miss_count = sel->miss_count;
         out_target->valid = true;
         out_target->selected = true;
         out_target->timestamp = now;
@@ -1294,6 +1765,7 @@ static void parse_single_detection(const DetectionBox_t *box, tracker_target_t *
     out_target->vy = box->vy;
     out_target->speed = box->speed;
     out_target->kf_confidence = box->kf_confidence;
+    out_target->miss_count = box->miss_count;
     out_target->valid = true;
     out_target->selected = true;
     out_target->timestamp = millis();
@@ -1316,6 +1788,9 @@ static void render_and_swap(void)
     
     /* 保存当前绘制内容 */
     save_current_to_back_prev();
+    
+    /* 确保所有内存写入完成 (Data Synchronization Barrier) */
+    __DSB();
     
     /* 交换缓冲区 */
     swap_buffers();
@@ -1345,7 +1820,7 @@ static void process_detection_mailbox(void)
         uintptr_t addr = (uintptr_t)DSP_DETECTION_BASE_ADDR + (uintptr_t)payload;
         msg_count++;
 
-        TRK_LOG(3, "[MBOX] msg=0x%08lX type=0x%lX\r\n",
+        TRK_LOG(2, "[MBOX] msg=0x%08lX type=%lu\r\n",
                (unsigned long)msg, (unsigned long)(msg_type >> 28));
 
         switch (msg_type) {
@@ -1387,13 +1862,7 @@ static void process_detection_mailbox(void)
         
         if (is_no_detect) {
             g_display.no_detect_count++;
-            uint32_t now = millis();
-            /* 低频打印：第1帧打印，之后每秒最多1次 */
-            if (g_display.no_detect_count == 1 ||
-                (now - g_display.no_detect_last_print_ts) >= 1000) {
-                TRK_LOG(2, "[FRAME] no_detect x%lu\r\n", (unsigned long)g_display.no_detect_count);
-                g_display.no_detect_last_print_ts = now;
-            }
+            /* 无检测时不打印，只统计 */
         } else {
             g_display.no_detect_count = 0;
         }
@@ -1429,13 +1898,22 @@ int main(void)
 {
     /* 板级初始化 */
     board_init();
+    
+    /*
+     * 短暂延时，等待 DSP 完成任何早期启动消息的打印
+     * 避免 M4 banner 与 DSP 输出交错
+     */
+    for (volatile int i = 0; i < 200000; i++) { /* ~200ms delay */ }
+    
     printf("\r\n");
     printf("======================================\r\n");
     printf("  S300 Tracking Demo (Enhanced)\r\n");
+    printf("  Build: %s %s\r\n", __DATE__, __TIME__);
     printf("  Features:\r\n");
     printf("    - Double-buffered display\r\n");
     printf("    - track_id association\r\n");
     printf("    - Kalman velocity arrows\r\n");
+    printf("    - IMU handshake compensation (v3.2)\r\n");
     printf("======================================\r\n");
 
     /* 系统时钟更新 */
@@ -1443,6 +1921,12 @@ int main(void)
     if (SysTick_Config(SystemCoreClock / 1000U) != 0U) {
         printf("[Tracking] ERR: SysTick_Config failed!\r\n");
     }
+
+    /* 启用 UART2 RX 中断接收 (for KWS commands) */
+    set_uart_interrupt(BOARD_DEBUG_UART_IDX, false, true);  /* RX interrupt only */
+    NVIC_ClearPendingIRQ(BOARD_DEBUG_UART_IRQn);
+    NVIC_SetPriority(BOARD_DEBUG_UART_IRQn, 3);
+    NVIC_EnableIRQ(BOARD_DEBUG_UART_IRQn);
 
     /* MM/DSP PLL 配置 */
     rcc_init_mm_pll(8, 400, 0, 3, 2);  /* MM 100MHz */
@@ -1486,34 +1970,30 @@ int main(void)
     /* 使用默认 PID 参数，不再覆盖 */
     // tracker_set_pid(0.08f, 0.002f, 0.02f);  // 注释掉，使用 target_tracker.c 的默认值
     tracker_set_deadzone(10);
+    
+    /* 初始化跟随模式为空闲（等待用户命令启动）*/
+    g_follow.mode = FOLLOW_MODE_IDLE;
+    tracker_set_enable(false);  /* 默认禁用跟踪，等待 's' 命令 */
 
-    printf("[Tracking] System ready. Waiting for detection...\r\n");
+    printf("[Tracking] System ready.\r\n");
     printf("--------------------------------------\r\n");
-
-    /* 10秒超时恢复标志，避免重复执行 */
-    static bool s_returned_home = false;
+    cmd_print_help();  /* 打印命令帮助 */
 
     /* 主循环 */
     while (1)
     {
+        /* 处理串口命令 */
+        process_serial_command();
+        
         /* 处理检测邮箱 */
         process_detection_mailbox();
         
-        /* 执行跟踪控制 */
-        tracker_poll();
+        /* 更新跟随模式状态 */
+        update_follow_mode();
         
-        /* 检查 LOST 状态超时：10秒后恢复到初始位置 */
-        uint32_t lost_ms = tracker_get_lost_duration_ms();
-        if (lost_ms > 10000) {
-            if (!s_returned_home) {
-                printf("[Tracking] LOST timeout (>10s): returning to home position\r\n");
-                gimbal_center();
-                tracker_reset();  /* 重置到 IDLE 状态 */
-                s_returned_home = true;
-            }
-        } else {
-            /* 有目标或 LOST 时间不足 10 秒，清除标志 */
-            s_returned_home = false;
+        /* 只有在跟随模式激活时才执行跟踪控制 */
+        if (g_follow.mode == FOLLOW_MODE_ACTIVE || g_follow.mode == FOLLOW_MODE_WAITING) {
+            tracker_poll();
         }
         
         /* 简单节拍控制 (~5ms 周期) */

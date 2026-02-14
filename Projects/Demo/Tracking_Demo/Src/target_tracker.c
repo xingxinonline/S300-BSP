@@ -10,6 +10,11 @@
 
 #include "target_tracker.h"
 #include "gimbal_ctrl.h"
+#include "mailbox.h"
+#include "mailbox_proto.h"
+#include "board.h"
+#include "i2c_soft.h"
+#include "qmi8658a.h"
 #include <stdio.h>
 #include <math.h>
 
@@ -179,7 +184,8 @@ typedef enum {
     TRACKER_STATE_IDLE,         /**< 空闲：无跟踪目标 */
     TRACKER_STATE_TRACKING,     /**< 跟踪：正常跟踪目标 */
     TRACKER_STATE_PREDICTING,   /**< 预测：目标消失，用速度预测位置 */
-    TRACKER_STATE_LOST          /**< 丢失：预测超时，等待重选 */
+    TRACKER_STATE_LOST,         /**< 丢失：预测超时，等待重选 */
+    TRACKER_STATE_CENTER        /**< 回中：丢失超时10秒，云台回到中心位置 */
 } TrackerState_t;
 
 static TrackerState_t s_state = TRACKER_STATE_IDLE;
@@ -197,9 +203,15 @@ static uint8_t s_last_edge_flags = 0;        /**< 最后一帧的边缘标记 */
 static int s_lost_cx = 0;                    /**< 丢失时的目标位置 X */
 static int s_lost_cy = 0;                    /**< 丢失时的目标位置 Y */
 
-/** 
- * @brief 最大预测帧数（超过则判定丢失）
- * @note  减少预测帧数，避免云台运动过多导致目标丢失
+/* Coast 感知 (v3 架构) */
+static uint8_t s_target_miss_count = 0;      /**< 当前目标的漏检帧数 */
+static int s_coast_frame_count = 0;          /**< 连续 coast 帧计数 */
+
+/* 帧超时保护 */
+static uint32_t s_last_frame_time = 0;       /**< 最后收到新帧的时间 */
+static bool s_frame_timeout_active = false;  /**< 帧超时保护是否激活 */
+
+/** @brief 减小预测帧数，避免云台运动过多导致目标丢失
  *        5 帧 × 50ms = 250ms
  */
 #define MAX_PREDICT_FRAMES        5
@@ -208,13 +220,25 @@ static int s_lost_cy = 0;                    /**< 丢失时的目标位置 Y */
 #define LOST_COOLDOWN_NEW_ID_MS   500   /* 新 ID 需要长冷却，避免误切换 */
 /** @brief LOST 状态超时时间 (ms) */
 #define LOST_REACQUIRE_MS         1000  /* 1秒后可重新寻找任意目标 */
-#define LOST_RETURN_HOME_MS       10000 /* 10秒后恢复到初始位置 */
+#define LOST_RETURN_HOME_MS       10000 /* 10秒后进入 CENTER 状态 */
 /** @brief 同 ID 恢复时的最大位置偏差 (像素) */
 #define SAME_ID_MAX_POSITION_DIFF 40    /* 超过此值认为是误分配，不是同一个人 */
 /** @brief 遮挡预测时速度上限 (像素/帧)，防止预测位置飞出画面 */
 #define MAX_PREDICT_VELOCITY      3
 /** @brief 位置跳变阈值 (像素)，超过此值需要结合速度判断 */
 #define POSITION_JUMP_THRESHOLD   50
+
+/**
+ * @brief Coast 感知机制参数 (v3 架构设计)
+ * 
+ * 当 DSP 返回 miss_count > 0 时，表示当前框是 Kalman coast 预测框，
+ * 而非真实的 CNN 检测。CM4 应降低跟踪增益，避免跟随幽灵框。
+ */
+#define COAST_GAIN_FACTOR         0.3f  /* coast 模式增益衰减 (30%) */
+#define MAX_COAST_FOLLOW          5     /* coast 最多跟随 5 帧后停止控制 */
+
+/** @brief 帧超时保护 (ms) - 100ms 无新帧则暂停控制 */
+#define FRAME_TIMEOUT_MS          100
 
 /* 卡尔曼滤波速度 */
 static int8_t s_target_vx = 0;               /**< 目标 X 速度 */
@@ -266,12 +290,80 @@ static float s_debug_last_delta_yaw = 0;     /**< 最后一次云台增量 Yaw *
 static float s_debug_last_delta_pitch = 0;   /**< 最后一次云台增量 Pitch */
 
 /*===========================================================================
+ * IMU 手抖补偿模块 (v3.2)
+ * 
+ * 使用 QMI8658A 六轴 IMU 测量云台实际角速度，用于：
+ * 1. 补偿手持抖动带来的画面位移
+ * 2. 发送给 DSP 用于 Kalman 滤波器补偿
+ * 
+ * IMU 安装方向 (gimbal_master)：
+ * - gyro_z 对应 Yaw (Pan) 旋转
+ * - gyro_x 对应 Pitch (Tilt) 旋转
+ *===========================================================================*/
+
+/** @brief IMU 采样周期 (ms) - 100Hz */
+#define IMU_SAMPLE_PERIOD_MS    10
+
+/** @brief IMU 角速度单位转换系数 (rad/s → °/s) */
+#define RAD_TO_DEG              (180.0f / 3.14159265f)
+
+/** @brief 手抖补偿增益 (0~1) - 1.0 为完全补偿 */
+#define HANDSHAKE_COMP_GAIN     0.8f
+
+/** @brief 陀螺仪死区 (°/s) - 过滤静止时噪声 */
+#define GYRO_DEADZONE_DPS       1.5f
+
+/** @brief 陀螺仪低通滤波系数 (0~1) - 越低越平滑 */
+#define GYRO_LPF_ALPHA          0.3f
+
+/* IMU 状态变量 */
+static i2c_soft_t s_imu_i2c = {0};           /**< I2C 句柄 */
+static qmi8658a_t s_imu_sensor = {0};        /**< IMU 传感器句柄 */
+static bool s_imu_initialized = false;        /**< IMU 是否已初始化 */
+static uint32_t s_imu_last_sample_time = 0;  /**< 上次 IMU 采样时间 */
+
+/* IMU 滤波后的角速度 (°/s) */
+static float s_gyro_yaw_dps = 0.0f;          /**< 滤波后 Yaw 角速度 */
+static float s_gyro_pitch_dps = 0.0f;        /**< 滤波后 Pitch 角速度 */
+
+/* 手抖补偿输出 (°/帧) - 用于叠加到控制输出 */
+static float s_handshake_comp_yaw = 0.0f;    /**< Yaw 手抖补偿量 */
+static float s_handshake_comp_pitch = 0.0f;  /**< Pitch 手抖补偿量 */
+
+/*===========================================================================
  * 辅助函数
  *===========================================================================*/
 
 static inline uint32_t millis(void)
 {
     return s_get_millis ? s_get_millis() : 0;
+}
+
+/**
+ * @brief 发送云台角速度给 DSP (v3.2)
+ * @param pan_deg   Yaw 角速度 (°/帧)
+ * @param tilt_deg  Pitch 角速度 (°/帧)
+ * 
+ * DSP 使用此信息补偿 Kalman 预测框，提高 IOU 匹配精度。
+ * 当云台不移动时也应发送 (0, 0)，告知 DSP 云台静止。
+ * 
+ * @note v3.1 协议使用 Q7 编码，范围限制为 ±1.0°/帧。
+ *       超出范围的速度会被饱和裁剪。
+ */
+static void send_gimbal_velocity_to_dsp(float pan_deg, float tilt_deg)
+{
+    /* v3.1: Q7 编码范围 ±1.0°/frame */
+    const float Q7_MAX = 127.0f / 128.0f;  /* ~0.992° */
+    const float Q7_MIN = -1.0f;
+    
+    /* 饱和限幅 */
+    if (pan_deg > Q7_MAX) pan_deg = Q7_MAX;
+    else if (pan_deg < Q7_MIN) pan_deg = Q7_MIN;
+    if (tilt_deg > Q7_MAX) tilt_deg = Q7_MAX;
+    else if (tilt_deg < Q7_MIN) tilt_deg = Q7_MIN;
+    
+    uint32_t msg = MAILBOX_MAKE_GIMBAL_VEL(pan_deg, tilt_deg);
+    write_mailbox(MAILBOX_BASE, msg);
 }
 
 static float clamp(float val, float min_val, float max_val)
@@ -371,6 +463,14 @@ void tracker_init(uint32_t (*get_millis)(void), int img_width, int img_height)
     s_compensated_vx = 0;
     s_compensated_vy = 0;
     
+    /* 重置 Coast 感知 (v3) */
+    s_target_miss_count = 0;
+    s_coast_frame_count = 0;
+    
+    /* 重置帧超时保护 */
+    s_last_frame_time = 0;
+    s_frame_timeout_active = false;
+    
     printf("[Tracker] Init: image %dx%d, center (%d,%d)\r\n",
            img_width, img_height, s_img_cx, s_img_cy);
     printf("[Tracker] Camera FOV: %.0fx%.0f deg, velocity predict=%.1f, min_conf=%d\r\n",
@@ -382,9 +482,57 @@ void tracker_init(uint32_t (*get_millis)(void), int img_width, int img_height)
     printf("[Tracker] Adaptive range: err %.0f~%.0f px\r\n", 
            ADAPTIVE_ERR_LOW, ADAPTIVE_ERR_HIGH);
     printf("[Tracker] Filter: X=%.2f, Y=%.2f\r\n", FILTER_ALPHA_X, FILTER_ALPHA_Y);
-    printf("[Tracker] State machine: IDLE->TRACKING->PREDICTING->LOST\r\n");
+    printf("[Tracker] State machine: IDLE->TRACKING->PREDICTING->LOST->CENTER\r\n");
+    printf("[Tracker] Coast: gain=%.1f%%, max=%d frames\r\n",
+           COAST_GAIN_FACTOR * 100.0f, MAX_COAST_FOLLOW);
     printf("[Tracker] Max predict frames: %d, lost cooldown: same=%dms, new=%dms\r\n",
            MAX_PREDICT_FRAMES, LOST_COOLDOWN_SAME_ID_MS, LOST_COOLDOWN_NEW_ID_MS);
+    
+    /* IMU 初始化 (v3.2 手抖补偿) */
+    /* TEMPORARILY DISABLED - I2C3 bus conflict with camera */
+#if 0
+#if BOARD_IMU_ENABLE
+    printf("[Tracker] Init IMU (QMI8658A)...\r\n");
+    
+    /* 初始化 I2C3 (软件模拟) */
+    int ret = i2c_soft_init_default_idx(&s_imu_i2c, 3, BOARD_I2C3_FREQ);
+    if (ret != 0) {
+        printf("[Tracker] IMU I2C init failed!\r\n");
+        s_imu_initialized = false;
+    } else {
+        /* 初始化 QMI8658A */
+        ret = qmi8658a_init(&s_imu_sensor, &s_imu_i2c, QMI8658A_ADDR);
+        if (ret != 0) {
+            printf("[Tracker] IMU QMI8658A init failed!\r\n");
+            s_imu_initialized = false;
+        } else {
+            /* 配置陀螺仪: 125Hz ODR, ±512°/s 量程, 使能 LPF */
+            qmi8658a_config_gyr(&s_imu_sensor, 
+                                QMI8658A_GYR_RANGE_512DPS,
+                                QMI8658A_GYR_ODR_125HZ,
+                                QMI8658A_LPF_ENABLE,
+                                QMI8658A_ST_DISABLE);
+            
+            /* 只使能陀螺仪 (加速度计暂不使用) */
+            qmi8658a_enable_sensors(&s_imu_sensor, QMI8658A_GYR_ENABLE);
+            
+            s_imu_initialized = true;
+            s_imu_last_sample_time = millis();
+            
+            /* 读取温度确认传感器工作正常 */
+            float temp = qmi8658a_read_temperature(&s_imu_sensor);
+            printf("[Tracker] IMU initialized, temp=%.1fC\r\n", temp);
+            printf("[Tracker] Handshake comp: gain=%.0f%%, deadzone=%.1f dps\r\n",
+                   HANDSHAKE_COMP_GAIN * 100.0f, GYRO_DEADZONE_DPS);
+        }
+    }
+#else
+    s_imu_initialized = false;
+    printf("[Tracker] IMU disabled (BOARD_IMU_ENABLE=0)\r\n");
+#endif
+#endif  /* TEMPORARILY DISABLED - end */
+    s_imu_initialized = false;
+    printf("[Tracker] IMU disabled (I2C3 conflict with camera)\r\n");
 }
 
 /**
@@ -407,6 +555,7 @@ static const char* state_name(TrackerState_t state)
         case TRACKER_STATE_TRACKING:   return "TRACKING";
         case TRACKER_STATE_PREDICTING: return "PREDICTING";
         case TRACKER_STATE_LOST:       return "LOST";
+        case TRACKER_STATE_CENTER:     return "CENTER";
         default:                       return "UNKNOWN";
     }
 }
@@ -426,6 +575,11 @@ static void change_state(TrackerState_t new_state)
 void tracker_update_target(const tracker_target_t *target)
 {
     uint32_t now = millis();
+    
+    /* v3.2: 跟踪器禁用时，忽略所有目标更新 */
+    if (!s_enabled) {
+        return;
+    }
     
     /*
      * v2 设计：简化逻辑
@@ -498,12 +652,15 @@ void tracker_update_target(const tracker_target_t *target)
         s_target_cy = target_cy;
         s_target_valid = true;
         s_last_target_time = now;
+        s_last_frame_time = now;  /* 帧超时保护：初始化帧时间 */
         
         /* 保存卡尔曼速度和边缘标记 */
         s_target_vx = target->vx;
         s_target_vy = target->vy;
         s_kf_confidence = target->kf_confidence;
         s_last_edge_flags = target->edge_flags;
+        s_target_miss_count = target->miss_count;
+        s_coast_frame_count = 0;  /* 新目标：重置 Coast 计数 */
         
         /* 初始化跟踪 */
         s_tracking = true;
@@ -591,12 +748,23 @@ void tracker_update_target(const tracker_target_t *target)
             s_target_cy = target_cy;
             s_target_valid = true;
             s_last_target_time = now;
+            s_last_frame_time = now;  /* 帧超时保护：更新帧时间 */
             
             /* 更新速度信息和边缘标记 */
             s_target_vx = target->vx;
             s_target_vy = target->vy;
             s_kf_confidence = target->kf_confidence;
             s_last_edge_flags = target->edge_flags;
+            
+            /* Coast 感知 (v3 架构): 读取 miss_count */
+            s_target_miss_count = target->miss_count;
+            if (s_target_miss_count == 0) {
+                /* 真实检测：重置 coast 计数 */
+                s_coast_frame_count = 0;
+            } else {
+                /* Coast 预测框：增加计数 */
+                s_coast_frame_count++;
+            }
         }
         /* 不匹配的 track_id 被忽略 */
         break;
@@ -628,10 +796,13 @@ void tracker_update_target(const tracker_target_t *target)
             s_target_cy = target_cy;
             s_target_valid = true;
             s_last_target_time = now;
+            s_last_frame_time = now;  /* 帧超时保护 */
             
             s_target_vx = target->vx;
             s_target_vy = target->vy;
             s_kf_confidence = target->kf_confidence;
+            s_target_miss_count = target->miss_count;
+            s_coast_frame_count = 0;  /* 恢复：重置 Coast 计数 */
             
             /* 恢复时清除云台运动记录，因为预测期间没有控制 */
             s_last_gimbal_delta_yaw = 0;
@@ -727,11 +898,14 @@ void tracker_update_target(const tracker_target_t *target)
             s_target_cy = target_cy;
             s_target_valid = true;
             s_last_target_time = now;
+            s_last_frame_time = now;  /* 帧超时保护 */
             
             s_target_vx = target->vx;
             s_target_vy = target->vy;
             s_kf_confidence = target->kf_confidence;
             s_last_edge_flags = target->edge_flags;
+            s_target_miss_count = target->miss_count;
+            s_coast_frame_count = 0;  /* 重置 Coast 计数 */
             
             /* 重新初始化跟踪 */
             s_tracking = true;
@@ -761,14 +935,178 @@ void tracker_update_target(const tracker_target_t *target)
         }
         break;
     }
+
+    case TRACKER_STATE_CENTER:
+        /* 回中状态：如果检测到新目标，立即锁定并切换到 TRACKING */
+        s_current_track_id = target->track_id;
+        s_target_cx = target_cx;
+        s_target_cy = target_cy;
+        s_target_valid = true;
+        s_last_target_time = now;
+        s_last_frame_time = now;
+        
+        s_target_vx = target->vx;
+        s_target_vy = target->vy;
+        s_kf_confidence = target->kf_confidence;
+        s_last_edge_flags = target->edge_flags;
+        s_target_miss_count = target->miss_count;
+        s_coast_frame_count = 0;
+        
+        /* 初始化跟踪 */
+        s_tracking = true;
+        s_first_move = true;
+        s_filtered_cx = (float)target_cx;
+        s_filtered_cy = (float)target_cy;
+        s_filter_initialized = true;
+        
+        /* 清除历史状态 */
+        s_error_x_sum = 0;
+        s_error_y_sum = 0;
+        s_error_x_prev = 0;
+        s_error_y_prev = 0;
+        s_filtered_out_yaw = 0;
+        s_filtered_out_pitch = 0;
+        s_last_gimbal_delta_yaw = 0;
+        s_last_gimbal_delta_pitch = 0;
+        s_compensated_vx = 0;
+        s_compensated_vy = 0;
+        
+        change_state(TRACKER_STATE_TRACKING);
+        printf("[Tracker] Center interrupted: target id=%u at (%d,%d)\r\n",
+               s_current_track_id, target_cx, target_cy);
+        break;
     }
+}
+
+/*===========================================================================
+ * IMU 轮询与手抖补偿 (v3.2)
+ *===========================================================================*/
+
+/**
+ * @brief 轮询 IMU 并计算手抖补偿量
+ * 
+ * 应在主循环中高频调用（或在 tracker_poll 开头调用）。
+ * IMU 以 100Hz 采样（10ms 周期），读取陀螺仪数据并计算手抖补偿。
+ */
+static void imu_poll_handshake_compensation(void)
+{
+#if 0  /* TEMPORARILY DISABLED - I2C3 bus conflict with camera */
+#if BOARD_IMU_ENABLE
+    if (!s_imu_initialized) return;
+    
+    uint32_t now = millis();
+    
+    /* 检查是否到达采样周期 */
+    if (now - s_imu_last_sample_time < IMU_SAMPLE_PERIOD_MS) {
+        return;
+    }
+    s_imu_last_sample_time = now;
+    
+    /* 读取 IMU 数据 */
+    qmi8658a_data_t imu_data;
+    if (qmi8658a_read_data(&s_imu_sensor, &imu_data) != 0) {
+        /* 数据未就绪，跳过 */
+        return;
+    }
+    
+    /* 提取陀螺仪数据 (rad/s → °/s) */
+    float gyro_z_dps = imu_data.gyr[2] * RAD_TO_DEG;  /* Yaw (Pan) */
+    float gyro_x_dps = imu_data.gyr[0] * RAD_TO_DEG;  /* Pitch (Tilt) */
+    
+    /* 死区处理 */
+    if (fabs_f(gyro_z_dps) < GYRO_DEADZONE_DPS) {
+        gyro_z_dps = 0.0f;
+    }
+    if (fabs_f(gyro_x_dps) < GYRO_DEADZONE_DPS) {
+        gyro_x_dps = 0.0f;
+    }
+    
+    /* 低通滤波 */
+    s_gyro_yaw_dps = GYRO_LPF_ALPHA * gyro_z_dps + 
+                     (1.0f - GYRO_LPF_ALPHA) * s_gyro_yaw_dps;
+    s_gyro_pitch_dps = GYRO_LPF_ALPHA * gyro_x_dps + 
+                       (1.0f - GYRO_LPF_ALPHA) * s_gyro_pitch_dps;
+    
+    /* 
+     * 计算手抖补偿量 (°/帧)
+     * 
+     * 控制周期为 50ms (20Hz)，IMU 采样周期为 10ms (100Hz)
+     * 手抖补偿量 = 角速度 × 控制周期 / 1000
+     * 
+     * 补偿方向：
+     * - 云台向右抖动 (gyro_z > 0) → 需要向左补偿 (comp < 0)
+     * - 因此补偿量取反
+     */
+    float dt = CONTROL_PERIOD_MS / 1000.0f;  /* 控制周期 (s) */
+    s_handshake_comp_yaw = -s_gyro_yaw_dps * dt * HANDSHAKE_COMP_GAIN;
+    s_handshake_comp_pitch = -s_gyro_pitch_dps * dt * HANDSHAKE_COMP_GAIN;
+    
+    /* 限幅：手抖补偿量不应过大 */
+    s_handshake_comp_yaw = clamp(s_handshake_comp_yaw, -2.0f, 2.0f);
+    s_handshake_comp_pitch = clamp(s_handshake_comp_pitch, -2.0f, 2.0f);
+#endif
+#endif  /* TEMPORARILY DISABLED */
+}
+
+/**
+ * @brief 获取当前 IMU 手抖补偿量
+ * @param out_yaw   输出 Yaw 补偿量 (°)
+ * @param out_pitch 输出 Pitch 补偿量 (°)
+ */
+static void get_handshake_compensation(float *out_yaw, float *out_pitch)
+{
+    if (out_yaw) *out_yaw = s_handshake_comp_yaw;
+    if (out_pitch) *out_pitch = s_handshake_comp_pitch;
 }
 
 void tracker_poll(void)
 {
     if (!s_enabled) return;
     
+    /* IMU 轮询 (v3.2 手抖补偿) - 以 100Hz 采样 */
+    imu_poll_handshake_compensation();
+    
     uint32_t now = millis();
+    
+    /* 帧超时保护 (v3 架构): 100ms 无新帧暂停控制 */
+    if (s_state == TRACKER_STATE_TRACKING && s_last_frame_time != 0) {
+        if (now - s_last_frame_time > FRAME_TIMEOUT_MS) {
+            if (!s_frame_timeout_active) {
+                s_frame_timeout_active = true;
+                printf("[Tracker] Frame timeout: pausing control\r\n");
+            }
+            /* 暂停控制，保持最后位置，等待帧恢复 */
+            return;
+        } else if (s_frame_timeout_active) {
+            /* 帧恢复 */
+            s_frame_timeout_active = false;
+            printf("[Tracker] Frame recovered: resuming control\r\n");
+        }
+    }
+    
+    /* LOST 状态超时 10 秒进入 CENTER (v3 架构) */
+    if (s_state == TRACKER_STATE_LOST) {
+        uint32_t lost_duration = now - s_state_enter_time;
+        if (lost_duration >= LOST_RETURN_HOME_MS) {
+            change_state(TRACKER_STATE_CENTER);
+            printf("[Tracker] LOST timeout (%lums): starting center motion\r\n", 
+                   (unsigned long)lost_duration);
+            /* 启动云台回中动作 */
+            gimbal_center();
+        }
+        return;  /* LOST 状态下不执行 PID 控制 */
+    }
+    
+    /* CENTER 状态处理 */
+    if (s_state == TRACKER_STATE_CENTER) {
+        /* 检查是否已到达中心位置 (简化：固定等待时间后认为到达) */
+        uint32_t center_duration = now - s_state_enter_time;
+        if (center_duration >= 2000) {  /* 2秒后认为回中完成 */
+            change_state(TRACKER_STATE_IDLE);
+            printf("[Tracker] Center complete: ready for new target\r\n");
+        }
+        return;  /* CENTER 状态下等待回中完成 */
+    }
     
     /* 检查目标超时（备用机制，针对 TRACKING 状态） */
     if (s_state == TRACKER_STATE_TRACKING && 
@@ -832,10 +1170,14 @@ void tracker_poll(void)
                    MAX_PREDICT_FRAMES, s_lost_track_id, s_lost_edge_flags);
         }
         
+        send_gimbal_velocity_to_dsp(0, 0);  /* v3.2: 无运动时也发送 */
         return;  /* 预测期间不执行 PID 控制 */
     }
     
-    if (!s_target_valid || !s_tracking) return;
+    if (!s_target_valid || !s_tracking) {
+        send_gimbal_velocity_to_dsp(0, 0);  /* v3.2: 无运动时也发送 */
+        return;
+    }
     
     /* 
      * 第一级滤波：平滑目标位置
@@ -912,6 +1254,7 @@ void tracker_poll(void)
     
     if (error_x == 0 && error_y == 0) {
         s_debug_deadzone_count++;
+        send_gimbal_velocity_to_dsp(0, 0);  /* v3.2: 死区内无运动 */
         return;
     }
     
@@ -927,6 +1270,23 @@ void tracker_poll(void)
     /* 应用基于框大小的增益系数：近距离降低增益，远距离提高增益 */
     kp_x *= s_box_size_gain;
     kp_y *= s_box_size_gain;
+    
+    /*
+     * Coast 感知降增益 (v3 架构)
+     * 当 miss_count > 0 表示当前框是 DSP Kalman coast 预测框，
+     * 不是真实的 CNN 检测，降低增益避免跟随幽灵框。
+     */
+    if (s_target_miss_count > 0) {
+        if (s_coast_frame_count <= MAX_COAST_FOLLOW) {
+            /* Coast 模式：降低增益 (30%) */
+            kp_x *= COAST_GAIN_FACTOR;
+            kp_y *= COAST_GAIN_FACTOR;
+        } else {
+            /* 超过最大 coast 帧数：停止控制，保持最后位置 */
+            send_gimbal_velocity_to_dsp(0, 0);  /* v3.2: coast超时无运动 */
+            return;
+        }
+    }
     
     /* 积分 */
     s_error_x_sum += error_x;
@@ -1015,6 +1375,7 @@ void tracker_poll(void)
     /* 最小移动阈值 */
     if (fabs_f(delta_yaw) < MIN_MOVE_THRESHOLD && 
         fabs_f(delta_pitch) < MIN_MOVE_THRESHOLD) {
+        send_gimbal_velocity_to_dsp(0, 0);  /* v3.2: 低于阈值无运动 */
         return;
     }
     
@@ -1088,6 +1449,15 @@ void tracker_poll(void)
                s_last_gimbal_delta_yaw, s_last_gimbal_delta_pitch,
                gimbal_fake_vx, gimbal_fake_vy);
         
+#if BOARD_IMU_ENABLE
+        /* 打印 IMU 手抖补偿信息 (v3.2) */
+        if (s_imu_initialized) {
+            printf("[Tracker] IMU: gyro=(%.1f,%.1f)dps comp=(%.2f,%.2f)deg\r\n",
+                   s_gyro_yaw_dps, s_gyro_pitch_dps,
+                   s_handshake_comp_yaw, s_handshake_comp_pitch);
+        }
+#endif
+        
         /* 重置计数器 */
         s_sample_count = 0;
         s_yaw_reversal_count = 0;
@@ -1101,7 +1471,37 @@ void tracker_poll(void)
     s_last_gimbal_delta_yaw = delta_yaw;
     s_last_gimbal_delta_pitch = delta_pitch;
     
-    gimbal_move_delta(delta_yaw, delta_pitch, MOVE_TIME_MS);
+    /*
+     * 手抖补偿 (v3.2 架构)
+     * 
+     * IMU 测量到的实际角速度包含：
+     * 1. 云台主动跟踪运动 (delta_yaw, delta_pitch)
+     * 2. 手持抖动引起的被动运动 (handshake)
+     * 
+     * 为了让目标保持在画面中心，需要补偿掉手抖：
+     * 实际控制 = 跟踪控制 + 手抖补偿
+     * 
+     * 注意：手抖补偿已经取反（cloud抖动向右 → 补偿向左）
+     */
+    float handshake_yaw = 0.0f, handshake_pitch = 0.0f;
+#if BOARD_IMU_ENABLE
+    if (s_imu_initialized) {
+        get_handshake_compensation(&handshake_yaw, &handshake_pitch);
+    }
+#endif
+    
+    /* 叠加手抖补偿到控制输出 */
+    float final_yaw = delta_yaw + handshake_yaw;
+    float final_pitch = delta_pitch + handshake_pitch;
+    
+    /* 重新限幅（手抖补偿可能导致超限）*/
+    final_yaw = clamp(final_yaw, -MAX_MOVE_SPEED_YAW * 1.5f, MAX_MOVE_SPEED_YAW * 1.5f);
+    final_pitch = clamp(final_pitch, -MAX_MOVE_SPEED_PITCH * 1.5f, MAX_MOVE_SPEED_PITCH * 1.5f);
+    
+    /* 发送云台角速度给 DSP (v3.2 架构) - 使用实际控制量 */
+    send_gimbal_velocity_to_dsp(final_yaw, final_pitch);
+    
+    gimbal_move_delta(final_yaw, final_pitch, MOVE_TIME_MS);
 }
 
 void tracker_set_enable(bool enable)
@@ -1118,8 +1518,22 @@ void tracker_set_enable(bool enable)
         s_state = TRACKER_STATE_IDLE;
         s_state_enter_time = 0;
         s_predict_count = 0;
+        s_target_miss_count = 0;
+        s_coast_frame_count = 0;
+        s_frame_timeout_active = false;
+        
+        /* 重置 IMU 手抖补偿状态 (v3.2) */
+        s_gyro_yaw_dps = 0;
+        s_gyro_pitch_dps = 0;
+        s_handshake_comp_yaw = 0;
+        s_handshake_comp_pitch = 0;
     }
     printf("[Tracker] %s\r\n", enable ? "Enabled" : "Disabled");
+}
+
+bool tracker_is_enabled(void)
+{
+    return s_enabled;
 }
 
 bool tracker_is_tracking(void)
@@ -1203,5 +1617,32 @@ void tracker_reset(void)
     s_yaw_reversal_count = 0;
     s_pitch_reversal_count = 0;
     s_sample_count = 0;
+    /* v3: reset coast and frame timeout */
+    s_target_miss_count = 0;
+    s_coast_frame_count = 0;
+    s_last_frame_time = 0;
+    s_frame_timeout_active = false;
+    
+    /* v3.2: reset IMU hand shake compensation */
+    s_gyro_yaw_dps = 0;
+    s_gyro_pitch_dps = 0;
+    s_handshake_comp_yaw = 0;
+    s_handshake_comp_pitch = 0;
+    
     printf("[Tracker] Reset\r\n");
+}
+
+bool tracker_is_imu_enabled(void)
+{
+#if BOARD_IMU_ENABLE
+    return s_imu_initialized;
+#else
+    return false;
+#endif
+}
+
+void tracker_get_gyro_rate(float *out_yaw_dps, float *out_pitch_dps)
+{
+    if (out_yaw_dps) *out_yaw_dps = s_gyro_yaw_dps;
+    if (out_pitch_dps) *out_pitch_dps = s_gyro_pitch_dps;
 }

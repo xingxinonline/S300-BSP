@@ -151,6 +151,14 @@ void gimbal_move(float yaw_deg, float pitch_deg, uint16_t time_ms)
     int yaw_pulse = yaw_deg_to_pulse(yaw_deg);
     int pitch_pulse = pitch_deg_to_pulse(pitch_deg);
     
+    /* DEBUG: 打印云台命令 */
+    static uint32_t s_cmd_count = 0;
+    s_cmd_count++;
+    if ((s_cmd_count % 20) == 1) {  /* 每 20 次打印一次 */
+        printf("[Gimbal] CMD#%lu: yaw=%.1f(%d) pitch=%.1f(%d)\r\n",
+               (unsigned long)s_cmd_count, yaw_deg, yaw_pulse, pitch_deg, pitch_pulse);
+    }
+    
     bus_servo_move_raw(&s_servo, GIMBAL_YAW_ID, (uint16_t)yaw_pulse, time_ms);
     delay_ms(5);
     bus_servo_move_raw(&s_servo, GIMBAL_PITCH_ID, (uint16_t)pitch_pulse, time_ms);

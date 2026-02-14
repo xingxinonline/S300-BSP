@@ -29,6 +29,11 @@ s300_resolve_drivers(
     OUT_INCS DRIVER_INCS
 )
 
+# QMI8658A IMU 驱动
+list(APPEND DRIVER_SRCS "${CMAKE_SOURCE_DIR}/Drivers/External/QMI8658A/Source/qmi8658a.c")
+list(APPEND DRIVER_INCS "${CMAKE_SOURCE_DIR}/Drivers/External/QMI8658A/Include")
+list(APPEND DRIVER_INCS "${CMAKE_SOURCE_DIR}/Drivers/External/IMU/Include")
+
 include_directories(
     ${S300_DEVICE_DIR}/Include
     ${S300_CORE_INC}
@@ -58,6 +63,25 @@ include_directories(
 )
 
 set_source_files_properties(${S300_STARTUP_FILE} PROPERTIES LANGUAGE ASM)
+
+# =============================================================================
+# 强制每次构建都重新编译 main.c (为了更新 __DATE__ 和 __TIME__)
+# =============================================================================
+# 使用 OBJECT_DEPENDS 依赖一个每次构建都会更新的时间戳文件
+set(FORCE_REBUILD_STAMP ${CMAKE_CURRENT_BINARY_DIR}/force_rebuild.stamp)
+
+# 每次构建前更新时间戳文件
+add_custom_command(
+    OUTPUT ${FORCE_REBUILD_STAMP}
+    COMMAND ${CMAKE_COMMAND} -E touch ${FORCE_REBUILD_STAMP}
+    COMMENT "Updating build timestamp"
+)
+add_custom_target(force_rebuild_stamp_tracking ALL DEPENDS ${FORCE_REBUILD_STAMP})
+
+# 设置 main.c 依赖时间戳文件，使其每次都重新编译
+set_source_files_properties(${PROJECT_DIR}/Src/main.c PROPERTIES
+    OBJECT_DEPENDS ${FORCE_REBUILD_STAMP}
+)
 
 add_executable(${TARGET} ${SRCS})
 

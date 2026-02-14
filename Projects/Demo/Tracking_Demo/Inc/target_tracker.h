@@ -29,13 +29,14 @@ typedef struct {
     bool valid;                  /**< 是否有效 */
     uint32_t timestamp;          /**< 时间戳 */
     
-    /* 新增：协议 v2.x 字段 */
+    /* 协议 v2.3 字段 */
     uint8_t track_id;            /**< 跟踪ID（用于跨帧关联，0表示未分配）*/
     int8_t  vx;                  /**< X方向速度 (像素/帧, 卡尔曼输出) */
     int8_t  vy;                  /**< Y方向速度 (像素/帧, 卡尔曼输出) */
     uint8_t speed;               /**< 速度大小 [0-255]，用于箭头渲染 */
     uint8_t kf_confidence;       /**< 卡尔曼滤波置信度 (0-100) */
     uint8_t edge_flags;          /**< 边缘标记: bit0=左, bit1=右, bit2=上, bit3=下 */
+    uint8_t miss_count;          /**< DSP侧连续漏检帧数 (0=真实CNN检测, >0=Kalman coast预测) */
     bool    selected;            /**< 是否为选中目标 */
 } tracker_target_t;
 
@@ -67,6 +68,12 @@ void tracker_poll(void);
  * @brief  设置跟踪使能
  */
 void tracker_set_enable(bool enable);
+
+/**
+ * @brief  检查跟踪器是否已启用
+ * @return true=已启动追踪命令,false=空闲状态
+ */
+bool tracker_is_enabled(void);
 
 /**
  * @brief  获取当前跟踪状态
@@ -115,6 +122,19 @@ uint32_t tracker_get_lost_duration_ms(void);
  * @brief  重置跟踪器（清除当前跟踪的 track_id）
  */
 void tracker_reset(void);
+
+/**
+ * @brief  检查 IMU 手抖补偿是否可用 (v3.2)
+ * @return true=IMU 已初始化且正在工作
+ */
+bool tracker_is_imu_enabled(void);
+
+/**
+ * @brief  获取 IMU 陀螺仪原始角速度 (v3.2)
+ * @param  out_yaw_dps   输出 Yaw 角速度 (°/s)，可为 NULL
+ * @param  out_pitch_dps 输出 Pitch 角速度 (°/s)，可为 NULL
+ */
+void tracker_get_gyro_rate(float *out_yaw_dps, float *out_pitch_dps);
 
 #ifdef __cplusplus
 }
