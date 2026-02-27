@@ -40,13 +40,14 @@ target_include_directories(s300_board INTERFACE
     ${BOARD_COMMON_DIR}
 )
 
-# 板级源文件 (board.c, retarget.c, syscalls.c)
+# 板级源文件 (board.c, retarget.c, syscalls.c, version.c)
 # 注意: 源文件只应被最终可执行目标包含，不应被中间 STATIC 库包含
 # 使用 INTERFACE 方式传递源文件列表，链接此库的 EXECUTABLE 会自动包含这些源文件
 target_sources(s300_board INTERFACE
     ${BOARD_DIR}/board.c
     ${BOARD_COMMON_DIR}/retarget.c
     ${BOARD_COMMON_DIR}/syscalls.c
+    ${BOARD_COMMON_DIR}/version.c
 )
 
 # 板级源文件依赖 UART 驱动头文件，添加必要的 include 路径

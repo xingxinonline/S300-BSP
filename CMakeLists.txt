@@ -45,6 +45,74 @@ enable_language(ASM)
 # Set linker flags
 set(CMAKE_EXE_LINKER_FLAGS "-nostartfiles -Wl,--gc-sections -specs=nosys.specs")
 
+# =============================================================================
+# 版本信息配置 (每次构建自动更新)
+# =============================================================================
+set(S300_VERSION_MAJOR 1)
+set(S300_VERSION_MINOR 0)
+set(S300_VERSION_PATCH 0)
+
+# 获取构建时间戳 (CMake 配置时)
+string(TIMESTAMP S300_BUILD_TIMESTAMP "%Y-%m-%d %H:%M:%S")
+
+# 获取 Git 信息
+find_package(Git QUIET)
+
+if(GIT_FOUND)
+    execute_process(
+        COMMAND ${GIT_EXECUTABLE} rev-parse --abbrev-ref HEAD
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        OUTPUT_VARIABLE S300_GIT_BRANCH
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET
+    )
+    execute_process(
+        COMMAND ${GIT_EXECUTABLE} rev-parse --short HEAD
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        OUTPUT_VARIABLE S300_GIT_COMMIT
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET
+    )
+else()
+    set(S300_GIT_BRANCH "unknown")
+    set(S300_GIT_COMMIT "unknown")
+endif()
+
+# 生成 version.h 到构建目录
+configure_file(
+    ${CMAKE_SOURCE_DIR}/cmake/version.h.in
+    ${CMAKE_BINARY_DIR}/generated/version.h
+    @ONLY
+)
+
+# 添加到包含路径
+include_directories(${CMAKE_BINARY_DIR}/generated)
+
+# ===========================================================================
+# 强制每次构建重编译 version.c 的机制:
+# 生成一个 build_timestamp.h 头文件，每次构建都更新其内容（包含当前时间）
+# version.c 依赖此头文件，因此每次构建都会被重新编译
+# ===========================================================================
+set(BUILD_TIMESTAMP_HEADER "${CMAKE_BINARY_DIR}/generated/build_timestamp.h")
+
+# 添加 CMake 脚本来生成时间戳头文件
+file(WRITE ${CMAKE_BINARY_DIR}/update_timestamp.cmake
+    "string(TIMESTAMP CURRENT_TIME \"%Y-%m-%d %H:%M:%S\")
+file(WRITE \"${BUILD_TIMESTAMP_HEADER}\"
+\"// Auto-generated file - DO NOT EDIT
+#ifndef BUILD_TIMESTAMP_H
+#define BUILD_TIMESTAMP_H
+#define BUILD_TIMESTAMP_STR \\\"$\{CURRENT_TIME\}\\\"
+#endif
+\")
+")
+
+add_custom_target(s300_update_timestamp ALL
+    COMMAND ${CMAKE_COMMAND} -P ${CMAKE_BINARY_DIR}/update_timestamp.cmake
+    BYPRODUCTS ${BUILD_TIMESTAMP_HEADER}
+    COMMENT "Updating build timestamp header"
+)
+
 # Add subdirectories
 add_subdirectory(CMSIS)
 add_subdirectory(Boards)

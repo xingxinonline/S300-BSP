@@ -1,0 +1,54 @@
+/**
+ * @file    version.h
+ * @brief   S300 BSP 版本信息 (由 CMake 自动生成)
+ * @note    此文件由 CMake 配置时自动生成，请勿手动修改
+ */
+
+#ifndef S300_VERSION_H
+#define S300_VERSION_H
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/* 项目版本号 */
+#define S300_VERSION_MAJOR      @S300_VERSION_MAJOR@
+#define S300_VERSION_MINOR      @S300_VERSION_MINOR@
+#define S300_VERSION_PATCH      @S300_VERSION_PATCH@
+#define S300_VERSION_STRING     "@S300_VERSION_MAJOR@.@S300_VERSION_MINOR@.@S300_VERSION_PATCH@"
+
+/* 构建信息 */
+#define S300_BUILD_TIMESTAMP    "@S300_BUILD_TIMESTAMP@"
+#define S300_BOARD_NAME         "@BOARD@"
+#define S300_GIT_BRANCH         "@S300_GIT_BRANCH@"
+#define S300_GIT_COMMIT         "@S300_GIT_COMMIT@"
+
+/* 编译器信息 (使用预处理器宏) */
+#define S300_COMPILE_DATE       __DATE__
+#define S300_COMPILE_TIME       __TIME__
+
+/**
+ * @brief 打印完整版本信息
+ */
+void s300_print_version(void);
+
+/**
+ * @brief 获取版本号主版本
+ */
+int s300_get_version_major(void);
+
+/**
+ * @brief 获取版本号次版本
+ */
+int s300_get_version_minor(void);
+
+/**
+ * @brief 获取版本号补丁版本
+ */
+int s300_get_version_patch(void);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* S300_VERSION_H */
