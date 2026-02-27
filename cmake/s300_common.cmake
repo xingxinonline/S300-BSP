@@ -41,6 +41,11 @@ set(DRIVER_i2c_soft_SRCS ${CMAKE_SOURCE_DIR}/Drivers/SoC/I2CSoft/Source/i2c_soft
 set(DRIVER_i2c_soft_INCS ${CMAKE_SOURCE_DIR}/Drivers/SoC/I2CSoft/Include)
 set(DRIVER_i2c_soft_DEPS gpio)
 
+# 硬件 I2C 驱动 (DesignWare DW_apb_i2c)
+set(DRIVER_i2c_SRCS ${CMAKE_SOURCE_DIR}/Drivers/SoC/I2C/Source/i2c.c)
+set(DRIVER_i2c_INCS ${CMAKE_SOURCE_DIR}/Drivers/SoC/I2C/Include)
+set(DRIVER_i2c_DEPS rcc gpio)
+
 set(DRIVER_mailbox_SRCS ${CMAKE_SOURCE_DIR}/Drivers/SoC/MAILBOX/Source/mailbox.c)
 set(DRIVER_mailbox_INCS ${CMAKE_SOURCE_DIR}/Drivers/SoC/MAILBOX/Include)
 
