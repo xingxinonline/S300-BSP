@@ -128,7 +128,7 @@ extern "C" {
 
 /** @brief 默认调试串口波特率 */
 #ifndef BOARD_DEBUG_UART_BAUDRATE
-#define BOARD_DEBUG_UART_BAUDRATE   921600
+#define BOARD_DEBUG_UART_BAUDRATE   115200
 #endif
 
 /*===========================================================================
