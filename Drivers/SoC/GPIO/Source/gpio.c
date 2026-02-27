@@ -8,12 +8,13 @@
 int gpio_set_function(gpio_port_t port, uint8_t pin, gpio_func_t func)
 {
     (void)port; /* Only GPIOA exposed */
+    /* S300 IO_MATRIX: 2 bits per GPIO, 16 GPIOs per 32-bit register */
     uint32_t lin = (uint32_t)port * 32u + (uint32_t)pin;
-    uint32_t idx = (lin << 1) / 32u;
-    uint32_t sh  = (lin << 1) % 32u;
+    uint32_t idx = (lin << 1) / 32u;   /* Register index: lin*2 / 32 = lin / 16 */
+    uint32_t sh  = (lin << 1) % 32u;   /* Bit shift: (lin*2) % 32 */
     uint32_t v = IO_MATRIX->CFG[idx];
-    v &= ~(0x3u << sh);
-    v |= ((uint32_t)func & 0x3u) << sh;
+    v &= ~(0x3u << sh);                /* Clear 2 bits */
+    v |= ((uint32_t)func & 0x3u) << sh; /* Set 2 bits */
     IO_MATRIX->CFG[idx] = v;
     return 0;
 }
