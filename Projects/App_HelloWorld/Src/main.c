@@ -50,10 +50,14 @@ int main(void)
     printf("\r\n");
 
     uint32_t count = 0;
+    uint32_t last_print_ms = millis();
 
     while (1) {
-        printf("[%8lu ms] Hello, World! Count: %lu\r\n", millis(), count++);
-        delay_ms(1000);
+        uint32_t now = millis();
+        if ((now - last_print_ms) >= 1000U) {
+            printf("[%8lu ms] Hello, World! Count: %lu\r\n", now, count++);
+            last_print_ms = now;
+        }
     }
 
     return 0;
