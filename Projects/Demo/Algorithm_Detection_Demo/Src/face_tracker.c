@@ -11,6 +11,7 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <string.h>
 #include "mailbox.h"
 #include "mailbox_proto.h"
 #include "detection_proto.h"
@@ -38,6 +39,11 @@
 /* 最低分数阈值（百分比，0~100）：低于该值的目标将被过滤，不绘制 */
 #ifndef FACE_SCORE_FILTER_PCT
 #define FACE_SCORE_FILTER_PCT  60u
+#endif
+
+/* 屏幕显示链路为镜像时，启用文本镜像补偿（字符串逆序 + 字形列反转） */
+#ifndef FACE_TEXT_MIRROR_COMPENSATE
+#define FACE_TEXT_MIRROR_COMPENSATE 1
 #endif
 
 #define FT_LOG(level, fmt, ...) \
@@ -292,9 +298,9 @@ static uint8_t normalize_score_pct(float score_raw)
 }
 
 /**
- * 生成镜像显示用的分数字符串（参考 Tracking_Demo）
- * - 100% -> "%001"
- * - XY%  -> "%YX"（例如 85% => "%58"）
+ * 生成人类可读的分数字符串
+ * - 100% -> "100%"
+ * - XY%  -> "XY%"
  */
 static int format_mirrored_score(uint8_t score_pct, char *out, int out_size)
 {
@@ -302,19 +308,44 @@ static int format_mirrored_score(uint8_t score_pct, char *out, int out_size)
 
     if (score_pct >= 100u) {
         if (out_size < 5) return 0;
-        out[0] = '%';
+        out[0] = '1';
         out[1] = '0';
         out[2] = '0';
-        out[3] = '1';
+        out[3] = '%';
         out[4] = '\0';
         return 4;
     }
 
-    out[0] = '%';
-    out[1] = (char)((score_pct % 10u) + '0');
-    out[2] = (char)(((score_pct / 10u) % 10u) + '0');
-    out[3] = '\0';
-    return 3;
+    return snprintf(out, (size_t)out_size, "%u%%", (unsigned)score_pct);
+}
+
+static const char *get_display_type_name(uint8_t raw_type)
+{
+    switch (detection_type_from_raw(raw_type)) {
+    case DETECTION_TYPE_FACE:
+        return "FACE";
+    case DETECTION_TYPE_PERSON:
+        return "HUMAN";
+    case DETECTION_TYPE_PALM:
+        return "PALM";
+    case DETECTION_TYPE_PEACE:
+        return "PEACE";
+    default:
+        return "UNK";
+    }
+}
+
+static int format_detection_label(uint8_t raw_type, uint8_t score_pct, char *out, int out_size)
+{
+    char score_buf[8];
+    int score_len = format_mirrored_score(score_pct, score_buf, (int)sizeof(score_buf));
+    const char *type_name = get_display_type_name(raw_type);
+
+    if (out == 0 || out_size <= 0 || score_len <= 0) return 0;
+
+    int written = snprintf(out, (size_t)out_size, "%s %s", type_name, score_buf);
+    if (written <= 0 || written >= out_size) return 0;
+    return written;
 }
 
 static void draw_string(int x, int y, const char *str, uint16_t color, uint8_t alpha);
@@ -417,7 +448,12 @@ static void draw_char(int x, int y, char c, uint16_t color, uint8_t alpha)
     if (c < 32 || c > 126) return;
     const uint8_t *glyph = font5x7[c - 32];
     for (int col = 0; col < FONT_CHAR_W; col++) {
-        uint8_t line = glyph[FONT_CHAR_W - 1 - col];
+        uint8_t line =
+#if FACE_TEXT_MIRROR_COMPENSATE
+            glyph[FONT_CHAR_W - 1 - col];
+#else
+            glyph[col];
+#endif
         for (int row = 0; row < FONT_CHAR_H; row++) {
             if ((line >> row) & 0x01) {
                 /* 缩放绘制 */
@@ -439,19 +475,27 @@ static void draw_char(int x, int y, char c, uint16_t color, uint8_t alpha)
 /** 绘制字符串 */
 static void draw_string(int x, int y, const char *str, uint16_t color, uint8_t alpha)
 {
+#if FACE_TEXT_MIRROR_COMPENSATE
+    int len = (int)strlen(str);
+    for (int i = len - 1; i >= 0; i--) {
+        draw_char(x, y, str[i], color, alpha);
+        x += SCALED_CHAR_W + SCALED_SPACING;
+    }
+#else
     while (*str) {
         draw_char(x, y, *str++, color, alpha);
         x += SCALED_CHAR_W + SCALED_SPACING;
     }
+#endif
 }
 
 /** 在框附近绘制分数（镜像格式）并返回文本长度 */
 static int draw_score_label(int32_t x1, int32_t y1, int32_t y2,
-                            uint8_t score_pct, uint16_t color, uint8_t alpha,
+                            uint8_t type, uint8_t score_pct, uint16_t color, uint8_t alpha,
                             int *text_x_out, int *text_y_out)
 {
-    char label[8];
-    int label_len = format_mirrored_score(score_pct, label, (int)sizeof(label));
+    char label[24];
+    int label_len = format_detection_label(type, score_pct, label, (int)sizeof(label));
     if (label_len <= 0) return 0;
 
     int text_x = x1;
@@ -569,7 +613,7 @@ static void process_multi_result(const DetectionResult_t *result)
 
         /* 绘制分数文字（框上方，镜像格式参考 Tracking_Demo） */
         int text_x = 0, text_y = 0;
-        int label_len = draw_score_label(x1, y1, y2, score_pct, color, ALPHA_SOLID,
+        int label_len = draw_score_label(x1, y1, y2, box->type, score_pct, color, ALPHA_SOLID,
                          &text_x, &text_y);
         if (label_len <= 0) continue;
 
@@ -669,7 +713,7 @@ void face_tracker_poll(void)
                 draw_rect_border(x1, y1, x2, y2, COLOR_GREEN, ALPHA_SOLID);
 
                 int text_x = 0, text_y = 0;
-                int label_len = draw_score_label(x1, y1, y2, score_pct,
+                int label_len = draw_score_label(x1, y1, y2, box->type, score_pct,
                                                  COLOR_GREEN, ALPHA_SOLID,
                                                  &text_x, &text_y);
 
