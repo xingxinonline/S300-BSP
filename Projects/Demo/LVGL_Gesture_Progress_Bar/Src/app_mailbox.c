@@ -6,6 +6,7 @@
 
 static uint32_t (*s_get_ms)(void) = NULL;
 static volatile uint32_t s_last_face_ms = 0;
+static volatile DetectionType_t s_last_gesture_type = DETECTION_TYPE_UNKNOWN;
 /* 500ms timeout for face detection signal */
 #define FACE_TIMEOUT_MS 300 
 
@@ -14,6 +15,11 @@ void app_mailbox_init(void) {
 
 void app_mailbox_set_time_callback(uint32_t (*get_ms)(void)) {
     s_get_ms = get_ms;
+}
+
+static bool is_valid_gesture_type(DetectionType_t type)
+{
+    return detection_type_is_gesture(type);
 }
 
 void app_mailbox_poll(void) {
@@ -27,21 +33,37 @@ void app_mailbox_poll(void) {
         uint32_t payload = MAILBOX_GET_PAYLOAD(msg);
         
         bool has_valid_face = false;
+        DetectionType_t detected_type = DETECTION_TYPE_UNKNOWN;
         
         switch (msg_type) {
         case MAILBOX_MSG_TYPE_MULTI: {
             uintptr_t addr = (uintptr_t)DSP_DETECTION_BASE_ADDR + (uintptr_t)payload;
             const DetectionResult_t *result = (const DetectionResult_t*)addr;
             if (DETECTION_RESULT_IS_VALID(result) && result->count > 0) {
-                has_valid_face = true;
+                uint32_t box_count = result->count;
+                if (box_count > MAX_DETECTION_COUNT) {
+                    box_count = MAX_DETECTION_COUNT;
+                }
+
+                for (uint32_t i = 0; i < box_count; i++) {
+                    DetectionType_t type = detection_type_from_raw(result->boxes[i].type);
+                    if (is_valid_gesture_type(type)) {
+                        has_valid_face = true;
+                        detected_type = type;
+                        break;
+                    }
+                }
             }
             break;
         }
         case MAILBOX_MSG_TYPE_SINGLE: {
             uintptr_t addr = (uintptr_t)DSP_DETECTION_BASE_ADDR + (uintptr_t)payload;
             const DetectionBox_t *box = (const DetectionBox_t*)addr;
-            if (!(box->x1 < 0 && box->y1 < 0 && box->x2 < 0 && box->y2 < 0)) {
+            DetectionType_t type = detection_type_from_raw(box->type);
+            if (is_valid_gesture_type(type) &&
+                !(box->x1 < 0 && box->y1 < 0 && box->x2 < 0 && box->y2 < 0)) {
                 has_valid_face = true;
+                detected_type = type;
             }
             break;
         }
@@ -51,6 +73,7 @@ void app_mailbox_poll(void) {
         
         if (has_valid_face) {
             s_last_face_ms = now;
+            s_last_gesture_type = detected_type;
         }
     }
 }
@@ -60,4 +83,9 @@ bool app_mailbox_is_face_present(void) {
     uint32_t now = s_get_ms();
     if (now < s_last_face_ms) return true; // Time wrapped around
     return (now - s_last_face_ms) <= FACE_TIMEOUT_MS;
+}
+
+DetectionType_t app_mailbox_get_last_gesture_type(void)
+{
+    return s_last_gesture_type;
 }

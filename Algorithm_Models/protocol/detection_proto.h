@@ -16,7 +16,7 @@
  *   3. M4 读取 Mailbox，提取 offset，从共享内存解析 DetectionResult
  *   4. M4 根据 result.count 遍历所有检测目标
  * 
- * 版本: 2.3 (SORT multi-target tracking, miss_count field)
+ * 版本: 3.2 (新增手势细分类 PALM/PEACE)
  * 
  * @see mailbox_proto.h 通用邮箱消息格式
  */
@@ -24,6 +24,7 @@
 #define DETECTION_PROTO_H
 
 #include <stdint.h>
+#include <stdbool.h>
 #include "mailbox_proto.h"
 
 #ifdef __cplusplus
@@ -35,7 +36,13 @@ extern "C" {
  *===========================================================================*/
 
 /** 协议版本号，M4/DSP 握手时可用于版本校验 */
-#define DETECTION_PROTOCOL_VERSION    0x0300u  /* v3.0 — miss_count + CM4↔DSP双向通信 */
+#define DETECTION_PROTOCOL_VERSION_V300    0x0300u
+#define DETECTION_PROTOCOL_VERSION_V301    0x0301u
+#define DETECTION_PROTOCOL_VERSION_V302    0x0302u
+#define DETECTION_PROTOCOL_VERSION         DETECTION_PROTOCOL_VERSION_V302  /* v3.2 — gesture type扩展 (PALM/PEACE) */
+
+/** M4 访问 DSP PTCM 的地址基偏移（与 DSP 协议头保持一致） */
+#define DSP_PTCM_M4_BASE_OFFSET            0x44800000u
 
 /** 最大支持的检测目标数量 */
 #define MAX_DETECTION_COUNT           10
@@ -62,10 +69,71 @@ extern "C" {
 typedef enum {
     DETECTION_TYPE_UNKNOWN  = 0,    /**< 未知类型 */
     DETECTION_TYPE_FACE     = 1,    /**< 人脸检测 */
-    DETECTION_TYPE_HUMAN    = 2,    /**< 人体检测 */
-    DETECTION_TYPE_HAND     = 3,    /**< 手势检测 */
+    DETECTION_TYPE_HUMAN    = 2,    /**< 人体检测（兼容旧命名） */
+    DETECTION_TYPE_PERSON   = 2,    /**< 人体检测（新命名） */
+    DETECTION_TYPE_HAND     = 3,    /**< 手势检测（兼容旧命名） */
+    DETECTION_TYPE_GESTURE  = 3,    /**< 手势检测（新命名） */
     DETECTION_TYPE_OBJECT   = 4,    /**< 通用物体检测 */
+    DETECTION_TYPE_PALM     = 5,    /**< 手势：掌心 */
+    DETECTION_TYPE_PEACE    = 6,    /**< 手势：比耶 */
 } DetectionType_t;
+
+/** DSP 跟踪器状态（v3.x） */
+typedef enum {
+    TRACKER_STATE_DISABLED  = 0,  /**< 跟踪器禁用 */
+    TRACKER_STATE_IDLE      = 1,  /**< 空闲 */
+    TRACKER_STATE_TENTATIVE = 2,  /**< 试探确认中 */
+    TRACKER_STATE_TRACKING  = 3,  /**< 跟踪中 */
+    TRACKER_STATE_LOST      = 4,  /**< 丢失搜索中 */
+} TrackerState_t;
+
+/** 跟踪器标志位定义（v3.x） */
+#define TRACKER_FLAG_ENABLED      0x01u
+#define TRACKER_FLAG_REID_ACTIVE  0x02u
+#define TRACKER_FLAG_COASTING     0x04u
+#define TRACKER_FLAG_APPEAR_VALID 0x08u
+
+/** 协议版本支持检查（兼容 v3.x：0x0300 ~ 0x03FF） */
+#define DETECTION_PROTOCOL_IS_SUPPORTED(ver) \
+    ((((uint32_t)(ver)) >> 8) == 0x03u)
+
+/** 主版本号兼容检查（用于日志/灰度兼容） */
+#define DETECTION_PROTOCOL_IS_SAME_MAJOR(ver) \
+    ((((uint32_t)(ver)) >> 8) == (DETECTION_PROTOCOL_VERSION >> 8))
+
+/** 将原始 type 值映射到标准枚举，未知值兜底为 UNKNOWN */
+static inline DetectionType_t detection_type_from_raw(uint8_t raw_type)
+{
+    switch (raw_type) {
+    case 1: return DETECTION_TYPE_FACE;
+    case 2: return DETECTION_TYPE_PERSON;
+    case 3: return DETECTION_TYPE_GESTURE;
+    case 5: return DETECTION_TYPE_PALM;
+    case 6: return DETECTION_TYPE_PEACE;
+    default: return DETECTION_TYPE_UNKNOWN;
+    }
+}
+
+/** 判断目标类型是否属于手势类 */
+static inline bool detection_type_is_gesture(DetectionType_t type)
+{
+    return (type == DETECTION_TYPE_GESTURE ||
+            type == DETECTION_TYPE_PALM ||
+            type == DETECTION_TYPE_PEACE);
+}
+
+/** 类型名称字符串（用于日志/UI显示） */
+static inline const char *detection_type_name(DetectionType_t type)
+{
+    switch (type) {
+    case DETECTION_TYPE_FACE:    return "FACE";
+    case DETECTION_TYPE_PERSON:  return "PERSON";
+    case DETECTION_TYPE_GESTURE: return "GESTURE";
+    case DETECTION_TYPE_PALM:    return "PALM";
+    case DETECTION_TYPE_PEACE:   return "PEACE";
+    default:                     return "UNKNOWN";
+    }
+}
 
 /*===========================================================================
  * 单个检测目标结构
@@ -122,7 +190,9 @@ typedef DetectionBox_t FaceRect;
  *   Offset   0: uint32_t magic        (4 bytes)
  *   Offset   4: uint32_t version      (4 bytes)
  *   Offset   8: uint32_t frame_id     (4 bytes)
- *   Offset  12: uint32_t timestamp    (4 bytes)
+ *   Offset  12: uint16_t timestamp_ms (2 bytes)
+ *   Offset  14: uint8_t  tracker_state(1 byte)
+ *   Offset  15: uint8_t  tracker_flags(1 byte)
  *   Offset  16: uint32_t count        (4 bytes)
  *   Offset  20: int32_t  selected_idx (4 bytes)
  *   Offset  24: DetectionBox_t boxes[10] (68 * 10 = 680 bytes)
@@ -132,7 +202,9 @@ typedef struct __attribute__((packed)) {
     uint32_t       magic;         /**< 魔数 (DETECTION_RESULT_MAGIC) */
     uint32_t       version;       /**< 协议版本 (DETECTION_PROTOCOL_VERSION) */
     uint32_t       frame_id;      /**< 帧序号（DSP 递增）*/
-    uint32_t       timestamp;     /**< 时间戳（毫秒，可选）*/
+    uint16_t       timestamp_ms;  /**< 时间戳低16位（毫秒）*/
+    uint8_t        tracker_state; /**< 跟踪器状态 (TrackerState_t) */
+    uint8_t        tracker_flags; /**< 跟踪器标志位 */
     uint32_t       count;         /**< 本帧检测到的目标数量 [0, MAX_DETECTION_COUNT] */
     int32_t        selected_idx;  /**< DSP选中的目标索引 [0,count-1]，-1表示无选中 */
     DetectionBox_t boxes[MAX_DETECTION_COUNT];  /**< 检测目标数组 */
@@ -165,6 +237,7 @@ typedef struct __attribute__((packed)) {
 /** 检查 DetectionResult 是否有效 */
 #define DETECTION_RESULT_IS_VALID(pResult) \
     ((pResult)->magic == DETECTION_RESULT_MAGIC && \
+    DETECTION_PROTOCOL_IS_SUPPORTED((pResult)->version) && \
      (pResult)->count <= MAX_DETECTION_COUNT)
 
 /** 获取结构体大小 */
@@ -177,6 +250,10 @@ typedef struct __attribute__((packed)) {
 
 /* 保持向后兼容 */
 #define MAILBOX_MSG_TYPE_NO_DETECT    MAILBOX_MSG_TYPE_NO_RESULT
+
+/* 与 DSP 协议头命名保持一致 */
+#define GET_MSG_TYPE(msg)             MAILBOX_GET_MSG_TYPE(msg)
+#define GET_MSG_PAYLOAD(msg)          MAILBOX_GET_PAYLOAD(msg)
 
 /*===========================================================================
  * 编译时断言（确保与 DSP 端结构体大小一致）

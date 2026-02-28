@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include "detection_proto.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -29,6 +30,12 @@ void app_mailbox_poll(void);
  * @return true if detected, false if timeout.
  */
 bool app_mailbox_is_face_present(void);
+
+/**
+ * @brief 获取最近一次识别到的手势类型。
+ * @return FACE/PERSON/GESTURE/PALM/PEACE/UNKNOWN 中的一种；无有效手势时返回 UNKNOWN。
+ */
+DetectionType_t app_mailbox_get_last_gesture_type(void);
 
 #ifdef __cplusplus
 }
