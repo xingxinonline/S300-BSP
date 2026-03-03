@@ -25,7 +25,10 @@
 #define DSP_READY_WAIT_LOOPS            20000000u
 #define DSP_OUTPUT_WAIT_LOOPS           600000u
 #define KWS_WARN_LOG_INTERVAL_FRAMES    128u
-#define KWS_STATS_LOG_INTERVAL_FRAMES   320u
+#define KWS_STATS_LOG_INTERVAL_FRAMES   640u
+
+/* 日志级别: 0=仅关键词, 1=关键词+统计, 2=详细debug */
+#define KWS_LOG_LEVEL                   1u
 
 static volatile int16_t *dsp_in_block = (volatile int16_t *)DSP_AUDIO_IN_ADDR;
 static volatile int16_t *dsp_out_block = (volatile int16_t *)DSP_AUDIO_OUT_ADDR;
@@ -119,6 +122,7 @@ static void take_action(uint16_t keyword_idx, uint8_t confidence)
            confidence);
 }
 
+#if (KWS_LOG_LEVEL >= 2)
 static void print_scores(const uint8_t *output)
 {
     for (uint16_t i = 0; i < KEYWORDS_COUNT; i++)
@@ -134,6 +138,7 @@ static void print_scores(const uint8_t *output)
     }
     printf("\r\n");
 }
+#endif
 
 static uint16_t kws_show_res(const uint8_t *output)
 {
@@ -163,7 +168,9 @@ static uint16_t kws_show_res(const uint8_t *output)
         {
             consecutive_count = 0u;
             counting_started = 0u;
+#if (KWS_LOG_LEVEL >= 2)
             print_scores(output);
+#endif
 
             if (max_val >= KWS_SCORE_THRESHOLD)
             {
@@ -204,6 +211,7 @@ static uint16_t kws_show_res(const uint8_t *output)
     return idx_val;
 }
 
+#if (KWS_LOG_LEVEL >= 2)
 static void kws_debug_top1(const uint8_t *output)
 {
     uint8_t max_val = 0u;
@@ -218,7 +226,8 @@ static void kws_debug_top1(const uint8_t *output)
         }
     }
 
-    if ((kws_frame_cnt % 256u) == 0u)
+    /* 只在检测到非unknown且置信度>=70时输出 */
+    if (idx_val != 0u && max_val >= 70u)
     {
         printf("[KWS] top1=%u(%s) conf=%u\r\n",
                idx_val,
@@ -226,6 +235,7 @@ static void kws_debug_top1(const uint8_t *output)
                max_val);
     }
 }
+#endif
 
 void kws_dsp_dma0_irq_handler(void)
 {
@@ -352,11 +362,15 @@ void kws_dsp_run_polling(void)
 
         *output_ready_flag = 0u;
         kws_frame_cnt++;
+#if (KWS_LOG_LEVEL >= 2)
         kws_debug_top1((const uint8_t *)kws_cmd);
+#endif
         kws_show_res((const uint8_t *)kws_cmd);
 
+#if (KWS_LOG_LEVEL >= 1)
         stats_log_div++;
-        if ((stats_log_div % KWS_STATS_LOG_INTERVAL_FRAMES) == 1u)
+        /* 仅在固定间隔时输出统计，避免刷屏 */
+        if ((stats_log_div % KWS_STATS_LOG_INTERVAL_FRAMES) == 0u)
         {
             printf("[KWS] stats in_of=%lu out_of=%lu out_ud=%lu dsp_to=%lu\r\n",
                    (unsigned long)i2s_in_overflow_cnt,
@@ -364,6 +378,9 @@ void kws_dsp_run_polling(void)
                    (unsigned long)i2s_out_underrun_cnt,
                    (unsigned long)dsp_output_timeout_cnt);
         }
+#else
+        (void)stats_log_div;
+#endif
 
         (void)dsp_out_block;
         (void)dsp_calc_cycles;
