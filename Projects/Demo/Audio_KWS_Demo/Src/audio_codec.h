@@ -131,6 +131,13 @@ int audio_codec_set_hp_volume(audio_codec_t *codec, uint8_t volume);
 int audio_codec_set_mute(audio_codec_t *codec, bool mute);
 
 /**
+ * @brief KWS 场景下切换 ES7210 输入源配置
+ * @param use_mic4 true=MIC4, false=MIC1|MIC2
+ * @return 0=成功, 非0=失败/不支持
+ */
+int audio_codec_apply_kws_mic_profile(bool use_mic4);
+
+/**
  * @brief 控制功放使能 (PA_EN)
  * @param enable true=使能功放, false=禁用功放
  *

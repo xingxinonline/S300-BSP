@@ -158,8 +158,8 @@ int audio_init(void)
         return ret;
     }
 
-    /* 3. 配置 Audio PLL (与原 demo 对齐: 12MHz MCLK 输出)
-     *    init_audio_pll(3, 129, 500000, 7, 6) 产生约 12MHz
+    /* 3. 配置 Audio PLL (与原 demo 对齐)
+     *    init_audio_pll(3, 129, 500000, 7, 6)
      */
     ret = rcc_init_audio_pll(3, 129, 500000, 7, 6);
     if (ret != 0)
@@ -171,8 +171,8 @@ int audio_init(void)
     /* 4. 使能 I2S 时钟 */
     rcc_set_audio_clock(I2S_IDX1, true);
 
-    /* 5. 配置 I2S 基本参数 (MCLK=12MHz, 16-bit) */
-    i2s_basic_init(I2S_IDX1, 12000000, I2S_WORD_16);
+        /* 5. 配置 I2S 基本参数 (对齐 SDK: MCLK=12.288MHz, 16-bit) */
+        i2s_basic_init(I2S_IDX1, 12288000, I2S_WORD_16);
 
     /* 6. 使能 I2S */
     i2s_enable(I2S_IDX1, true);
