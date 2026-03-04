@@ -33,22 +33,29 @@
 ## 迭代路线图
 
 ```
-MVP0 (基础框架)   MVP1 (视频显示)   MVP1.5 (子板通信)   MVP2 (舵机跟踪)   MVP3 (完整系统)
-     │                │                  │                  │                │
-     ▼                ▼                  ▼                  ▼                ▼
-┌─────────┐     ┌──────────┐      ┌─────────────┐    ┌─────────────┐   ┌──────────┐
-│ FreeRTOS │     │ 摄像头   │      │ I2C1通信   │    │ 检测框显示  │   │ KWS语音  │
-│ +调试串口│  →  │ +CPLD    │  →   │ +子板轮询  │ →  │ +舵机跟踪  │ → │ +蓝牙HID │
-│ +心跳LED │     │ +LCD显示 │      │ +数据解析  │    │ +IMU防抖   │   │ +UWB     │
-└─────────┘     └──────────┘      └─────────────┘    └─────────────┘   └──────────┘
-   2天              2天                2天               3天              3天
+MVP0 (框架+状态机)   MVP1 (KWS语音)   MVP2 (视频显示)   MVP3 (子板I2C)   MVP4 (舵机完整)
+       │                 │                 │                │                │
+       ▼                 ▼                 ▼                ▼                ▼
+  ┌─────────┐      ┌──────────┐      ┌──────────┐     ┌──────────┐     ┌──────────┐
+  │ FreeRTOS│      │ DSP KWS  │      │ 摄像头   │     │ I2C轮询  │     │ 舵机PID  │
+  │ +状态机 │  →   │ +Mailbox │  →   │ +CPLD    │  →  │ +检测框  │  →  │ +蓝牙HID │
+  │ (串口)  │      │ +语音状态│      │ +LCD     │     │ +状态触发│     │ +UWB+IMU │
+  └─────────┘      └──────────┘      └──────────┘     └──────────┘     └──────────┘
+     2天               2天               2天              2天              3天
 ```
+
+**设计理由**:
+1. **MVP0 先建状态机** - 串口命令模拟触发，建立状态流转框架
+2. **MVP1 KWS 优先** - 语音是主要控制入口，验证 DSP Mailbox 通信
+3. **MVP2 视频显示** - 独立于检测，LCD 显示摄像头画面
+4. **MVP3 子板通信** - I2C 轮询检测结果，叠加检测框，完善状态触发
+5. **MVP4 舵机完整** - 有了状态机和检测数据，舵机跟踪是执行层
 
 ---
 
-## MVP0: 基础框架 (Day 1-2)
+## MVP0: 基础框架 + 状态机 (Day 1-2)
 
-**目标**: 建立项目骨架，FreeRTOS 运行正常，调试串口可用
+**目标**: 建立项目骨架，FreeRTOS 运行正常，状态机框架可用
 
 ### Step 0.1: 项目结构创建
 
@@ -58,9 +65,11 @@ Projects/App_GimbalMaster/
 ├── CMakeLists.txt
 ├── README.md
 ├── Inc/
-│   └── app_config.h
+│   ├── app_config.h
+│   └── track_state.h
 └── Src/
-    └── main.c
+    ├── main.c
+    └── track_state.c
 ```
 
 **CMakeLists.txt** (最小配置):
@@ -70,7 +79,7 @@ project(App_GimbalMaster)
 
 s300_add_executable(
     TARGET s300_gimbal_master
-    SOURCES Src/main.c
+    SOURCES Src/main.c Src/track_state.c
     DRIVERS rcc gpio uart
 )
 
@@ -98,19 +107,168 @@ cd build && ninja s300_gimbal_master
 3. 观察 LED 以 1Hz 闪烁
 ```
 
+### Step 0.3: 状态机骨架
+
+**track_state.h** 定义:
+```c
+typedef enum {
+    TRACK_STATE_IDLE,       /* 待机 - 不跟踪 */
+    TRACK_STATE_TRACKING,   /* 跟踪中 - 等待检测 */
+    TRACK_STATE_LOCK,       /* 锁定 - 检测到目标 */
+    TRACK_STATE_SEARCH,     /* 搜索 - 目标丢失 */
+} TrackState_t;
+
+typedef enum {
+    TRACK_EVT_START,        /* 启动跟踪 (语音/手势) */
+    TRACK_EVT_STOP,         /* 停止跟踪 (语音/手势) */
+    TRACK_EVT_TARGET_FOUND, /* 检测到目标 */
+    TRACK_EVT_TARGET_LOST,  /* 目标丢失 */
+    TRACK_EVT_PHOTO,        /* 拍照请求 */
+} TrackEvent_t;
+
+void track_state_init(void);
+TrackState_t track_state_get(void);
+void track_state_handle_event(TrackEvent_t evt);
+```
+
+**track_state.c** 实现:
+- 状态机转换逻辑
+- 串口打印状态变化
+
+**串口命令模拟** (用于测试):
+```
+cmd: start   → TRACK_EVT_START   → IDLE→TRACKING
+cmd: stop    → TRACK_EVT_STOP    → *→IDLE
+cmd: found   → TRACK_EVT_TARGET_FOUND → TRACKING→LOCK
+cmd: lost    → TRACK_EVT_TARGET_LOST  → LOCK→SEARCH
+cmd: photo   → TRACK_EVT_PHOTO
+```
+
+**验证方法**:
+```
+1. 串口输入 "start" → 打印 "[STATE] IDLE → TRACKING"
+2. 串口输入 "found" → 打印 "[STATE] TRACKING → LOCK"
+3. 串口输入 "lost"  → 打印 "[STATE] LOCK → SEARCH"
+4. 串口输入 "stop"  → 打印 "[STATE] SEARCH → IDLE"
+```
+
 **✅ MVP0 完成标准**:
 - [ ] 编译通过，无警告
 - [ ] FreeRTOS 调度正常
 - [ ] 串口打印心跳信息
 - [ ] LED 闪烁正常
+- [ ] 状态机串口命令测试通过
 
 ---
 
-## MVP1: 视频显示 (Day 3-4)
+## MVP1: KWS 语音识别 (Day 3-4)
+
+**目标**: DSP 运行 KWS，Mailbox 通信，语音指令驱动状态机
+
+### Step 1.1: 音频采集初始化
+
+**新增文件**:
+```
+Inc/task_kws.h
+Src/task_kws.c
+```
+
+**CMakeLists.txt 更新**:
+```cmake
+SOURCES ... Src/task_kws.c
+DRIVERS ... mailbox i2s dma es7210 es8311
+DEFINES ... BOARD_AUDIO_ENABLE=1
+```
+
+**实现要点**:
+- 初始化 ES7210 麦克风 (`es7210_init()`)
+- 初始化 ES8311 扬声器 (`es8311_init()`) - 用于播放提示音
+- 配置 I2S + DMA 音频采集
+
+**验证方法**:
+```
+1. 串口打印: "[AUDIO] ES7210 init OK"
+2. 串口打印: "[AUDIO] I2S DMA running"
+```
+
+### Step 1.2: DSP 初始化 + Mailbox
+
+**实现要点**:
+- 初始化 DSP PLL (`rcc_init_dsp_pll()`)
+- 复位 DSP (`set_dsp_warm_reset()`)
+- 初始化 Mailbox (`init_mailbox()`)
+- 创建 KWSTask (优先级 3)
+
+**Mailbox 消息轮询**:
+```c
+/* 轮询 Mailbox 接收 KWS 结果 */
+while (1) {
+    if (mailbox_receive(&msg) == MAILBOX_MSG_TYPE_KWS) {
+        KWSResult_t *result = (KWSResult_t *)msg.data;
+        handle_kws_result(result);
+    }
+    vTaskDelay(pdMS_TO_TICKS(50));
+}
+```
+
+**验证方法**:
+```
+1. 串口打印: "[DSP] init OK, mailbox ready"
+2. DSP 固件加载成功
+```
+
+### Step 1.3: KWS 结果处理
+
+**关键字映射** (参考 kws_proto.h):
+```c
+typedef enum {
+    KWS_KEYWORD_NONE = 0,
+    KWS_KEYWORD_WAKEUP = 1,      /* "小信小信" */
+    KWS_KEYWORD_START = 4,       /* "启动跟随" */
+    KWS_KEYWORD_STOP = 5,        /* "结束跟随" */
+    KWS_KEYWORD_PHOTO = 6,       /* "拍张照片" */
+} KWSKeyword_t;
+```
+
+**实现要点**:
+```c
+void handle_kws_result(KWSResult_t *result) {
+    switch (result->keyword) {
+        case KWS_KEYWORD_START:
+            track_state_handle_event(TRACK_EVT_START);
+            break;
+        case KWS_KEYWORD_STOP:
+            track_state_handle_event(TRACK_EVT_STOP);
+            break;
+        case KWS_KEYWORD_PHOTO:
+            track_state_handle_event(TRACK_EVT_PHOTO);
+            break;
+    }
+}
+```
+
+**验证方法**:
+```
+1. 说 "启动跟随" → 打印 "[KWS] keyword=4" → "[STATE] IDLE → TRACKING"
+2. 说 "结束跟随" → 打印 "[KWS] keyword=5" → "[STATE] * → IDLE"
+3. 说 "拍张照片" → 打印 "[KWS] keyword=6" → "[STATE] PHOTO event"
+4. 识别率 > 90%
+```
+
+**✅ MVP1 完成标准**:
+- [ ] ES7210/ES8311 初始化成功
+- [ ] DSP 启动，Mailbox 通信正常
+- [ ] 语音 "启动跟随" 触发状态变为 TRACKING
+- [ ] 语音 "结束跟随" 触发状态变为 IDLE
+- [ ] 语音 "拍张照片" 触发 PHOTO 事件
+
+---
+
+## MVP2: 视频显示 (Day 5-6)
 
 **目标**: 摄像头 → CPLD 分发 → 主板 LCD 显示 (此时无检测框)
 
-### Step 1.1: 摄像头 + CPLD + LCD
+### Step 2.1: 摄像头 + CPLD + LCD
 
 **新增文件**:
 ```
@@ -139,7 +297,7 @@ DEFINES BOARD_MM_ENABLE=1 BOARD_CAMERA_ENABLE=1
 4. 确认子板也能收到视频 (串口打印帧率)
 ```
 
-**✅ MVP1 完成标准**:
+**✅ MVP2 完成标准**:
 - [ ] OV5640 初始化成功
 - [ ] CPLD 视频分发正常
 - [ ] 主板 LCD 显示实时画面
@@ -147,13 +305,13 @@ DEFINES BOARD_MM_ENABLE=1 BOARD_CAMERA_ENABLE=1
 
 ---
 
-## MVP1.5: 子板 I2C 通信 (Day 5-6)
+## MVP3: 子板 I2C 通信 + 检测框显示 (Day 7-8)
 
-**目标**: 主板通过 I2C1 轮询子板，获取检测结果
+**目标**: 主板通过 I2C1 轮询子板，获取检测结果，LCD 叠加检测框
 
 > **关键点**: 这是主板获取视觉检测数据的唯一途径！
 
-### Step 1.5.1: I2C1 初始化
+### Step 3.1: I2C1 初始化
 
 **新增文件**:
 ```
@@ -192,7 +350,7 @@ DEFINES ... BOARD_I2C1_ENABLE=1
 3. 使用逻辑分析仪验证 I2C 时序
 ```
 
-### Step 1.5.2: 子板数据读取
+### Step 3.2: 子板数据读取
 
 **实现要点**:
 ```c
@@ -223,7 +381,7 @@ int card_read_detection(uint8_t addr, card_detection_t *result);
 4. 串口打印: "[Card1] valid=1 cx=160 cy=120"
 ```
 
-### Step 1.5.3: 轮询任务
+### Step 3.3: 轮询任务
 
 **实现要点**:
 - 创建 CardPollTask (50Hz)
@@ -247,20 +405,23 @@ int card_read_detection(uint8_t addr, card_detection_t *result);
 3. 无 I2C 通信错误
 ```
 
-**✅ MVP1.5 完成标准**:
+**✅ MVP3 完成标准**:
 - [ ] I2C1 初始化成功，扫描到 3 个子板
 - [ ] 能正确读取 Card1 人形检测结果
 - [ ] 能正确读取 Card2 人脸检测结果
 - [ ] 能正确读取 Card3 手势检测结果
 - [ ] 轮询周期稳定 < 15ms
+- [ ] 检测框正确叠加在视频上
+- [ ] 检测到目标时状态转为 LOCK
+- [ ] 目标丢失时状态转为 SEARCH
 
 ---
 
-## MVP2: 检测框显示 + 舵机跟踪 (Day 7-9)
+## MVP4: 舵机跟踪 + 蓝牙 + UWB (Day 9-11)
 
-**目标**: 子板检测结果 → LCD 检测框 → 舵机跟随
+**目标**: 舵机跟随目标 + 蓝牙 HID 拍照 + UWB 辅助定位
 
-### Step 2.1: 检测框绘制
+### Step 4.1: 检测框绘制
 
 **新增文件**:
 ```
@@ -289,7 +450,7 @@ Src/tracking_visualizer.c
 4. 边界框跟随目标移动，无撕裂
 ```
 
-### Step 2.2: 舵机基础控制
+### Step 4.2: 舵机基础控制
 
 **新增文件**:
 ```
@@ -316,7 +477,7 @@ DEFINES ... BOARD_SERVO_ENABLE=1
 3. 舵机运动平滑无抖动
 ```
 
-### Step 2.3: 视觉跟踪 PID
+### Step 4.3: 视觉跟踪 PID
 
 **实现要点**:
 - 从 Card1 (人形检测) 获取目标中心坐标
@@ -339,7 +500,7 @@ DEFINES ... BOARD_SERVO_ENABLE=1
 4. 跟踪延迟 < 200ms
 ```
 
-### Step 2.3: IMU 防抖集成
+### Step 4.4: IMU 防抖集成
 
 **CMakeLists.txt 更新**:
 ```cmake
@@ -360,48 +521,19 @@ DEFINES ... BOARD_IMU_ENABLE=1
 3. 比较开启/关闭防抖的画面稳定性
 ```
 
-**✅ MVP2 完成标准**:
+**✅ MVP4 完成标准**:
+- [ ] 检测框正确叠加在视频上
+- [ ] 速度箭头方向正确
 - [ ] 舵机响应串口命令
 - [ ] 视觉跟踪目标，舵机跟随移动
 - [ ] PID 参数调优完成，无振荡
 - [ ] IMU 防抖有效，画面稳定
 - [ ] 跟踪任务周期稳定 20ms ± 2ms
+- [ ] 蓝牙配对并控制手机拍照
+- [ ] UWB 辅助定位有效 (可选)
+- [ ] 手势交互响应正常
 
----
-
-## MVP3: 完整系统集成 (Day 9-11)
-
-**目标**: KWS 语音控制 + 蓝牙 HID + UWB 辅助 + 手势交互
-
-### Step 3.1: KWS 语音识别
-
-**新增文件**:
-```
-Inc/task_kws.h
-Src/task_kws.c
-```
-
-**CMakeLists.txt 更新**:
-```cmake
-SOURCES ... Src/task_kws.c
-DRIVERS ... mailbox i2s dma es7210 es8311
-DEFINES ... BOARD_AUDIO_ENABLE=1
-```
-
-**实现要点**:
-- 创建 KWSTask (优先级 3)
-- 音频采集 (DMA + I2S)
-- Mailbox 接收 `MAILBOX_MSG_TYPE_KWS`
-- 解析 `KWSResult_t`
-
-**验证方法**:
-```
-1. 说 "启动跟随" → 串口打印 "[KWS] keyword=4 (START_TRACKING)"
-2. 说 "结束跟随" → 串口打印 "[KWS] keyword=5 (STOP_TRACKING)"
-3. 识别率 > 90%
-```
-
-### Step 3.2: 蓝牙 HID 控制
+### Step 4.5: 蓝牙 HID 控制
 
 **新增文件**:
 ```
@@ -423,32 +555,7 @@ Src/task_comm.c
 3. 手机相机 App 中验证拍照功能
 ```
 
-### Step 3.3: 跟踪状态机
-
-**实现要点**:
-```c
-typedef enum {
-    TRACK_STATE_IDLE,       // 待机
-    TRACK_STATE_TRACKING,   // 跟踪中
-    TRACK_STATE_LOCK,       // 锁定
-    TRACK_STATE_SEARCH,     // 搜索
-} TrackState_t;
-```
-
-- KWS "启动跟随" → IDLE → TRACKING
-- 检测到目标 → TRACKING → LOCK
-- 目标丢失 → LOCK → SEARCH
-- KWS "结束跟随" → * → IDLE
-
-**验证方法**:
-```
-1. 说 "启动跟随" → 状态变为 TRACKING
-2. 人脸出现 → 状态变为 LOCK，舵机跟随
-3. 人脸离开画面 → 状态变为 SEARCH
-4. 说 "结束跟随" → 状态变为 IDLE，舵机停止
-```
-
-### Step 3.4: UWB 辅助定位 (可选)
+### Step 4.6: UWB 辅助定位 (可选)
 
 **新增文件**:
 ```
@@ -469,12 +576,12 @@ Src/uwb_ulm3.c
 4. 目标重新出现在画面中
 ```
 
-### Step 3.5: 手势交互 (子板)
+### Step 4.7: 手势交互
 
-> 注：i2c_cardbus.h/c 已在 MVP1.5 中创建，此步骤复用该模块
+> 注：i2c_cardbus.h/c 已在 MVP3 中创建，此步骤复用该模块
 
 **实现要点**:
-- 复用 I2C1 子板通信模块 (MVP1.5)
+- 复用 I2C1 子板通信模块 (MVP3)
 - 轮询 Card3 (0x12) 手势检测结果中的 `gesture_type`
 - Palm 手势 (gesture_type=5) → 切换跟踪状态
 - Peace 手势 (gesture_type=6) → 触发蓝牙拍照
@@ -485,13 +592,6 @@ Src/uwb_ulm3.c
 2. 对摄像头做 Peace 手势 → 手机拍照
 3. 响应延迟 < 500ms
 ```
-
-**✅ MVP3 完成标准**:
-- [ ] 语音指令识别正常
-- [ ] 蓝牙配对并控制手机拍照
-- [ ] 跟踪状态机转换正确
-- [ ] UWB 辅助定位有效 (可选)
-- [ ] 手势交互响应正常
 
 ---
 
@@ -504,6 +604,7 @@ Projects/App_GimbalMaster/
 ├── PLAN.md                  # 本文档
 ├── Inc/
 │   ├── app_config.h         # 应用配置
+│   ├── track_state.h        # 状态机定义
 │   ├── task_tracking.h      # 跟踪任务
 │   ├── task_kws.h           # KWS 任务
 │   ├── task_comm.h          # 通信任务
@@ -514,6 +615,7 @@ Projects/App_GimbalMaster/
 │   └── tracking_visualizer.h# 跟踪可视化
 └── Src/
     ├── main.c               # 主入口
+    ├── track_state.c        # 状态机实现
     ├── task_tracking.c      # 跟踪任务
     ├── task_kws.c           # KWS 任务
     ├── task_comm.c          # 通信任务
@@ -547,6 +649,7 @@ Projects/App_GimbalMaster/
 | 任务名       | 优先级 | 栈大小    | 周期  | 职责                         |
 | ------------ | ------ | --------- | ----- | ---------------------------- |
 | TrackingTask | 5      | 512 words | 20ms  | 视觉跟踪 + IMU + 舵机 + 显示 |
+| CardPollTask | 4      | 256 words | 20ms  | I2C 轮询子板检测结果        |
 | KWSTask      | 3      | 256 words | 事件  | 语音识别结果处理             |
 | CommTask     | 2      | 256 words | 100ms | UWB + 蓝牙 HID               |
 
@@ -578,11 +681,12 @@ Projects/App_GimbalMaster/
 
 ### 任务间通信
 
-| 通信方向                | 机制       | 用途          |
-| ----------------------- | ---------- | ------------- |
-| KWSTask → TrackingTask  | EventGroup | 跟踪启停指令  |
-| KWSTask → CommTask      | Queue      | 蓝牙 HID 请求 |
-| CommTask → TrackingTask | Queue      | UWB 角度数据  |
+| 通信方向                    | 机制       | 用途          |
+| --------------------------- | ---------- | ------------- |
+| KWSTask → TrackingTask      | EventGroup | 跟踪启停指令  |
+| KWSTask → CommTask          | Queue      | 蓝牙 HID 请求 |
+| CardPollTask → TrackingTask | 共享结构体 | 子板检测结果  |
+| CommTask → TrackingTask     | Queue      | UWB 角度数据  |
 
 ---
 
@@ -592,7 +696,7 @@ Projects/App_GimbalMaster/
 | ------------------- | ------------------------------------------ |
 | 子板 I2C 通信不稳定 | 先用 I2C 分析仪验证时序，软件加重试机制    |
 | 舵机 PID 调参困难   | 参考 Gyroscope_Demo 已调好的参数           |
-| DSP KWS 固件不兼容  | MVP3 先用 Audio_KWS_Demo 验证 Mailbox 协议 |
+| DSP KWS 固件不兼容  | MVP1 先用 Audio_KWS_Demo 验证 Mailbox 协议 |
 | 蓝牙配对失败        | 使用 AT 指令查询状态，确保 HID 模式        |
 | 子板未响应          | 增加心跳检测，超时后重新初始化对应子板     |
 
