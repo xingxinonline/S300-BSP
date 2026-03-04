@@ -122,12 +122,13 @@ set(S300_DEFAULT_LD ${CMAKE_SOURCE_DIR}/ld/sram.ld)
 # DEFINES     DEBUG=1 MY_MACRO       # 额外的编译定义
 # LINKER_SCRIPT path/to/custom.ld    # 自定义链接脚本（可选）
 # DBG_NAME    my_demo                # 调试目标后缀（可选，默认从 TARGET 推断）
+# DBG_SCRIPT  path/to/gdbinit.gdb    # 调试脚本路径（可选，默认根目录 gdbinit.gdb）
 # MM_ENABLE                          # 启用多媒体子系统（可选标志）
 # NO_IMAGE                           # 不生成镜像目标（可选标志）
 # )
 function(s300_add_executable)
     set(options MM_ENABLE NO_IMAGE)
-    set(oneValueArgs TARGET LINKER_SCRIPT DBG_NAME)
+    set(oneValueArgs TARGET LINKER_SCRIPT DBG_NAME DBG_SCRIPT)
     set(multiValueArgs SOURCES DRIVERS INCLUDES LIBRARIES DEFINES)
     cmake_parse_arguments(ARG "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
 
@@ -262,12 +263,22 @@ function(s300_add_executable)
 
     # Debug target
     set(GDB_PORT 3333 CACHE STRING "GDB server port")
+    if(ARG_DBG_SCRIPT)
+        if(IS_ABSOLUTE ${ARG_DBG_SCRIPT})
+            set(GDB_SCRIPT ${ARG_DBG_SCRIPT})
+        else()
+            set(GDB_SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/${ARG_DBG_SCRIPT})
+        endif()
+    else()
+        set(GDB_SCRIPT ${CMAKE_SOURCE_DIR}/gdbinit.gdb)
+    endif()
+
     add_custom_target(dbg_${DBG_SUFFIX}
         COMMENT "Launching GDB for ${ARG_TARGET} (GDB_PORT=${GDB_PORT})"
         COMMAND arm-none-eabi-gdb -q
         -ex "file $<TARGET_FILE:${ARG_TARGET}>"
         -ex "target extended-remote :${GDB_PORT}"
-        -x ${CMAKE_SOURCE_DIR}/gdbinit.gdb
+        -x ${GDB_SCRIPT}
         DEPENDS ${ARG_TARGET}
         USES_TERMINAL
     )
