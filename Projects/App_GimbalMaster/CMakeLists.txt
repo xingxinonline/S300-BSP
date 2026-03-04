@@ -37,7 +37,14 @@ endif()
 
 s300_add_executable(
     TARGET s300_gimbal_master
-    SOURCES Src/main.c Src/app_log.c
+    SOURCES
+        Src/main.c
+        Src/app_log.c
+        Src/track_state.c
+        Src/track_events.c
+        Src/task_state.c
+        Src/task_command.c
+        Src/task_heartbeat.c
     DRIVERS rcc gpio uart
     INCLUDES . Inc
     LIBRARIES freertos_kernel ws2812
