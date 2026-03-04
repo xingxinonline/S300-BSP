@@ -12,9 +12,22 @@
 #include "task_state.h"
 #include "task_command.h"
 #include "task_heartbeat.h"
+#include "task_kws.h"
 
 #include "FreeRTOS.h"
 #include "task.h"
+
+static void on_photo_request(TrackState_t current_state)
+{
+    (void)current_state;
+    task_heartbeat_notify_photo_event();
+}
+
+static void on_record_request(TrackState_t current_state, bool start)
+{
+    (void)current_state;
+    task_heartbeat_set_recording(start);
+}
 
 /* ========== FreeRTOS Hooks ========== */
 
@@ -56,6 +69,14 @@ int main(void)
         for (;;) {}
     }
 
+    task_state_set_photo_callback(on_photo_request);
+    task_state_set_record_callback(on_record_request);
+
+    if (task_kws_init() < 0) {
+        app_log_puts("task_kws_init failed\r\n");
+        for (;;) {}
+    }
+
     /* 启动信息 */
     app_log_puts("\r\nS300 Gimbal Master MVP0 start\r\n");
     app_log_printf("Clock: SYS=%lu Hz, APB0=%lu Hz, APB1=%lu Hz\r\n",
@@ -76,6 +97,11 @@ int main(void)
 
     if (task_state_start() < 0) {
         app_log_puts("task_state_start failed\r\n");
+        for (;;) {}
+    }
+
+    if (task_kws_start() < 0) {
+        app_log_puts("task_kws_start failed\r\n");
         for (;;) {}
     }
 

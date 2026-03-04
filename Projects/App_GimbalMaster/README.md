@@ -1,6 +1,6 @@
-# App_GimbalMaster (MVP0)
+# App_GimbalMaster (MVP0 → MVP1)
 
-本目录是 `gimbal_master` 板卡的主控应用入口，当前实现为 MVP0 最小闭环。
+本目录是 `gimbal_master` 板卡的主控应用入口，当前已完成 MVP0，并接入 MVP1 的 KWS 基础链路。
 
 ## 架构设计
 
@@ -48,6 +48,14 @@
 - 心跳任务 (WS2812 LED + 1s 日志)
 - 状态机 (IDLE/TRACKING/LOCK/SEARCH)
 - 串口命令事件触发 (start/stop/found/lost/photo)
+- KWS 任务 (Mailbox 轮询)
+- 音频初始化骨架 (ES7210/ES8311 + I2S 基础配置)
+
+## MVP1 当前进展
+
+- 已打通 `KWS 结果 -> 事件队列 -> 状态机` 链路
+- 已完成 ES7210/ES8311 初始化与 I2S 基础启动日志
+- 尚未接入完整 I2S DMA 音频流处理（下一步）
 
 ## 编译
 

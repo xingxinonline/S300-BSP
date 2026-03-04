@@ -28,6 +28,8 @@ static const char *const EVENT_NAMES[] = {
     [TRACK_EVT_TARGET_FOUND] = "TARGET_FOUND",
     [TRACK_EVT_TARGET_LOST]  = "TARGET_LOST",
     [TRACK_EVT_PHOTO]        = "PHOTO",
+    [TRACK_EVT_RECORD_START] = "RECORD_START",
+    [TRACK_EVT_RECORD_STOP]  = "RECORD_STOP",
 };
 
 const char *track_state_to_string(TrackState_t state)
@@ -109,9 +111,11 @@ TrackTransition_t track_state_process(TrackEvent_t evt)
     result.prev_state = g_track_state;
     result.event = evt;
     result.is_photo = (evt == TRACK_EVT_PHOTO);
+    result.is_record_start = (evt == TRACK_EVT_RECORD_START);
+    result.is_record_stop = (evt == TRACK_EVT_RECORD_STOP);
 
-    if (result.is_photo) {
-        /* PHOTO 事件不改变状态 */
+    if (result.is_photo || result.is_record_start || result.is_record_stop) {
+        /* PHOTO/RECORD 业务事件不改变状态 */
         result.next_state = g_track_state;
         result.changed = false;
     } else {

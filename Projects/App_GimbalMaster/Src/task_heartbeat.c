@@ -8,6 +8,7 @@
 #include "app_log.h"
 #include "board.h"
 #include "ws2812.h"
+#include "track_state.h"
 
 #include "FreeRTOS.h"
 #include "task.h"
@@ -20,42 +21,106 @@ static ws2812_color_t g_chain0_buffer[APP_HEARTBEAT_WS2812_CHAIN0_LEDS];
 #if APP_HEARTBEAT_WS2812_CHAIN1_ENABLE
 static ws2812_color_t g_chain1_buffer[APP_HEARTBEAT_WS2812_CHAIN1_LEDS];
 #endif
+static volatile uint8_t g_photo_flash_ticks;
+static volatile uint8_t g_recording_active;
 #endif
 
 /* ========== 私有函数 ========== */
 
 #if APP_HEARTBEAT_WS2812_ENABLE
-static void led_chase_update(void)
+static void led_status_update(void)
 {
-    static uint8_t pos = 0;
-    static uint8_t color_idx = 0;
     static uint8_t breathe = APP_HEARTBEAT_WS2812_BREATHE_MIN;
     static int8_t breathe_dir = 1;
-    static const ws2812_color_t colors[3] = {
-        WS2812_COLOR_RED,
-        WS2812_COLOR_GREEN,
-        WS2812_COLOR_BLUE
-    };
+    static uint8_t search_phase = 0;
+    static uint8_t recording_phase = 0;
+    static uint8_t tracking_phase = 0;
+    ws2812_color_t color = WS2812_COLOR_BLUE;
+    uint8_t brightness = breathe;
+    TrackState_t state = track_state_get();
+    uint8_t photo_flash_ticks = g_photo_flash_ticks;
+    uint8_t use_tracking_marquee = 0u;
 
-    ws2812_set_brightness(&g_ws2812, breathe);
+    if (photo_flash_ticks > 0u) {
+        g_photo_flash_ticks = (uint8_t)(photo_flash_ticks - 1u);
+        color = WS2812_COLOR_WHITE;
+        brightness = APP_HEARTBEAT_WS2812_PHOTO_FLASH_BRIGHTNESS;
+    } else if (g_recording_active != 0u) {
+        color = WS2812_COLOR_RED;
+        recording_phase = (uint8_t)((recording_phase + 1u) & 0x0Fu);
+        if ((recording_phase <= 1u) || (recording_phase >= 4u && recording_phase <= 5u)) {
+            brightness = APP_HEARTBEAT_WS2812_RECORDING_BRIGHTNESS_HIGH;
+        } else {
+            brightness = APP_HEARTBEAT_WS2812_RECORDING_BRIGHTNESS_LOW;
+        }
+    } else {
+        switch (state) {
+        case TRACK_STATE_IDLE:
+            color = WS2812_COLOR_BLUE;
+            brightness = breathe;
+            break;
+
+        case TRACK_STATE_TRACKING:
+            color = WS2812_COLOR_GREEN;
+            brightness = APP_HEARTBEAT_WS2812_BRIGHTNESS;
+            use_tracking_marquee = 1u;
+            break;
+
+        case TRACK_STATE_LOCK:
+            color = WS2812_COLOR_YELLOW;
+            brightness = APP_HEARTBEAT_WS2812_BRIGHTNESS;
+            break;
+
+        case TRACK_STATE_SEARCH:
+            color = WS2812_COLOR_RED;
+            search_phase = (uint8_t)((search_phase + 1U) & 0x01U);
+            brightness = search_phase ? APP_HEARTBEAT_WS2812_BRIGHTNESS : APP_HEARTBEAT_WS2812_BREATHE_MIN;
+            break;
+
+        default:
+            color = WS2812_COLOR_BLUE;
+            brightness = APP_HEARTBEAT_WS2812_BRIGHTNESS;
+            break;
+        }
+    }
+
+    ws2812_set_brightness(&g_ws2812, brightness);
     ws2812_clear(&g_ws2812, 0);
-    ws2812_set_pixel(&g_ws2812, 0, pos, colors[color_idx]);
+
+    if (use_tracking_marquee) {
+        uint8_t head0 = (uint8_t)(tracking_phase % APP_HEARTBEAT_WS2812_CHAIN0_LEDS);
+        uint8_t tail0 = (uint8_t)((head0 + APP_HEARTBEAT_WS2812_CHAIN0_LEDS - 1u) % APP_HEARTBEAT_WS2812_CHAIN0_LEDS);
+        uint8_t tail20 = (uint8_t)((head0 + APP_HEARTBEAT_WS2812_CHAIN0_LEDS - 2u) % APP_HEARTBEAT_WS2812_CHAIN0_LEDS);
+        ws2812_set_pixel(&g_ws2812, 0, head0, WS2812_COLOR_GREEN);
+        ws2812_set_pixel(&g_ws2812, 0, tail0, ws2812_rgb(0, 96, 0));
+        ws2812_set_pixel(&g_ws2812, 0, tail20, ws2812_rgb(0, 36, 0));
+    } else {
+        for (uint8_t i = 0; i < APP_HEARTBEAT_WS2812_CHAIN0_LEDS; i++) {
+            ws2812_set_pixel(&g_ws2812, 0, i, color);
+        }
+    }
 
 #if APP_HEARTBEAT_WS2812_CHAIN1_ENABLE
     ws2812_clear(&g_ws2812, 1);
-    ws2812_set_pixel(&g_ws2812,
-                     1,
-                     (uint8_t)(APP_HEARTBEAT_WS2812_CHAIN1_LEDS - 1U -
-                               (pos % APP_HEARTBEAT_WS2812_CHAIN1_LEDS)),
-                     colors[color_idx]);
+    if (use_tracking_marquee) {
+        uint8_t phase1 = (uint8_t)(tracking_phase % APP_HEARTBEAT_WS2812_CHAIN1_LEDS);
+        uint8_t head1 = (uint8_t)((APP_HEARTBEAT_WS2812_CHAIN1_LEDS - 1u - phase1) % APP_HEARTBEAT_WS2812_CHAIN1_LEDS);
+        uint8_t tail1 = (uint8_t)((head1 + 1u) % APP_HEARTBEAT_WS2812_CHAIN1_LEDS);
+        uint8_t tail21 = (uint8_t)((head1 + 2u) % APP_HEARTBEAT_WS2812_CHAIN1_LEDS);
+        ws2812_set_pixel(&g_ws2812, 1, head1, WS2812_COLOR_GREEN);
+        ws2812_set_pixel(&g_ws2812, 1, tail1, ws2812_rgb(0, 96, 0));
+        ws2812_set_pixel(&g_ws2812, 1, tail21, ws2812_rgb(0, 36, 0));
+    } else {
+        for (uint8_t i = 0; i < APP_HEARTBEAT_WS2812_CHAIN1_LEDS; i++) {
+            ws2812_set_pixel(&g_ws2812, 1, i, color);
+        }
+    }
 #endif
 
     (void)ws2812_show_all(&g_ws2812);
 
-    pos++;
-    if (pos >= APP_HEARTBEAT_WS2812_CHAIN0_LEDS) {
-        pos = 0;
-        color_idx = (uint8_t)((color_idx + 1U) % 3U);
+    if (use_tracking_marquee) {
+        tracking_phase++;
     }
 
     if (breathe_dir > 0) {
@@ -79,19 +144,11 @@ static void led_chase_update(void)
 static void heartbeat_task_entry(void *arg)
 {
     (void)arg;
-    TickType_t next_log_tick = 0;
 
     for (;;) {
-        TickType_t tick = xTaskGetTickCount();
-
 #if APP_HEARTBEAT_WS2812_ENABLE
-        led_chase_update();
+        led_status_update();
 #endif
-
-        if (tick >= next_log_tick) {
-            app_log_printf("[Heartbeat] tick=%lu\r\n", (unsigned long)tick);
-            next_log_tick = tick + pdMS_TO_TICKS(APP_HEARTBEAT_PERIOD_MS);
-        }
 
         vTaskDelay(pdMS_TO_TICKS(APP_HEARTBEAT_WS2812_STEP_MS));
     }
@@ -159,4 +216,20 @@ int task_heartbeat_start(void)
     }
 
     return 0;
+}
+
+void task_heartbeat_notify_photo_event(void)
+{
+#if APP_HEARTBEAT_WS2812_ENABLE
+    g_photo_flash_ticks = APP_HEARTBEAT_WS2812_PHOTO_FLASH_TICKS;
+#endif
+}
+
+void task_heartbeat_set_recording(bool enable)
+{
+#if APP_HEARTBEAT_WS2812_ENABLE
+    g_recording_active = enable ? 1u : 0u;
+#else
+    (void)enable;
+#endif
 }

@@ -33,6 +33,8 @@ typedef enum {
     TRACK_EVT_TARGET_FOUND,     /**< 检测到目标 */
     TRACK_EVT_TARGET_LOST,      /**< 目标丢失 */
     TRACK_EVT_PHOTO,            /**< 拍照请求 */
+    TRACK_EVT_RECORD_START,     /**< 开始录像请求 */
+    TRACK_EVT_RECORD_STOP,      /**< 停止录像请求 */
     TRACK_EVT_COUNT             /**< 事件数量 */
 } TrackEvent_t;
 
@@ -43,6 +45,8 @@ typedef struct {
     TrackEvent_t event;         /**< 触发事件 */
     bool changed;               /**< 状态是否变化 */
     bool is_photo;              /**< 是否拍照事件 */
+    bool is_record_start;       /**< 是否开始录像事件 */
+    bool is_record_stop;        /**< 是否停止录像事件 */
 } TrackTransition_t;
 
 /**

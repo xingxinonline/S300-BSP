@@ -23,6 +23,9 @@ typedef void (*StateChangeCallback_t)(const TrackTransition_t *transition);
 /* 拍照请求回调类型 */
 typedef void (*PhotoRequestCallback_t)(TrackState_t current_state);
 
+/* 录像请求回调类型 */
+typedef void (*RecordRequestCallback_t)(TrackState_t current_state, bool start);
+
 /**
  * @brief 初始化状态机服务
  * @return 0 成功, <0 失败
@@ -46,6 +49,12 @@ void task_state_set_change_callback(StateChangeCallback_t cb);
  * @param cb 回调函数
  */
 void task_state_set_photo_callback(PhotoRequestCallback_t cb);
+
+/**
+ * @brief 注册录像请求回调 (可选)
+ * @param cb 回调函数
+ */
+void task_state_set_record_callback(RecordRequestCallback_t cb);
 
 #ifdef __cplusplus
 }

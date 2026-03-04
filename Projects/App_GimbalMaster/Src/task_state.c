@@ -25,6 +25,7 @@
 static TaskHandle_t g_state_task_handle = NULL;
 static StateChangeCallback_t g_change_callback = NULL;
 static PhotoRequestCallback_t g_photo_callback = NULL;
+static RecordRequestCallback_t g_record_callback = NULL;
 
 /**
  * @brief 处理状态转换结果
@@ -36,6 +37,16 @@ static void handle_transition(const TrackTransition_t *trans)
                        track_state_to_string(trans->prev_state));
         if (g_photo_callback != NULL) {
             g_photo_callback(trans->prev_state);
+        }
+        return;
+    }
+
+    if (trans->is_record_start || trans->is_record_stop) {
+        app_log_printf("[STATE] %s event in %s\r\n",
+                       trans->is_record_start ? "RECORD_START" : "RECORD_STOP",
+                       track_state_to_string(trans->prev_state));
+        if (g_record_callback != NULL) {
+            g_record_callback(trans->prev_state, trans->is_record_start);
         }
         return;
     }
@@ -131,4 +142,9 @@ void task_state_set_change_callback(StateChangeCallback_t cb)
 void task_state_set_photo_callback(PhotoRequestCallback_t cb)
 {
     g_photo_callback = cb;
+}
+
+void task_state_set_record_callback(RecordRequestCallback_t cb)
+{
+    g_record_callback = cb;
 }

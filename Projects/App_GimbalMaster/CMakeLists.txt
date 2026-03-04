@@ -45,10 +45,61 @@ s300_add_executable(
         Src/task_state.c
         Src/task_command.c
         Src/task_heartbeat.c
-    DRIVERS rcc gpio uart
-    INCLUDES . Inc
+        Src/task_kws.c
+        ${CMAKE_SOURCE_DIR}/Projects/Demo/Audio_KWS_Demo/Src/audio_app.c
+        ${CMAKE_SOURCE_DIR}/Projects/Demo/Audio_KWS_Demo/Src/audio_codec.c
+    DRIVERS rcc gpio uart mailbox i2s dma i2c_soft es7210 es8311 mm
+    INCLUDES . Inc ${CMAKE_SOURCE_DIR}/Algorithm_Models/protocol ${CMAKE_SOURCE_DIR}/Projects/Demo/Audio_KWS_Demo/Src
     LIBRARIES freertos_kernel ws2812
+    DBG_SCRIPT ${CMAKE_CURRENT_BINARY_DIR}/gdbinit.keyword-spotting.gdb
     NO_IMAGE
 )
 
-add_s300_image(s300_gimbal_master)
+target_compile_definitions(s300_gimbal_master PRIVATE
+    BOARD_AUDIO_ENABLE=1
+)
+
+# =============================================================================
+# KWS DSP 模型打包与调试加载
+# =============================================================================
+set(GDB_PORT 3333 CACHE STRING "GDB server port")
+
+cmake_path(ABSOLUTE_PATH CMAKE_SOURCE_DIR NORMALIZE OUTPUT_VARIABLE ROOT_ABS)
+set(KWS_MODEL_DIR ${ROOT_ABS}/Algorithm_Models/Keyword_Spotting)
+
+function(generate_gdb_restore_cmd IMAGE_FILE ADDR OUTPUT_VAR)
+    if(EXISTS "${IMAGE_FILE}")
+        file(SIZE "${IMAGE_FILE}" FILE_SIZE)
+        cmake_path(NORMAL_PATH IMAGE_FILE OUTPUT_VARIABLE IMAGE_FILE_CLEAN)
+
+        if(FILE_SIZE GREATER 0)
+            set(${OUTPUT_VAR} "restore ${IMAGE_FILE_CLEAN} binary ${ADDR}" PARENT_SCOPE)
+        else()
+            set(${OUTPUT_VAR} "# ${IMAGE_FILE_CLEAN} is empty, skipping" PARENT_SCOPE)
+        endif()
+    else()
+        set(${OUTPUT_VAR} "# ${IMAGE_FILE} not found, skipping" PARENT_SCOPE)
+    endif()
+endfunction()
+
+set(MODEL_NAME "Keyword_Spotting")
+set(MODEL_KEBAB "keyword-spotting")
+set(MODEL_DIR ${KWS_MODEL_DIR})
+set(PSRAM_BREAKPOINT_FUNC "dsp_firmware_load_point")
+
+generate_gdb_restore_cmd("${KWS_MODEL_DIR}/model_dtcm_boot.bin" "0x44800000" GDB_RESTORE_DTCM)
+generate_gdb_restore_cmd("${KWS_MODEL_DIR}/model_ptcm_boot.bin" "0x44A00000" GDB_RESTORE_PTCM)
+generate_gdb_restore_cmd("${KWS_MODEL_DIR}/model_sram0_boot.bin" "0x44000000" GDB_RESTORE_SRAM0)
+generate_gdb_restore_cmd("${KWS_MODEL_DIR}/model_sram1_boot.bin" "0x44040000" KWS_RESTORE_SRAM1)
+set(GDB_RESTORE_PSRAM "${KWS_RESTORE_SRAM1}")
+
+configure_file(
+    ${CMAKE_SOURCE_DIR}/gdbinit.model.gdb.in
+    ${CMAKE_CURRENT_BINARY_DIR}/gdbinit.${MODEL_KEBAB}.gdb
+    @ONLY
+)
+
+add_s300_image(s300_gimbal_master
+    OUTPUT s300_gimbal_master.bin
+    DSP_DIR ${KWS_MODEL_DIR}
+)
