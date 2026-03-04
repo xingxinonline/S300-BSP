@@ -52,12 +52,17 @@ extern "C" {
 #define BOARD_DEBUG_UART_ENABLE     1
 #endif
 
-/** @brief 启用 I2C3 总线 (子板通信 + 外设) */
+/** @brief 启用 I2C1 总线 (子板通信: Card1/2/3) */
+#ifndef BOARD_I2C1_ENABLE
+#define BOARD_I2C1_ENABLE           1
+#endif
+
+/** @brief 启用 I2C3 总线 (板载外设: 摄像头/音频/IMU) */
 #ifndef BOARD_I2C3_ENABLE
 #define BOARD_I2C3_ENABLE           1
 #endif
 
-/** @brief 启用 UART2 (子板通信) */
+/** @brief 启用 UART2 (UWB_RX + 调试TX) */
 #ifndef BOARD_UART2_ENABLE
 #define BOARD_UART2_ENABLE          1
 #endif
@@ -426,6 +431,24 @@ extern "C" {
 /** @brief PA_EN 可用标志 */
 #define BOARD_PA_EN_AVAILABLE       1
 
+/* 音频输入源切换引脚 (模拟开关控制) */
+#ifndef BOARD_MIC_SW_PORT
+#define BOARD_MIC_SW_PORT           GPIOA
+#endif
+
+/**
+ * @brief MIC_SW: GPIO10 (Function2) - 音频输入源选择
+ *        - High: 选择 MIC4 (无线麦克风)
+ *        - Low:  选择 MIC1/2 (板载麦克风)
+ */
+#ifndef BOARD_MIC_SW_PIN
+#define BOARD_MIC_SW_PIN            10
+#endif
+
+#ifndef BOARD_MIC_SW_FUNCTION
+#define BOARD_MIC_SW_FUNCTION       FUNCTION_2
+#endif
+
 /* 音频 I2C 配置 (与摄像头共用 I2C3) */
 #ifndef BOARD_AUDIO_I2C_IDX
 #define BOARD_AUDIO_I2C_IDX         3
@@ -557,20 +580,25 @@ extern "C" {
 #define BOARD_RGB_LED_ENABLE        0
 #endif
 
-#if BOARD_RGB_LED_ENABLE
-
+/* RGB LED 引脚定义 (无论启用与否都可用于独立测试) */
 #ifndef BOARD_RGB_LED_PORT
 #define BOARD_RGB_LED_PORT          GPIOA
 #endif
 
-/** @brief RGB_DIN1: GPIO30 */
+/**
+ * @brief RGB_DIN1: GPIO15 (Function2)
+ *        经 TXS0108ERGYR 电平转换 (A7->B7) 输出到 WS2812 LED 链1
+ */
 #ifndef BOARD_RGB_DIN1_PIN
-#define BOARD_RGB_DIN1_PIN          30
+#define BOARD_RGB_DIN1_PIN          15
 #endif
 
-/** @brief RGB_DIN2: GPIO21 */
+/**
+ * @brief RGB_DIN2: GPIO30 (Function2)
+ *        经 TXS0108ERGYR 电平转换 (A6->B6) 输出到 WS2812 LED 链2
+ */
 #ifndef BOARD_RGB_DIN2_PIN
-#define BOARD_RGB_DIN2_PIN          21
+#define BOARD_RGB_DIN2_PIN          30
 #endif
 
 #ifndef BOARD_RGB_LED_FUNCTION
@@ -579,7 +607,7 @@ extern "C" {
 
 /** @brief RGB LED1 链上的 LED 数量 */
 #ifndef BOARD_RGB_LED1_COUNT
-#define BOARD_RGB_LED1_COUNT        8
+#define BOARD_RGB_LED1_COUNT        5
 #endif
 
 /** @brief RGB LED2 链上的 LED 数量 */
@@ -587,6 +615,8 @@ extern "C" {
 #define BOARD_RGB_LED2_COUNT        5
 #endif
 
+#if BOARD_RGB_LED_ENABLE
+/* 启用 RGB LED 时的附加配置 (目前为空，可扩展) */
 #endif /* BOARD_RGB_LED_ENABLE */
 
 /*===========================================================================
@@ -742,6 +772,17 @@ void board_audio_i2s_pins_init(void);
  * @param  enable  true=使能, false=禁用
  */
 void board_audio_pa_enable(bool enable);
+
+/**
+ * @brief  初始化音频输入源切换引脚 (MIC_SW)
+ */
+void board_audio_mic_sw_pin_init(void);
+
+/**
+ * @brief  选择音频输入源
+ * @param  wireless  true=选择无线麦克风(MIC4), false=选择板载麦克风(MIC1/2)
+ */
+void board_audio_select_mic(bool wireless);
 #endif /* BOARD_AUDIO_ENABLE */
 
 #if BOARD_SERVO_ENABLE
