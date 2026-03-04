@@ -1,0 +1,13 @@
+#ifndef APP_CONFIG_H
+#define APP_CONFIG_H
+
+#define APP_HEARTBEAT_TASK_STACK_WORDS      256U
+#define APP_HEARTBEAT_TASK_PRIORITY         (tskIDLE_PRIORITY + 1)
+#define APP_HEARTBEAT_PERIOD_MS             1000U
+
+#define APP_HEARTBEAT_GPIO_ENABLE           0
+#define APP_HEARTBEAT_GPIO_PORT             GPIOA
+#define APP_HEARTBEAT_GPIO_PIN              20
+#define APP_HEARTBEAT_GPIO_FUNCTION         FUNCTION_1
+
+#endif /* APP_CONFIG_H */
