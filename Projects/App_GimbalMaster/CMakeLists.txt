@@ -5,6 +5,10 @@
 cmake_minimum_required(VERSION 3.16)
 project(App_GimbalMaster)
 
+if(NOT TARGET ws2812)
+    add_subdirectory(${CMAKE_SOURCE_DIR}/Drivers/External/WS2812 ${CMAKE_CURRENT_BINARY_DIR}/WS2812)
+endif()
+
 set(FREERTOS_KERNEL_LOCAL_PATH "" CACHE PATH "Local path to FreeRTOS-Kernel (optional)")
 set(FREERTOS_PORT GCC_ARM_CM4F CACHE STRING "FreeRTOS port")
 set(FREERTOS_HEAP 4 CACHE STRING "FreeRTOS heap implementation (1..5)")
@@ -36,7 +40,7 @@ s300_add_executable(
     SOURCES Src/main.c Src/app_log.c
     DRIVERS rcc gpio uart
     INCLUDES . Inc
-    LIBRARIES freertos_kernel
+    LIBRARIES freertos_kernel ws2812
     NO_IMAGE
 )
 
