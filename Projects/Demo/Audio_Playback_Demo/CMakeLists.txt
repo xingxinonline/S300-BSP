@@ -17,7 +17,6 @@ s300_add_executable(
     uart
     dma
     i2s
-    EXTERNALS
     wm8978
     i2c_soft
 )
