@@ -21,6 +21,22 @@
 
 static volatile uint32_t g_tick_ms;
 
+#ifndef MAILBOX_HANDSHAKE_INIT
+#define MAILBOX_HANDSHAKE_INIT 0x5A5A5A5Au
+#endif
+
+#ifndef MAILBOX_HANDSHAKE_ACK
+#define MAILBOX_HANDSHAKE_ACK 0xA5A5A5A5u
+#endif
+
+#ifndef DSP_HANDSHAKE_TIMEOUT_MS
+#define DSP_HANDSHAKE_TIMEOUT_MS 1000u
+#endif
+
+#ifndef DSP_HANDSHAKE_RETRY_MS
+#define DSP_HANDSHAKE_RETRY_MS 100u
+#endif
+
 void SysTick_Handler(void)
 {
     g_tick_ms++;
@@ -29,6 +45,37 @@ void SysTick_Handler(void)
 static uint32_t millis(void)
 {
     return g_tick_ms;
+}
+
+static int card1_wait_handshake_done(void)
+{
+    uint32_t t0 = millis();
+    uint32_t next_init_ms = t0;
+
+    while ((uint32_t)(millis() - t0) < DSP_HANDSHAKE_TIMEOUT_MS) {
+        uint32_t now_ms = millis();
+
+        if ((int32_t)(now_ms - next_init_ms) >= 0) {
+            (void)write_mailbox(MAILBOX_BASE, MAILBOX_HANDSHAKE_INIT);
+            next_init_ms = now_ms + DSP_HANDSHAKE_RETRY_MS;
+        }
+
+        if (mailbox_sta_empty_flag_is(MAILBOX_BASE, 0) == 0) {
+            uint32_t msg = read_mailbox(MAILBOX_BASE);
+            if (msg == MAILBOX_HANDSHAKE_ACK) {
+                printf("[CARD1] DSP handshake ACK received\r\n");
+                return 0;
+            }
+            if (msg == MAILBOX_HANDSHAKE_INIT) {
+                (void)write_mailbox(MAILBOX_BASE, MAILBOX_HANDSHAKE_ACK);
+                printf("[CARD1] DSP handshake INIT received, ACK sent\r\n");
+                return 0;
+            }
+        }
+    }
+
+    printf("[CARD1] DSP handshake timeout (%ums)\r\n", (unsigned)DSP_HANDSHAKE_TIMEOUT_MS);
+    return -1;
 }
 
 static int card1_start_mm_dsp(void)
@@ -49,9 +96,14 @@ static int card1_start_mm_dsp(void)
     for (volatile int i = 0; i < 100000; i++) {
     }
 
-    (void)write_mailbox(MAILBOX_BASE, 0x5A5A5A5Au);
+    /* Release warm reset before handshake. */
+    set_dsp_warm_reset(false);
 
     for (volatile int i = 0; i < 100000; i++) {
+    }
+
+    if (card1_wait_handshake_done() != 0) {
+        return -1;
     }
 
     (void)write_mailbox(MAILBOX_BASE, MAILBOX_CMD_START_TRACK);
