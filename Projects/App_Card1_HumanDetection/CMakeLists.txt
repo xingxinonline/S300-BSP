@@ -17,6 +17,10 @@ target_compile_definitions(s300_card1_human_detection PRIVATE
     BOARD_MM_ENABLE=1
 )
 
+target_compile_options(s300_card1_human_detection PRIVATE
+    -include card1_video_compat.h
+)
+
 set(GDB_PORT 3333 CACHE STRING "GDB server port")
 
 cmake_path(ABSOLUTE_PATH CMAKE_SOURCE_DIR NORMALIZE OUTPUT_VARIABLE ROOT_ABS)
@@ -57,4 +61,8 @@ configure_file(
 add_s300_image(s300_card1_human_detection
     OUTPUT s300_card1_human_detection.bin
     DSP_DIR ${HUMAN_MODEL_DIR}
+)
+
+add_custom_target(dbg_card1
+    DEPENDS dbg_card1_human_detection
 )
