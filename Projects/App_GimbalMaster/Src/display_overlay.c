@@ -35,6 +35,10 @@
 #define HUD_W                148
 #define HUD_H                48
 #define HUD_MIRROR_X         1
+#define HUD_FORCE_SUBMIT_MS  0u
+
+#define REG_FRAME0           (DSP_VIDEO_SS_BASE + 0x50u)
+#define REG_FRAME1           (DSP_VIDEO_SS_BASE + 0x54u)
 
 static uint8_t g_overlay_ready;
 static uint8_t g_mm_ok;
@@ -43,11 +47,176 @@ static uint8_t g_cam_ok;
 static uint8_t g_cam_saddr;
 static uint8_t g_cam_idh;
 static uint8_t g_cam_idl;
+static uint8_t g_write_idx;
+static uint8_t g_last_submit_idx;
 static char g_prev_line0[32];
 static char g_prev_line1[32];
 static char g_prev_line2[32];
 static char g_prev_line3[32];
 static uint8_t g_prev_valid;
+
+static uint32_t g_stat_poll_cnt;
+static uint32_t g_stat_call_cnt;
+static uint32_t g_stat_render_cnt;
+static uint32_t g_stat_submit_cnt;
+static uint32_t g_stat_req0_hit;
+static uint32_t g_stat_req1_hit;
+static uint32_t g_stat_fallback_hit;
+static uint32_t g_stat_submit0;
+static uint32_t g_stat_submit1;
+static uint32_t g_stat_skip_nochange;
+static uint32_t g_stat_last_report_ms;
+#if HUD_FORCE_SUBMIT_MS > 0u
+static uint32_t g_last_force_submit_ms;
+#endif
+
+static inline volatile uint16_t *hud_write_alphabuffer(void)
+{
+    return (g_write_idx == 0u) ? (volatile uint16_t *)DISP_RALPHA0_ADDR
+                               : (volatile uint16_t *)DISP_RALPHA1_ADDR;
+}
+
+static uint8_t hud_acquire_write_buffer(void)
+{
+    uint32_t req0 = REG32(REG_FRAME0) & 0x1u;
+    uint32_t req1 = REG32(REG_FRAME1) & 0x1u;
+
+    g_stat_poll_cnt++;
+
+    if ((req0 != 0u) && (req1 == 0u)) {
+        g_stat_req0_hit++;
+        return 0u;
+    }
+    if ((req1 != 0u) && (req0 == 0u)) {
+        g_stat_req1_hit++;
+        return 1u;
+    }
+
+    /* Fallback: alternate by last submitted buffer to keep true ping-pong. */
+    g_stat_fallback_hit++;
+    return (uint8_t)((g_last_submit_idx == 0u) ? 1u : 0u);
+}
+
+static void hud_fill_color_buffers(uint16_t color)
+{
+    volatile uint16_t *f0 = (volatile uint16_t *)DISP_RFRAME0_ADDR;
+    volatile uint16_t *f1 = (volatile uint16_t *)DISP_RFRAME1_ADDR;
+    uint32_t pixels = (uint32_t)DISP_IMAGE_WIDTH * (uint32_t)DISP_IMAGE_HEIGHT;
+
+    for (uint32_t i = 0; i < pixels; i++) {
+        f0[i] = color;
+        f1[i] = color;
+    }
+}
+
+static void hud_clear_alpha_buffer(uint8_t buf_idx)
+{
+    volatile uint16_t *ab16 = (buf_idx == 0u)
+                              ? (volatile uint16_t *)DISP_RALPHA0_ADDR
+                              : (volatile uint16_t *)DISP_RALPHA1_ADDR;
+    uint32_t words = ((uint32_t)DISP_IMAGE_WIDTH * (uint32_t)DISP_IMAGE_HEIGHT) / 2u;
+
+    for (uint32_t i = 0; i < words; i++) {
+        ab16[i] = 0x0000u;
+    }
+}
+
+static uint8_t hud_alpha_get_pixel(uint8_t buf_idx, int x, int y)
+{
+    volatile uint16_t *ab16 = (buf_idx == 0u)
+                              ? (volatile uint16_t *)DISP_RALPHA0_ADDR
+                              : (volatile uint16_t *)DISP_RALPHA1_ADDR;
+    uint32_t pixel_idx = (uint32_t)y * (uint32_t)DISP_IMAGE_WIDTH + (uint32_t)x;
+    uint32_t word_idx = pixel_idx / 2u;
+    uint32_t byte_pos = pixel_idx & 1u;
+    uint16_t val = ab16[word_idx];
+
+    return (byte_pos == 0u) ? (uint8_t)(val & 0xFFu) : (uint8_t)((val >> 8) & 0xFFu);
+}
+
+static void hud_alpha_set_pixel(uint8_t buf_idx, int x, int y, uint8_t alpha)
+{
+    volatile uint16_t *ab16 = (buf_idx == 0u)
+                              ? (volatile uint16_t *)DISP_RALPHA0_ADDR
+                              : (volatile uint16_t *)DISP_RALPHA1_ADDR;
+    uint32_t pixel_idx = (uint32_t)y * (uint32_t)DISP_IMAGE_WIDTH + (uint32_t)x;
+    uint32_t word_idx = pixel_idx / 2u;
+    uint32_t byte_pos = pixel_idx & 1u;
+    uint16_t val = ab16[word_idx];
+
+    if (byte_pos == 0u) {
+        val = (uint16_t)((val & 0xFF00u) | alpha);
+    } else {
+        val = (uint16_t)((val & 0x00FFu) | ((uint16_t)alpha << 8));
+    }
+
+    ab16[word_idx] = val;
+}
+
+static void hud_mirror_alpha_rect(uint8_t src_idx)
+{
+    uint8_t dst_idx = (src_idx == 0u) ? 1u : 0u;
+
+    for (int y = HUD_Y; y < (HUD_Y + HUD_H); y++) {
+        for (int x = HUD_X; x < (HUD_X + HUD_W); x++) {
+            uint8_t a = hud_alpha_get_pixel(src_idx, x, y);
+            hud_alpha_set_pixel(dst_idx, x, y, a);
+        }
+    }
+}
+
+static void hud_submit_write_buffer(uint8_t buf_idx)
+{
+    if (buf_idx == 0u) {
+        g_stat_submit0++;
+        REG32(REG_FRAME0) = 1u;
+        while ((REG32(REG_FRAME0) & 0x1u) != 0u) {
+        }
+    } else {
+        g_stat_submit1++;
+        REG32(REG_FRAME1) = 1u;
+        while ((REG32(REG_FRAME1) & 0x1u) != 0u) {
+        }
+    }
+
+    g_stat_submit_cnt++;
+    g_last_submit_idx = buf_idx;
+}
+
+static void hud_report_stats_if_due(void)
+{
+    uint32_t now_ms;
+
+    now_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+    if ((now_ms - g_stat_last_report_ms) < 1000u) {
+        return;
+    }
+
+    app_log_printf("[HUD][STAT] call=%lu poll=%lu skip=%lu render=%lu submit=%lu fps=%lu req0=%lu req1=%lu fb=%lu s0=%lu s1=%lu\r\n",
+                   (unsigned long)g_stat_call_cnt,
+                   (unsigned long)g_stat_poll_cnt,
+                   (unsigned long)g_stat_skip_nochange,
+                   (unsigned long)g_stat_render_cnt,
+                   (unsigned long)g_stat_submit_cnt,
+                   (unsigned long)g_stat_submit_cnt,
+                   (unsigned long)g_stat_req0_hit,
+                   (unsigned long)g_stat_req1_hit,
+                   (unsigned long)g_stat_fallback_hit,
+                   (unsigned long)g_stat_submit0,
+                   (unsigned long)g_stat_submit1);
+
+    g_stat_call_cnt = 0u;
+    g_stat_poll_cnt = 0u;
+    g_stat_skip_nochange = 0u;
+    g_stat_render_cnt = 0u;
+    g_stat_submit_cnt = 0u;
+    g_stat_req0_hit = 0u;
+    g_stat_req1_hit = 0u;
+    g_stat_fallback_hit = 0u;
+    g_stat_submit0 = 0u;
+    g_stat_submit1 = 0u;
+    g_stat_last_report_ms = now_ms;
+}
 
 static const uint8_t g_font5x7[96][5] = {
     {0x00,0x00,0x00,0x00,0x00},{0x00,0x00,0x5F,0x00,0x00},{0x00,0x07,0x00,0x07,0x00},{0x14,0x7F,0x14,0x7F,0x14},
@@ -84,10 +253,7 @@ static void hud_put_pixel(int vx, int vy, uint16_t color, uint8_t alpha)
     uint32_t word_idx;
     uint32_t byte_pos;
     uint16_t aval;
-    volatile uint16_t *frame0;
-    volatile uint16_t *frame1;
-    volatile uint16_t *ab16_0;
-    volatile uint16_t *ab16_1;
+    volatile uint16_t *ab16;
 
 #if HUD_MIRROR_X
     px = (DISP_IMAGE_WIDTH - 1) - px;
@@ -101,29 +267,16 @@ static void hud_put_pixel(int vx, int vy, uint16_t color, uint8_t alpha)
     word_idx = pixel_idx / 2u;
     byte_pos = pixel_idx & 1u;
 
-    frame0 = (volatile uint16_t *)DISP_RFRAME0_ADDR;
-    frame1 = (volatile uint16_t *)DISP_RFRAME1_ADDR;
-    ab16_0 = (volatile uint16_t *)DISP_RALPHA0_ADDR;
-    ab16_1 = (volatile uint16_t *)DISP_RALPHA1_ADDR;
+    (void)color;
+    ab16 = hud_write_alphabuffer();
 
-    frame0[pixel_idx] = color;
-    frame1[pixel_idx] = color;
-
-    aval = ab16_0[word_idx];
+    aval = ab16[word_idx];
     if (byte_pos == 0u) {
         aval = (uint16_t)((aval & 0xFF00u) | alpha);
     } else {
         aval = (uint16_t)((aval & 0x00FFu) | ((uint16_t)alpha << 8));
     }
-    ab16_0[word_idx] = aval;
-
-    aval = ab16_1[word_idx];
-    if (byte_pos == 0u) {
-        aval = (uint16_t)((aval & 0xFF00u) | alpha);
-    } else {
-        aval = (uint16_t)((aval & 0x00FFu) | ((uint16_t)alpha << 8));
-    }
-    ab16_1[word_idx] = aval;
+    ab16[word_idx] = aval;
 }
 
 static void hud_clear_rect(int x, int y, int w, int h)
@@ -270,6 +423,8 @@ int display_overlay_init(void)
 
     init_video(EM_DVP, APP_CAM_FMT, C1080X720P);
 
+    hud_fill_color_buffers(HUD_FG_COLOR);
+
     /* Default to camera passthrough: fully transparent overlay. */
     set_alpha_buffer(0x00u);
 
@@ -282,6 +437,8 @@ int display_overlay_init(void)
     REG32(DSP_VIDEO_SS_BASE + 0x1E0) = 1u;
 
     app_log_puts("[DISPLAY] video init OK\r\n");
+    g_write_idx = 0u;
+    g_last_submit_idx = 0u;
     g_overlay_ready = 1u;
     return cam_ret;
 }
@@ -295,10 +452,27 @@ void display_overlay_render_debug(void)
     const char *state_name = track_state_to_string(track_state_get());
     uint32_t reg70;
     uint32_t reg1e0;
+    uint8_t target_buf;
+    uint8_t force_submit = 0u;
 
     if (g_overlay_ready == 0u) {
         return;
     }
+
+    g_stat_call_cnt++;
+
+#if HUD_FORCE_SUBMIT_MS > 0u
+    {
+        uint32_t now_ms;
+        now_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+    if ((now_ms - g_last_force_submit_ms) >= HUD_FORCE_SUBMIT_MS) {
+        force_submit = 1u;
+        g_last_force_submit_ms = now_ms;
+    }
+    }
+#endif
+
+    hud_report_stats_if_due();
 
     reg70 = REG32(DSP_VIDEO_SS_BASE + 0x70);
     reg1e0 = REG32(DSP_VIDEO_SS_BASE + 0x1E0);
@@ -312,7 +486,9 @@ void display_overlay_render_debug(void)
         (strcmp(line0, g_prev_line0) == 0) &&
         (strcmp(line1, g_prev_line1) == 0) &&
         (strcmp(line2, g_prev_line2) == 0) &&
-        (strcmp(line3, g_prev_line3) == 0)) {
+        (strcmp(line3, g_prev_line3) == 0) &&
+        (force_submit == 0u)) {
+        g_stat_skip_nochange++;
         return;
     }
 
@@ -326,13 +502,21 @@ void display_overlay_render_debug(void)
     g_prev_line3[sizeof(g_prev_line3) - 1u] = '\0';
     g_prev_valid = 1u;
 
+    g_stat_render_cnt++;
+
+    target_buf = hud_acquire_write_buffer();
+    g_write_idx = target_buf;
+
+    /* Always clear full back alpha to avoid stale glyph residues after buffer swap. */
+    hud_clear_alpha_buffer(g_write_idx);
     hud_clear_rect(HUD_X, HUD_Y, HUD_W, HUD_H);
     hud_draw_text(HUD_X + 2, HUD_Y + 2, line0);
     hud_draw_text(HUD_X + 2, HUD_Y + 12, line1);
     hud_draw_text(HUD_X + 2, HUD_Y + 22, line2);
     hud_draw_text(HUD_X + 2, HUD_Y + 32, line3);
 
-    REG32(DSP_VIDEO_SS_BASE + 0x50) = 1u;
-    while ((REG32(DSP_VIDEO_SS_BASE + 0x50) & 0x1u) != 0u) {
-    }
+    /* Keep both ping-pong buffers visually identical for static HUD stability. */
+    hud_mirror_alpha_rect(g_write_idx);
+
+    hud_submit_write_buffer(g_write_idx);
 }
