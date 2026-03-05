@@ -41,8 +41,19 @@ static int card1_start_mm_dsp(void)
     init_video(EM_DVP, APP_CAM_FMT, C1080X720P);
 
     init_mailbox(MAILBOX_BASE, 4, MAILBOX_IRQ_NONE);
+
+    /* Follow the same DSP boot sequence used by working demos. */
     set_dsp_warm_reset(true);
+    RCC->CM4_SYS_SOFT_RSTN |= 1u;
+
+    for (volatile int i = 0; i < 100000; i++) {
+    }
+
     (void)write_mailbox(MAILBOX_BASE, 0x5A5A5A5Au);
+
+    for (volatile int i = 0; i < 100000; i++) {
+    }
+
     (void)write_mailbox(MAILBOX_BASE, MAILBOX_CMD_START_TRACK);
 
     return 0;
@@ -55,6 +66,8 @@ int main(void)
     uint8_t sys_state;
     uint8_t cmd;
     uint8_t started;
+    uint8_t dsp_msg_seen;
+    uint32_t start_retry_ms;
     card1_detection_result_t result;
 
     board_init();
@@ -85,6 +98,8 @@ int main(void)
     last_wait_log_ms = millis();
     last_log_ms = millis();
     started = 0u;
+    dsp_msg_seen = 0u;
+    start_retry_ms = millis();
 
     while (1) {
         cmd = card1_i2c_slave_get_command();
@@ -94,6 +109,8 @@ int main(void)
                 printf("[CARD1] host cmd START_MM_DSP received\r\n");
                 if (card1_start_mm_dsp() == 0) {
                     started = 1u;
+                    dsp_msg_seen = 0u;
+                    start_retry_ms = millis();
                     sys_state |= (CARD1_SYS_STATE_MM_READY |
                                   CARD1_SYS_STATE_DSP_READY |
                                   CARD1_SYS_STATE_RUNNING);
@@ -121,6 +138,7 @@ int main(void)
         if (cmd == CARD1_CMD_STOP_MM_DSP) {
             (void)write_mailbox(MAILBOX_BASE, MAILBOX_CMD_STOP_TRACK);
             started = 0u;
+            dsp_msg_seen = 0u;
             sys_state &= (uint8_t)~CARD1_SYS_STATE_RUNNING;
             card1_i2c_slave_set_system_state(sys_state);
             card1_i2c_slave_set_command_ack(cmd);
@@ -129,6 +147,14 @@ int main(void)
             card1_i2c_slave_update_result(&result);
             printf("[CARD1] host cmd STOP_MM_DSP received\r\n");
             continue;
+        }
+
+        if (mailbox_sta_empty_flag_is(MAILBOX_BASE, 0) == 0) {
+            dsp_msg_seen = 1u;
+        } else if ((dsp_msg_seen == 0u) && ((millis() - start_retry_ms) >= 1000u)) {
+            (void)write_mailbox(MAILBOX_BASE, MAILBOX_CMD_START_TRACK);
+            start_retry_ms = millis();
+            printf("[CARD1] no dsp msg yet, resend START_TRACK\r\n");
         }
 
         card1_detection_poll();
