@@ -61,7 +61,6 @@ int main(void)
     /* 硬件初始化 */
     board_init();
     app_log_init(BOARD_UART_DEBUG_IDX);
-    task_heartbeat_init();
     SystemCoreClockUpdate();
 
     /* 状态机服务初始化 */
@@ -81,6 +80,9 @@ int main(void)
 #if APP_DISPLAY_INIT_ENABLE
     (void)display_overlay_init();
 #endif
+
+    /* MM/video 初始化会改部分 GPIO 复用，心跳灯需在其后重新配置。 */
+    task_heartbeat_init();
 
     /* 启动信息 */
     app_log_puts("\r\nS300 Gimbal Master MVP0 start\r\n");
