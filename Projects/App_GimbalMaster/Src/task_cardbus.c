@@ -168,6 +168,9 @@ static void task_cardbus_entry(void *arg)
 int task_cardbus_init(void)
 {
     int ret;
+    int p1;
+    int p2;
+    int p3;
 
     if (g_snapshot_lock == NULL) {
         g_snapshot_lock = xSemaphoreCreateMutex();
@@ -183,10 +186,21 @@ int task_cardbus_init(void)
         return -1;
     }
 
-    app_log_printf("[CARDBUS] probe: 0x10=%d 0x11=%d 0x12=%d\r\n",
-                   i2c_cardbus_probe(CARDBUS_CARD1_ADDR),
-                   i2c_cardbus_probe(CARDBUS_CARD2_ADDR),
-                   i2c_cardbus_probe(CARDBUS_CARD3_ADDR));
+    p1 = i2c_cardbus_probe(CARDBUS_CARD1_ADDR);
+    p2 = i2c_cardbus_probe(CARDBUS_CARD2_ADDR);
+    p3 = i2c_cardbus_probe(CARDBUS_CARD3_ADDR);
+
+    app_log_printf("[CARDBUS] probe: 0x10=%d 0x11=%d 0x12=%d\r\n", p1, p2, p3);
+
+    if (p1 == 0) {
+        if (i2c_cardbus_write_reg8(CARDBUS_CARD1_ADDR,
+                                   CARDBUS_REG_CMD,
+                                   CARDBUS_CMD_START_MM_DSP) == 0) {
+            app_log_puts("[CARDBUS] card1 start command sent\r\n");
+        } else {
+            app_log_puts("[CARDBUS] card1 start command failed\r\n");
+        }
+    }
 
     g_target_present = 0u;
     g_last_target_tick = xTaskGetTickCount();

@@ -61,6 +61,10 @@ int card1_i2c_slave_init(uint8_t slave_addr)
     g_reg_addr = 0u;
     g_tx_index = 0u;
     g_first_byte = 1u;
+    g_reg_map[CARD1_REG_STATUS] = 0u;
+    g_reg_map[CARD1_REG_SYS_STATE] = CARD1_SYS_STATE_BOOT;
+    g_reg_map[CARD1_REG_CMD] = CARD1_CMD_NONE;
+    g_reg_map[CARD1_REG_CMD_ACK] = CARD1_CMD_NONE;
 
     rcc_set_cortex_m4_apb1_clock(RCC_CM4_APB1_I2C1, true);
 
@@ -90,5 +94,37 @@ void card1_i2c_slave_update_result(const card1_detection_result_t *result)
     __disable_irq();
     g_reg_map[CARD1_REG_STATUS] = result->valid;
     memcpy((void *)&g_reg_map[CARD1_REG_RESULT], result, sizeof(*result));
+    __enable_irq();
+}
+
+void card1_i2c_slave_set_system_state(uint8_t state_flags)
+{
+    __disable_irq();
+    g_reg_map[CARD1_REG_SYS_STATE] = state_flags;
+    __enable_irq();
+}
+
+uint8_t card1_i2c_slave_get_command(void)
+{
+    uint8_t cmd;
+
+    __disable_irq();
+    cmd = g_reg_map[CARD1_REG_CMD];
+    __enable_irq();
+
+    return cmd;
+}
+
+void card1_i2c_slave_clear_command(void)
+{
+    __disable_irq();
+    g_reg_map[CARD1_REG_CMD] = CARD1_CMD_NONE;
+    __enable_irq();
+}
+
+void card1_i2c_slave_set_command_ack(uint8_t cmd)
+{
+    __disable_irq();
+    g_reg_map[CARD1_REG_CMD_ACK] = cmd;
     __enable_irq();
 }

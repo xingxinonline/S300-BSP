@@ -18,7 +18,7 @@ target_compile_definitions(s300_card1_human_detection PRIVATE
 )
 
 target_compile_options(s300_card1_human_detection PRIVATE
-    -include card1_video_compat.h
+    $<$<COMPILE_LANGUAGE:C>:-include card1_video_compat.h>
 )
 
 set(GDB_PORT 3333 CACHE STRING "GDB server port")

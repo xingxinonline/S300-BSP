@@ -13,7 +13,14 @@ extern "C" {
 #define CARDBUS_CARD3_ADDR   0x12u
 
 #define CARDBUS_REG_STATUS   0x00u
+#define CARDBUS_REG_SYS_STATE 0x01u
 #define CARDBUS_REG_RESULT   0x10u
+#define CARDBUS_REG_CMD      0x80u
+#define CARDBUS_REG_CMD_ACK  0x81u
+
+#define CARDBUS_CMD_NONE          0u
+#define CARDBUS_CMD_START_MM_DSP  1u
+#define CARDBUS_CMD_STOP_MM_DSP   2u
 #define CARDBUS_RESULT_LEN   32u
 
 typedef struct __attribute__((packed)) {
@@ -50,6 +57,7 @@ int i2c_cardbus_init(void);
 bool i2c_cardbus_is_ready(void);
 int i2c_cardbus_probe(uint8_t addr);
 int i2c_cardbus_read_detection(uint8_t addr, card_detection_t *out);
+int i2c_cardbus_write_reg8(uint8_t addr, uint8_t reg, uint8_t value);
 int i2c_cardbus_read_card1(card_detection_t *out);
 int i2c_cardbus_read_card2(card_detection_t *out);
 int i2c_cardbus_read_card3(card_detection_t *out);

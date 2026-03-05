@@ -98,6 +98,34 @@ int i2c_cardbus_read_detection(uint8_t addr, card_detection_t *out)
     return -1;
 }
 
+int i2c_cardbus_write_reg8(uint8_t addr, uint8_t reg, uint8_t value)
+{
+    int ret;
+
+    if (i2c_cardbus_init() != 0) {
+        return -1;
+    }
+
+    ret = i2c_soft_mem_write(&g_cardbus_i2c,
+                             addr,
+                             reg,
+                             false,
+                             &value,
+                             1u);
+    if (ret == 0) {
+        return 0;
+    }
+
+    i2c_soft_bus_recover(&g_cardbus_i2c);
+    ret = i2c_soft_mem_write(&g_cardbus_i2c,
+                             addr,
+                             reg,
+                             false,
+                             &value,
+                             1u);
+    return (ret == 0) ? 0 : -1;
+}
+
 int i2c_cardbus_read_card1(card_detection_t *out)
 {
     return i2c_cardbus_read_detection(CARDBUS_CARD1_ADDR, out);

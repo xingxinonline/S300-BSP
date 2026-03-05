@@ -6,6 +6,8 @@
  * do not provide legacy video_config symbols expected by video.c.
  */
 
+#include "video_config.h"
+
 #ifndef BOARD_LCD_TYPE
 #define BOARD_LCD_TYPE 0
 #endif
