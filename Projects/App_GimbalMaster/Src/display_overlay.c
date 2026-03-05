@@ -42,6 +42,15 @@
 #define REG_FRAME0           (DSP_VIDEO_SS_BASE + 0x50u)
 #define REG_FRAME1           (DSP_VIDEO_SS_BASE + 0x54u)
 
+#define HUD_REG_FRAME0_ADDR  (DSP_VIDEO_SS_BASE + 0x40u)
+#define HUD_REG_FRAME1_ADDR  (DSP_VIDEO_SS_BASE + 0x44u)
+#define HUD_REG_ALPHA0_ADDR  (DSP_VIDEO_SS_BASE + 0x48u)
+#define HUD_REG_ALPHA1_ADDR  (DSP_VIDEO_SS_BASE + 0x4Cu)
+#define HUD_REG_CFG1         (DSP_VIDEO_SS_BASE + 0x194u)
+#define HUD_REG_CFG2         (DSP_VIDEO_SS_BASE + 0x198u)
+#define HUD_REG_CFG3         (DSP_VIDEO_SS_BASE + 0x19Cu)
+#define HUD_REG_DISP_SIZE    (DSP_VIDEO_SS_BASE + 0x1C4u)
+
 static uint8_t g_overlay_ready;
 static uint8_t g_mm_ok;
 static uint8_t g_psram_ok;
@@ -68,11 +77,95 @@ static uint32_t g_stat_submit0;
 static uint32_t g_stat_submit1;
 static uint32_t g_stat_skip_nochange;
 static uint32_t g_stat_busy_both;
+static uint32_t g_stat_shadow_mismatch;
+static uint32_t g_stat_shadow_repair;
+static uint32_t g_stat_reg_repair;
 static uint32_t g_stat_last_report_ms;
 static uint32_t g_stat_idle_rounds;
+static uint8_t g_hud_shadow_valid;
+static uint8_t g_hud_shadow[HUD_W * HUD_H];
 #if HUD_FORCE_SUBMIT_MS > 0u
 static uint32_t g_last_force_submit_ms;
 #endif
+
+static void hud_capture_alpha_rect(uint8_t src_idx);
+static void hud_shadow_guard_check_and_repair(void);
+
+static uint32_t hud_expected_cfg1(void)
+{
+    uint32_t data_row = (uint32_t)(DISP_IMAGE_WIDTH + DISP_START_X - 1);
+    uint32_t start_x = (uint32_t)DISP_START_X;
+    return ((((data_row >> 8) & 0xFFu) << 24) |
+            ((start_x & 0xFFu) << 16) |
+            (((start_x >> 8) & 0xFFu) << 8) |
+            0x2Au);
+}
+
+static uint32_t hud_expected_cfg2(void)
+{
+    uint32_t data_row = (uint32_t)(DISP_IMAGE_WIDTH + DISP_START_X - 1);
+    uint32_t start_y = (uint32_t)DISP_START_Y;
+    return (((start_y & 0xFFu) << 24) |
+            (((start_y >> 8) & 0xFFu) << 16) |
+            (0x2Bu << 8) |
+            ((data_row >> 0) & 0xFFu));
+}
+
+static uint32_t hud_expected_cfg3(void)
+{
+    uint32_t data_col = (uint32_t)(DISP_IMAGE_HEIGHT + DISP_START_Y - 1);
+    return ((0x00u << 24) |
+            (0x2Cu << 16) |
+            (((data_col >> 0) & 0xFFu) << 8) |
+            ((data_col >> 8) & 0xFFu));
+}
+
+static void hud_display_reg_guard_check_and_repair(void)
+{
+    uint8_t changed = 0u;
+
+    if (REG32(HUD_REG_FRAME0_ADDR) != (uint32_t)DISP_RFRAME0_ADDR) {
+        REG32(HUD_REG_FRAME0_ADDR) = (uint32_t)DISP_RFRAME0_ADDR;
+        changed = 1u;
+    }
+    if (REG32(HUD_REG_FRAME1_ADDR) != (uint32_t)DISP_RFRAME1_ADDR) {
+        REG32(HUD_REG_FRAME1_ADDR) = (uint32_t)DISP_RFRAME1_ADDR;
+        changed = 1u;
+    }
+    if (REG32(HUD_REG_ALPHA0_ADDR) != (uint32_t)DISP_RALPHA0_ADDR) {
+        REG32(HUD_REG_ALPHA0_ADDR) = (uint32_t)DISP_RALPHA0_ADDR;
+        changed = 1u;
+    }
+    if (REG32(HUD_REG_ALPHA1_ADDR) != (uint32_t)DISP_RALPHA1_ADDR) {
+        REG32(HUD_REG_ALPHA1_ADDR) = (uint32_t)DISP_RALPHA1_ADDR;
+        changed = 1u;
+    }
+
+    if (REG32(HUD_REG_CFG1) != hud_expected_cfg1()) {
+        REG32(HUD_REG_CFG1) = hud_expected_cfg1();
+        changed = 1u;
+    }
+    if (REG32(HUD_REG_CFG2) != hud_expected_cfg2()) {
+        REG32(HUD_REG_CFG2) = hud_expected_cfg2();
+        changed = 1u;
+    }
+    if (REG32(HUD_REG_CFG3) != hud_expected_cfg3()) {
+        REG32(HUD_REG_CFG3) = hud_expected_cfg3();
+        changed = 1u;
+    }
+    if (REG32(HUD_REG_DISP_SIZE) != ((uint32_t)DISP_IMAGE_WIDTH | ((uint32_t)DISP_IMAGE_HEIGHT << 16))) {
+        REG32(HUD_REG_DISP_SIZE) = ((uint32_t)DISP_IMAGE_WIDTH | ((uint32_t)DISP_IMAGE_HEIGHT << 16));
+        changed = 1u;
+    }
+
+    if (changed != 0u) {
+        /* Trigger M4 side sync after repairing MM display registers. */
+        REG32(DSP_VIDEO_SS_BASE + 0x70u) = 1u;
+        REG32(DSP_VIDEO_SS_BASE + 0x1E0u) = 1u;
+        g_stat_reg_repair++;
+        app_log_puts("[HUD][GUARD] display regs restored\r\n");
+    }
+}
 
 static inline volatile uint16_t *hud_write_alphabuffer(void)
 {
@@ -198,6 +291,9 @@ static void hud_report_stats_if_due(void)
         return;
     }
 
+    hud_display_reg_guard_check_and_repair();
+    hud_shadow_guard_check_and_repair();
+
     is_idle = (uint8_t)((g_stat_render_cnt == 0u) &&
                         (g_stat_submit_cnt == 0u) &&
                         (g_stat_poll_cnt == 0u) &&
@@ -227,7 +323,7 @@ static void hud_report_stats_if_due(void)
 
     g_stat_idle_rounds = 0u;
 
-    app_log_printf("[HUD][STAT] call=%lu poll=%lu skip=%lu render=%lu submit=%lu fps=%lu req0=%lu req1=%lu fb=%lu busy=%lu s0=%lu s1=%lu\r\n",
+    app_log_printf("[HUD][STAT] call=%lu poll=%lu skip=%lu render=%lu submit=%lu fps=%lu req0=%lu req1=%lu fb=%lu busy=%lu drift=%lu fix=%lu regfix=%lu s0=%lu s1=%lu\r\n",
                    (unsigned long)g_stat_call_cnt,
                    (unsigned long)g_stat_poll_cnt,
                    (unsigned long)g_stat_skip_nochange,
@@ -238,6 +334,9 @@ static void hud_report_stats_if_due(void)
                    (unsigned long)g_stat_req1_hit,
                    (unsigned long)g_stat_fallback_hit,
                    (unsigned long)g_stat_busy_both,
+                   (unsigned long)g_stat_shadow_mismatch,
+                   (unsigned long)g_stat_shadow_repair,
+                   (unsigned long)g_stat_reg_repair,
                    (unsigned long)g_stat_submit0,
                    (unsigned long)g_stat_submit1);
 
@@ -250,6 +349,9 @@ static void hud_report_stats_if_due(void)
     g_stat_req1_hit = 0u;
     g_stat_fallback_hit = 0u;
     g_stat_busy_both = 0u;
+    g_stat_shadow_mismatch = 0u;
+    g_stat_shadow_repair = 0u;
+    g_stat_reg_repair = 0u;
     g_stat_submit0 = 0u;
     g_stat_submit1 = 0u;
     g_stat_last_report_ms = now_ms;
@@ -564,6 +666,87 @@ void display_overlay_render_debug(void)
 
     /* Keep both ping-pong buffers visually identical for static HUD stability. */
     hud_mirror_alpha_rect(g_write_idx);
+    hud_capture_alpha_rect(g_write_idx);
 
     hud_submit_write_buffer(g_write_idx);
+}
+
+static void hud_capture_alpha_rect(uint8_t src_idx)
+{
+    uint32_t k = 0u;
+
+    for (int y = HUD_Y; y < (HUD_Y + HUD_H); y++) {
+        for (int x = HUD_X; x < (HUD_X + HUD_W); x++) {
+            g_hud_shadow[k++] = hud_alpha_get_pixel(src_idx, x, y);
+        }
+    }
+
+    g_hud_shadow_valid = 1u;
+}
+
+static uint32_t hud_alpha_rect_checksum_buf(uint8_t buf_idx)
+{
+    uint32_t sum = 2166136261u;
+
+    for (int y = HUD_Y; y < (HUD_Y + HUD_H); y++) {
+        for (int x = HUD_X; x < (HUD_X + HUD_W); x++) {
+            sum ^= (uint32_t)hud_alpha_get_pixel(buf_idx, x, y);
+            sum *= 16777619u;
+        }
+    }
+
+    return sum;
+}
+
+static uint32_t hud_alpha_rect_checksum_shadow(void)
+{
+    uint32_t sum = 2166136261u;
+    uint32_t n = (uint32_t)(HUD_W * HUD_H);
+
+    for (uint32_t i = 0u; i < n; i++) {
+        sum ^= (uint32_t)g_hud_shadow[i];
+        sum *= 16777619u;
+    }
+
+    return sum;
+}
+
+static void hud_restore_alpha_rect_from_shadow(uint8_t dst_idx)
+{
+    uint32_t k = 0u;
+
+    for (int y = HUD_Y; y < (HUD_Y + HUD_H); y++) {
+        for (int x = HUD_X; x < (HUD_X + HUD_W); x++) {
+            hud_alpha_set_pixel(dst_idx, x, y, g_hud_shadow[k++]);
+        }
+    }
+}
+
+static void hud_shadow_guard_check_and_repair(void)
+{
+    uint32_t sum_ref;
+    uint32_t sum0;
+    uint32_t sum1;
+
+    if (g_hud_shadow_valid == 0u) {
+        return;
+    }
+
+    sum_ref = hud_alpha_rect_checksum_shadow();
+    sum0 = hud_alpha_rect_checksum_buf(0u);
+    sum1 = hud_alpha_rect_checksum_buf(1u);
+
+    if ((sum0 == sum_ref) && (sum1 == sum_ref)) {
+        return;
+    }
+
+    g_stat_shadow_mismatch++;
+    hud_restore_alpha_rect_from_shadow(0u);
+    hud_restore_alpha_rect_from_shadow(1u);
+    g_stat_shadow_repair++;
+
+    app_log_printf("[HUD][GUARD] alpha drift fixed ref=%08lX b0=%08lX b1=%08lX\r\n",
+                   (unsigned long)sum_ref,
+                   (unsigned long)sum0,
+                   (unsigned long)sum1);
 }

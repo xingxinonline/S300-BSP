@@ -46,6 +46,8 @@ s300_add_executable(
         Src/task_command.c
         Src/task_heartbeat.c
         Src/task_kws.c
+        Src/i2c_cardbus.c
+        Src/task_cardbus.c
         Src/display_overlay.c
         ${CMAKE_SOURCE_DIR}/Projects/Demo/Audio_KWS_Demo/Src/audio_app.c
         ${CMAKE_SOURCE_DIR}/Projects/Demo/Audio_KWS_Demo/Src/audio_codec.c

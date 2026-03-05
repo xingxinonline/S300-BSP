@@ -13,6 +13,7 @@
 #include "task_command.h"
 #include "task_heartbeat.h"
 #include "task_kws.h"
+#include "task_cardbus.h"
 #include "display_overlay.h"
 
 #include "FreeRTOS.h"
@@ -77,6 +78,11 @@ int main(void)
         for (;;) {}
     }
 
+    if (task_cardbus_init() < 0) {
+        app_log_puts("task_cardbus_init failed\r\n");
+        for (;;) {}
+    }
+
 #if APP_DISPLAY_INIT_ENABLE
     (void)display_overlay_init();
 #endif
@@ -109,6 +115,11 @@ int main(void)
 
     if (task_kws_start() < 0) {
         app_log_puts("task_kws_start failed\r\n");
+        for (;;) {}
+    }
+
+    if (task_cardbus_start() < 0) {
+        app_log_puts("task_cardbus_start failed\r\n");
         for (;;) {}
     }
 
