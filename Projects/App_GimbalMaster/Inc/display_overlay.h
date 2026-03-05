@@ -6,6 +6,7 @@ extern "C" {
 #endif
 
 int display_overlay_init(void);
+int display_overlay_is_ready(void);
 void display_overlay_render_debug(void);
 
 #ifdef __cplusplus

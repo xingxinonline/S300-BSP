@@ -2,6 +2,7 @@
 
 #include "app_config.h"
 #include "app_log.h"
+#include "display_overlay.h"
 #include "track_events.h"
 #include "track_state.h"
 
@@ -43,6 +44,8 @@ static cardbus_snapshot_t g_snapshot;
 static uint8_t g_target_present;
 static TickType_t g_last_target_tick;
 static TickType_t g_last_gesture_tick;
+static uint8_t g_card1_start_sent;
+static uint8_t g_card1_wait_display_logged;
 
 static bool post_event_safe(TrackEvent_t evt)
 {
@@ -148,6 +151,27 @@ static void task_cardbus_entry(void *arg)
         online_mask |= (uint8_t)(update_one_card(CARDBUS_CARD2_ADDR, &snap.card2) << 1);
         online_mask |= (uint8_t)(update_one_card(CARDBUS_CARD3_ADDR, &snap.card3) << 2);
 
+        if ((g_card1_start_sent == 0u) && ((online_mask & 0x01u) != 0u)) {
+#if APP_DISPLAY_INIT_ENABLE
+            if (display_overlay_is_ready() == 0) {
+                if (g_card1_wait_display_logged == 0u) {
+                    app_log_puts("[CARDBUS] wait display/video ready before card1 start\r\n");
+                    g_card1_wait_display_logged = 1u;
+                }
+            } else
+#endif
+            {
+                if (i2c_cardbus_write_reg8(CARDBUS_CARD1_ADDR,
+                                           CARDBUS_REG_CMD,
+                                           CARDBUS_CMD_START_MM_DSP) == 0) {
+                    app_log_puts("[CARDBUS] card1 start command sent (after display ready)\r\n");
+                    g_card1_start_sent = 1u;
+                } else {
+                    app_log_puts("[CARDBUS] card1 start command failed\r\n");
+                }
+            }
+        }
+
         target_present = (uint8_t)((snap.card1.valid != 0u) || (snap.card2.valid != 0u));
 
         handle_target_presence(target_present);
@@ -192,19 +216,11 @@ int task_cardbus_init(void)
 
     app_log_printf("[CARDBUS] probe: 0x10=%d 0x11=%d 0x12=%d\r\n", p1, p2, p3);
 
-    if (p1 == 0) {
-        if (i2c_cardbus_write_reg8(CARDBUS_CARD1_ADDR,
-                                   CARDBUS_REG_CMD,
-                                   CARDBUS_CMD_START_MM_DSP) == 0) {
-            app_log_puts("[CARDBUS] card1 start command sent\r\n");
-        } else {
-            app_log_puts("[CARDBUS] card1 start command failed\r\n");
-        }
-    }
-
     g_target_present = 0u;
     g_last_target_tick = xTaskGetTickCount();
     g_last_gesture_tick = 0u;
+    g_card1_start_sent = 0u;
+    g_card1_wait_display_logged = 0u;
     memset(&g_snapshot, 0, sizeof(g_snapshot));
 
     return 0;

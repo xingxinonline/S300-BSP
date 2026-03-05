@@ -582,6 +582,11 @@ int display_overlay_init(void)
     return cam_ret;
 }
 
+int display_overlay_is_ready(void)
+{
+    return (g_overlay_ready != 0u) ? 1 : 0;
+}
+
 void display_overlay_render_debug(void)
 {
     char line0[32];
