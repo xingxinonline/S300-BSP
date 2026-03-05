@@ -13,6 +13,7 @@
 #include "task_command.h"
 #include "task_heartbeat.h"
 #include "task_kws.h"
+#include "display_overlay.h"
 
 #include "FreeRTOS.h"
 #include "task.h"
@@ -76,6 +77,10 @@ int main(void)
         app_log_puts("task_kws_init failed\r\n");
         for (;;) {}
     }
+
+#if APP_DISPLAY_INIT_ENABLE
+    (void)display_overlay_init();
+#endif
 
     /* 启动信息 */
     app_log_puts("\r\nS300 Gimbal Master MVP0 start\r\n");

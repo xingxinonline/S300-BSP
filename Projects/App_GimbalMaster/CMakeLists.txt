@@ -46,9 +46,10 @@ s300_add_executable(
         Src/task_command.c
         Src/task_heartbeat.c
         Src/task_kws.c
+        Src/display_overlay.c
         ${CMAKE_SOURCE_DIR}/Projects/Demo/Audio_KWS_Demo/Src/audio_app.c
         ${CMAKE_SOURCE_DIR}/Projects/Demo/Audio_KWS_Demo/Src/audio_codec.c
-    DRIVERS rcc gpio uart mailbox i2s dma i2c_soft es7210 es8311 mm
+    DRIVERS rcc gpio uart mailbox i2s dma i2c_soft es7210 es8311 mm psram
     INCLUDES . Inc ${CMAKE_SOURCE_DIR}/Algorithm_Models/protocol ${CMAKE_SOURCE_DIR}/Projects/Demo/Audio_KWS_Demo/Src
     LIBRARIES freertos_kernel ws2812
     DBG_SCRIPT ${CMAKE_CURRENT_BINARY_DIR}/gdbinit.keyword-spotting.gdb
@@ -57,6 +58,8 @@ s300_add_executable(
 
 target_compile_definitions(s300_gimbal_master PRIVATE
     BOARD_AUDIO_ENABLE=1
+    BOARD_MM_ENABLE=1
+    BOARD_CAMERA_ENABLE=1
 )
 
 # =============================================================================

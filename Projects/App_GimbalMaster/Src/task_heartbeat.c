@@ -9,6 +9,7 @@
 #include "board.h"
 #include "ws2812.h"
 #include "track_state.h"
+#include "display_overlay.h"
 
 #include "FreeRTOS.h"
 #include "task.h"
@@ -144,11 +145,17 @@ static void led_status_update(void)
 static void heartbeat_task_entry(void *arg)
 {
     (void)arg;
+    TickType_t last_overlay_tick = 0;
 
     for (;;) {
 #if APP_HEARTBEAT_WS2812_ENABLE
         led_status_update();
 #endif
+
+        if ((xTaskGetTickCount() - last_overlay_tick) >= pdMS_TO_TICKS(500)) {
+            display_overlay_render_debug();
+            last_overlay_tick = xTaskGetTickCount();
+        }
 
         vTaskDelay(pdMS_TO_TICKS(APP_HEARTBEAT_WS2812_STEP_MS));
     }
