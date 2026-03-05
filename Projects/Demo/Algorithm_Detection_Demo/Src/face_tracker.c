@@ -677,9 +677,15 @@ void face_tracker_poll(void)
             {
                 static bool s_version_logged = false;
                 if (!s_version_logged) {
-                    FT_LOG(1, "[FT] Protocol ver=0x%04lX (expected 0x%04X)\r\n",
-                           (unsigned long)result->version,
-                           DETECTION_PROTOCOL_VERSION);
+                    if (DETECTION_PROTOCOL_IS_SAME_MAJOR(result->version)) {
+                        FT_LOG(2, "[FT] Protocol ver=0x%04lX (local=0x%04X, v3.x compatible)\r\n",
+                               (unsigned long)result->version,
+                               DETECTION_PROTOCOL_VERSION);
+                    } else {
+                        FT_LOG(1, "[FT] Protocol ver=0x%04lX (expected major=0x%02Xxx)\r\n",
+                               (unsigned long)result->version,
+                               (unsigned)((DETECTION_PROTOCOL_VERSION >> 8) & 0xFF));
+                    }
                     s_version_logged = true;
                 }
             }
