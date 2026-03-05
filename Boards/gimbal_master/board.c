@@ -169,6 +169,8 @@ int board_i2c3_init(void *i2c)
 #endif /* BOARD_I2C3_ENABLE */
 
 #if BOARD_CAMERA_ENABLE
+#define BOARD_CAM_PWDN_VALID() ((BOARD_CAM_PWDN_PIN) != 0xFFu && (BOARD_CAM_PWDN_PIN) < 32u)
+
 void board_camera_i2c_pins_init(void)
 {
     set_gpio_function(BOARD_CAMERA_I2C_PORT, BOARD_CAMERA_I2C_SCL_PIN, BOARD_CAMERA_I2C_FUNCTION);
@@ -177,10 +179,12 @@ void board_camera_i2c_pins_init(void)
 
 void board_camera_ctrl_pins_init(void)
 {
-    /* PWDN Pin */
-    set_gpio_function(BOARD_CAM_PORT, BOARD_CAM_PWDN_PIN, BOARD_CAM_CTRL_FUNCTION);
-    set_gpio_mode(BOARD_CAM_PORT, BOARD_CAM_PWDN_PIN, GPIO_UP);
-    set_gpio_direction(BOARD_CAM_PORT, BOARD_CAM_PWDN_PIN, 1);  /* Output */
+    /* PWDN Pin (部分板型无该引脚，0xFF 表示未连接) */
+    if (BOARD_CAM_PWDN_VALID()) {
+        set_gpio_function(BOARD_CAM_PORT, BOARD_CAM_PWDN_PIN, BOARD_CAM_CTRL_FUNCTION);
+        set_gpio_mode(BOARD_CAM_PORT, BOARD_CAM_PWDN_PIN, GPIO_UP);
+        set_gpio_direction(BOARD_CAM_PORT, BOARD_CAM_PWDN_PIN, 1);  /* Output */
+    }
 
     /* RST Pin */
     set_gpio_function(BOARD_CAM_PORT, BOARD_CAM_RST_PIN, BOARD_CAM_CTRL_FUNCTION);
@@ -191,7 +195,9 @@ void board_camera_ctrl_pins_init(void)
 void board_camera_power_on_sequence(void)
 {
     /* 1. PWDN 拉高 (省电模式) */
-    set_gpio_data(BOARD_CAM_PORT, BOARD_CAM_PWDN_PIN, 1);
+    if (BOARD_CAM_PWDN_VALID()) {
+        set_gpio_data(BOARD_CAM_PORT, BOARD_CAM_PWDN_PIN, 1);
+    }
     
     /* 2. RST 拉低 (复位) */
     set_gpio_data(BOARD_CAM_PORT, BOARD_CAM_RST_PIN, 0);
@@ -200,7 +206,9 @@ void board_camera_power_on_sequence(void)
     for (volatile int i = 0; i < 100000; i++);
     
     /* 4. PWDN 拉低 (正常工作) */
-    set_gpio_data(BOARD_CAM_PORT, BOARD_CAM_PWDN_PIN, 0);
+    if (BOARD_CAM_PWDN_VALID()) {
+        set_gpio_data(BOARD_CAM_PORT, BOARD_CAM_PWDN_PIN, 0);
+    }
     
     /* 5. 等待 PWDN 生效 */
     for (volatile int i = 0; i < 50000; i++);
