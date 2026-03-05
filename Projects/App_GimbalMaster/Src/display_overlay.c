@@ -67,6 +67,7 @@ static uint32_t g_stat_fallback_hit;
 static uint32_t g_stat_submit0;
 static uint32_t g_stat_submit1;
 static uint32_t g_stat_skip_nochange;
+static uint32_t g_stat_busy_both;
 static uint32_t g_stat_last_report_ms;
 static uint32_t g_stat_idle_rounds;
 #if HUD_FORCE_SUBMIT_MS > 0u
@@ -86,11 +87,12 @@ static uint8_t hud_acquire_write_buffer(void)
 
     g_stat_poll_cnt++;
 
-    if ((req0 != 0u) && (req1 == 0u)) {
+    /* req bit: 0=idle/free, 1=pending/busy */
+    if ((req0 == 0u) && (req1 != 0u)) {
         g_stat_req0_hit++;
         return 0u;
     }
-    if ((req1 != 0u) && (req0 == 0u)) {
+    if ((req1 == 0u) && (req0 != 0u)) {
         g_stat_req1_hit++;
         return 1u;
     }
@@ -225,7 +227,7 @@ static void hud_report_stats_if_due(void)
 
     g_stat_idle_rounds = 0u;
 
-    app_log_printf("[HUD][STAT] call=%lu poll=%lu skip=%lu render=%lu submit=%lu fps=%lu req0=%lu req1=%lu fb=%lu s0=%lu s1=%lu\r\n",
+    app_log_printf("[HUD][STAT] call=%lu poll=%lu skip=%lu render=%lu submit=%lu fps=%lu req0=%lu req1=%lu fb=%lu busy=%lu s0=%lu s1=%lu\r\n",
                    (unsigned long)g_stat_call_cnt,
                    (unsigned long)g_stat_poll_cnt,
                    (unsigned long)g_stat_skip_nochange,
@@ -235,6 +237,7 @@ static void hud_report_stats_if_due(void)
                    (unsigned long)g_stat_req0_hit,
                    (unsigned long)g_stat_req1_hit,
                    (unsigned long)g_stat_fallback_hit,
+                   (unsigned long)g_stat_busy_both,
                    (unsigned long)g_stat_submit0,
                    (unsigned long)g_stat_submit1);
 
@@ -246,6 +249,7 @@ static void hud_report_stats_if_due(void)
     g_stat_req0_hit = 0u;
     g_stat_req1_hit = 0u;
     g_stat_fallback_hit = 0u;
+    g_stat_busy_both = 0u;
     g_stat_submit0 = 0u;
     g_stat_submit1 = 0u;
     g_stat_last_report_ms = now_ms;
@@ -487,6 +491,8 @@ void display_overlay_render_debug(void)
     uint32_t reg1e0;
     uint8_t target_buf;
     uint8_t force_submit = 0u;
+    uint32_t req0;
+    uint32_t req1;
 
     if (g_overlay_ready == 0u) {
         return;
@@ -522,6 +528,14 @@ void display_overlay_render_debug(void)
         (strcmp(line3, g_prev_line3) == 0) &&
         (force_submit == 0u)) {
         g_stat_skip_nochange++;
+        return;
+    }
+
+    req0 = REG32(REG_FRAME0) & 0x1u;
+    req1 = REG32(REG_FRAME1) & 0x1u;
+    if ((req0 != 0u) && (req1 != 0u)) {
+        /* Both buffers are pending in HW, retry next cycle to avoid writing into busy frame. */
+        g_stat_busy_both++;
         return;
     }
 
