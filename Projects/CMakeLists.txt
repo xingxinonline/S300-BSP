@@ -3,6 +3,7 @@
 # 示例应用
 add_subdirectory(App_HelloWorld)
 add_subdirectory(App_GimbalMaster)
+add_subdirectory(App_Card1_HumanDetection)
 
 # Demo 项目
 add_subdirectory(Demo/Display_Demo)
