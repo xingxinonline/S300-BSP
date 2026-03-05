@@ -36,6 +36,8 @@
 #define HUD_H                48
 #define HUD_MIRROR_X         1
 #define HUD_FORCE_SUBMIT_MS  0u
+#define HUD_STAT_REPORT_MS   5000u
+#define HUD_STAT_IDLE_KEEPALIVE_ROUNDS 6u
 
 #define REG_FRAME0           (DSP_VIDEO_SS_BASE + 0x50u)
 #define REG_FRAME1           (DSP_VIDEO_SS_BASE + 0x54u)
@@ -66,6 +68,7 @@ static uint32_t g_stat_submit0;
 static uint32_t g_stat_submit1;
 static uint32_t g_stat_skip_nochange;
 static uint32_t g_stat_last_report_ms;
+static uint32_t g_stat_idle_rounds;
 #if HUD_FORCE_SUBMIT_MS > 0u
 static uint32_t g_last_force_submit_ms;
 #endif
@@ -186,11 +189,41 @@ static void hud_submit_write_buffer(uint8_t buf_idx)
 static void hud_report_stats_if_due(void)
 {
     uint32_t now_ms;
+    uint8_t is_idle;
 
     now_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
-    if ((now_ms - g_stat_last_report_ms) < 1000u) {
+    if ((now_ms - g_stat_last_report_ms) < HUD_STAT_REPORT_MS) {
         return;
     }
+
+    is_idle = (uint8_t)((g_stat_render_cnt == 0u) &&
+                        (g_stat_submit_cnt == 0u) &&
+                        (g_stat_poll_cnt == 0u) &&
+                        (g_stat_req0_hit == 0u) &&
+                        (g_stat_req1_hit == 0u) &&
+                        (g_stat_fallback_hit == 0u) &&
+                        (g_stat_call_cnt > 0u) &&
+                        (g_stat_skip_nochange == g_stat_call_cnt));
+
+    if (is_idle != 0u) {
+        g_stat_idle_rounds++;
+        if (g_stat_idle_rounds < HUD_STAT_IDLE_KEEPALIVE_ROUNDS) {
+            g_stat_call_cnt = 0u;
+            g_stat_poll_cnt = 0u;
+            g_stat_skip_nochange = 0u;
+            g_stat_render_cnt = 0u;
+            g_stat_submit_cnt = 0u;
+            g_stat_req0_hit = 0u;
+            g_stat_req1_hit = 0u;
+            g_stat_fallback_hit = 0u;
+            g_stat_submit0 = 0u;
+            g_stat_submit1 = 0u;
+            g_stat_last_report_ms = now_ms;
+            return;
+        }
+    }
+
+    g_stat_idle_rounds = 0u;
 
     app_log_printf("[HUD][STAT] call=%lu poll=%lu skip=%lu render=%lu submit=%lu fps=%lu req0=%lu req1=%lu fb=%lu s0=%lu s1=%lu\r\n",
                    (unsigned long)g_stat_call_cnt,
