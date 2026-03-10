@@ -14,11 +14,14 @@
  *===========================================================================*/
 
 /* 根据板级宏判断使用哪种编解码器 */
-#if defined(BOARD_AUDIO_CODEC_ES7210) && defined(BOARD_AUDIO_CODEC_ES8311)
+#if defined(BOARD_AUDIO_CODEC_WM8978)
+    #define USE_WM8978          1
+    #include "wm8978.h"
+#elif defined(BOARD_AUDIO_CODEC_ES7210) && defined(BOARD_AUDIO_CODEC_ES8311)
     #define USE_ES7210_ES8311   1
     #include "es7210.h"
     #include "es8311.h"
-#elif defined(BOARD_AUDIO_CODEC_WM8978) || !defined(BOARD_AUDIO_CODEC_ES7210)
+#else
     #define USE_WM8978          1
     #include "wm8978.h"
 #endif
