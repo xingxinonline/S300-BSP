@@ -1,0 +1,33 @@
+set pagination off
+set confirm off
+set remotetimeout 20
+
+monitor targets ne005.m4
+
+monitor halt
+monitor soft_reset_halt
+monitor wait_halt 2000
+
+echo \n>>> Holding DSP in domain reset...\n
+set {unsigned int}0x4000a018 = 0
+monitor sleep 100
+
+echo \n>>> Loading DSP binary files for Face_Detection_State_Machine_Demo...\n
+@GDB_RESTORE_DTCM@
+@GDB_RESTORE_PTCM@
+@GDB_RESTORE_SRAM0@
+@GDB_RESTORE_SRAM1@
+@GDB_RESTORE_PSRAM@
+
+echo \n>>> Loading CM4 program...\n
+load
+
+set $sp = *(unsigned int*)0x20000000
+set $pc = *(unsigned int*)0x20000004
+set {unsigned int}0xE000ED08 = 0x20000000
+
+echo \n>>> Releasing DSP domain reset...\n
+set {unsigned int}0x4000a018 = 1
+
+echo \n>>> Starting CM4 program...\n
+continue
