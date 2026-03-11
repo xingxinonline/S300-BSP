@@ -16,7 +16,9 @@
  *          - W25Q128 128Mbit SPI Flash
  *          - RTL8211F RGMII 以太网 PHY (可选)
  *          - DVP 摄像头接口
- *          - I2C3 + UART2 与主板通信
+ *          - I2C1 与主板通信（当前 bring-up / 板间控制链路）
+ *          - UART2 作为主板高速串口通信（可选）
+ *          - I2C3 预留给板载/本地外设，不作为当前板间 bring-up 通道
  *
  * @note    配置优先级: 编译参数 > 用户预定义 > 本文件默认值
  */
@@ -70,7 +72,7 @@ extern "C" {
 #define BOARD_UART2_ENABLE          1
 #endif
 
-/** @brief 启用 I2C3 总线 (摄像头 + 主板通信) */
+/** @brief 启用 I2C3 总线 (板载/本地外设) */
 #ifndef BOARD_I2C3_ENABLE
 #define BOARD_I2C3_ENABLE           1
 #endif
@@ -131,6 +133,33 @@ extern "C" {
 #define BOARD_DEBUG_UART_BAUDRATE   115200
 #endif
 
+#ifndef BOARD_DEBUG_UART_PORT
+#define BOARD_DEBUG_UART_PORT       GPIOA
+#endif
+
+#ifndef BOARD_DEBUG_UART_FUNCTION
+#define BOARD_DEBUG_UART_FUNCTION   FUNCTION_3
+#endif
+
+/* 调试串口外设指针和 IRQ 映射 */
+#if BOARD_DEBUG_UART_IDX == 0
+#define BOARD_DEBUG_UART            UART0
+#define BOARD_DEBUG_UART_IRQn       UART0_IRQn
+#define BOARD_DEBUG_UART_IRQHandler UART0_IRQHandler
+#elif BOARD_DEBUG_UART_IDX == 1
+#define BOARD_DEBUG_UART            UART1
+#define BOARD_DEBUG_UART_IRQn       UART1_IRQn
+#define BOARD_DEBUG_UART_IRQHandler UART1_IRQHandler
+#elif BOARD_DEBUG_UART_IDX == 2
+#define BOARD_DEBUG_UART            UART2
+#define BOARD_DEBUG_UART_IRQn       UART2_IRQn
+#define BOARD_DEBUG_UART_IRQHandler UART2_IRQHandler
+#else
+#define BOARD_DEBUG_UART            UART3
+#define BOARD_DEBUG_UART_IRQn       UART3_IRQn
+#define BOARD_DEBUG_UART_IRQHandler UART3_IRQHandler
+#endif
+
 /*===========================================================================
  * Section 5: Host Communication UART (UART2)
  * 主板通信串口配置 - 通过 mPCIE 连接器
@@ -157,6 +186,14 @@ extern "C" {
 #define BOARD_UART2_BAUDRATE        1000000  /**< 1Mbps 高速通信 */
 #endif
 
+#ifndef BOARD_UART2_PORT
+#define BOARD_UART2_PORT            GPIOA
+#endif
+
+#ifndef BOARD_UART2_FUNCTION
+#define BOARD_UART2_FUNCTION        FUNCTION_3
+#endif
+
 /*===========================================================================
  * Section 6: UART1 Configuration (Optional Secondary)
  * 备用串口配置
@@ -175,7 +212,7 @@ extern "C" {
 
 /*===========================================================================
  * Section 7: I2C3 Bus Configuration
- * I2C3 总线配置 - 摄像头 + 主板通信
+ * I2C3 总线配置 - 板载/本地外设
  *===========================================================================*/
 
 #ifndef BOARD_I2C3_SCL_PIN
@@ -192,6 +229,14 @@ extern "C" {
 /** @brief I2C3 总线速率 */
 #ifndef BOARD_I2C3_SPEED
 #define BOARD_I2C3_SPEED            400000  /**< 400kHz Fast Mode */
+#endif
+
+#ifndef BOARD_I2C3_PORT
+#define BOARD_I2C3_PORT             GPIOA
+#endif
+
+#ifndef BOARD_I2C3_FUNCTION
+#define BOARD_I2C3_FUNCTION         FUNCTION_2
 #endif
 
 /** @brief I2C 设备地址 */
@@ -434,6 +479,83 @@ typedef struct {
  * 板卡初始化接口
  *===========================================================================*/
 
+/*===========================================================================
+ * Compatibility Macros For Shared BSP Modules
+ * 与通用驱动/示例工程保持兼容的别名定义
+ *===========================================================================*/
+
+#ifndef BOARD_LCD_TYPE
+#define BOARD_LCD_TYPE              0
+#endif
+
+#ifndef BOARD_LCD_WIDTH
+#define BOARD_LCD_WIDTH             160
+#endif
+
+#ifndef BOARD_LCD_HEIGHT
+#define BOARD_LCD_HEIGHT            128
+#endif
+
+#ifndef BOARD_DISPLAY_WIDTH
+#define BOARD_DISPLAY_WIDTH         BOARD_LCD_WIDTH
+#endif
+
+#ifndef BOARD_DISPLAY_HEIGHT
+#define BOARD_DISPLAY_HEIGHT        BOARD_LCD_HEIGHT
+#endif
+
+#ifndef BOARD_CAMERA_I2C_PORT
+#define BOARD_CAMERA_I2C_PORT       GPIOA
+#endif
+
+#ifndef BOARD_CAMERA_I2C_SCL_PIN
+#define BOARD_CAMERA_I2C_SCL_PIN    BOARD_I2C3_SCL_PIN
+#endif
+
+#ifndef BOARD_CAMERA_I2C_SDA_PIN
+#define BOARD_CAMERA_I2C_SDA_PIN    BOARD_I2C3_SDA_PIN
+#endif
+
+#ifndef BOARD_CAMERA_I2C_FUNCTION
+#define BOARD_CAMERA_I2C_FUNCTION   FUNCTION_2
+#endif
+
+#ifndef BOARD_CAMERA_I2C_FREQ
+#define BOARD_CAMERA_I2C_FREQ       50000u
+#endif
+
+#ifndef BOARD_CAM_PORT
+#define BOARD_CAM_PORT              GPIOA
+#endif
+
+#ifndef BOARD_CAM_RST_PIN
+#define BOARD_CAM_RST_PIN           BOARD_DVP_RSTN_PIN
+#endif
+
+#ifndef BOARD_CAM_PWDN_PIN
+#define BOARD_CAM_PWDN_PIN          BOARD_DVP_PWDOWN_PIN
+#endif
+
+#ifndef BOARD_CAM_CTRL_FUNCTION
+#define BOARD_CAM_CTRL_FUNCTION     FUNCTION_0
+#endif
+
+#ifndef BOARD_AUDIO_CODEC_ES7210
+#define BOARD_AUDIO_CODEC_ES7210    1
+#endif
+
+#ifndef BOARD_AUDIO_CODEC_ES8311
+#define BOARD_AUDIO_CODEC_ES8311    1
+#endif
+
+#ifndef BOARD_RGB_DIN1_PIN
+#define BOARD_RGB_DIN1_PIN          BOARD_LED1_PIN
+#endif
+
+#ifndef BOARD_RGB_DIN2_PIN
+#define BOARD_RGB_DIN2_PIN          BOARD_LED2_PIN
+#endif
+
 /**
  * @brief 板卡初始化
  * @details 初始化系统时钟、调试串口和基本外设
@@ -465,6 +587,18 @@ int board_uart2_init(void);
  */
 int board_i2c3_init(void);
 
+/** @brief 初始化摄像头 I2C 引脚 (兼容通用 Demo) */
+void board_camera_i2c_pins_init(void);
+
+/** @brief 初始化摄像头控制引脚 (兼容通用 Demo) */
+void board_camera_ctrl_pins_init(void);
+
+/** @brief 摄像头上电时序 (兼容通用 Demo) */
+void board_camera_power_on_sequence(void);
+
+/** @brief 初始化摄像头 I2C (兼容通用 Demo) */
+int board_camera_i2c_init(void *i2c);
+
 /**
  * @brief 摄像头接口初始化
  * @return 0 成功, 负值 失败
@@ -488,6 +622,12 @@ void board_led_set(uint8_t led_id, bool on);
  * @param led_id LED编号 (1 或 2)
  */
 void board_led_toggle(uint8_t led_id);
+
+/** @brief 初始化舵机相关引脚 (兼容 Demo) */
+void board_servo_pins_init(void);
+
+/** @brief 初始化舵机总线 (兼容 Demo) */
+int board_servo_init(void *servo);
 
 /**
  * @brief 摄像头电源控制

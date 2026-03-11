@@ -10,11 +10,25 @@
 #include "rcc.h"
 #include <stdio.h>
 
+#if __has_include("i2c_soft.h")
+#include "i2c_soft.h"
+#define HAS_I2C_SOFT 1
+#else
+#define HAS_I2C_SOFT 0
+#endif
+
 #if __has_include("i2c.h") && BOARD_I2C3_ENABLE
 #include "i2c.h"
 #define HAS_I2C_HW 1
 #else
 #define HAS_I2C_HW 0
+#endif
+
+#if __has_include("bus_servo.h")
+#include "bus_servo.h"
+#define HAS_BUS_SERVO 1
+#else
+#define HAS_BUS_SERVO 0
 #endif
 
 /*===========================================================================
@@ -120,6 +134,53 @@ int board_i2c3_init(void)
 #else
     return 0;
 #endif
+}
+
+void board_camera_i2c_pins_init(void)
+{
+    set_gpio_function(GPIOA, BOARD_CAMERA_I2C_SCL_PIN, BOARD_CAMERA_I2C_FUNCTION);
+    set_gpio_mode(GPIOA, BOARD_CAMERA_I2C_SCL_PIN, GPIO_UP);
+    set_gpio_function(GPIOA, BOARD_CAMERA_I2C_SDA_PIN, BOARD_CAMERA_I2C_FUNCTION);
+    set_gpio_mode(GPIOA, BOARD_CAMERA_I2C_SDA_PIN, GPIO_UP);
+}
+
+void board_camera_ctrl_pins_init(void)
+{
+    set_gpio_function(GPIOA, BOARD_CAM_RST_PIN, BOARD_CAM_CTRL_FUNCTION);
+    set_gpio_mode(GPIOA, BOARD_CAM_RST_PIN, GPIO_UP);
+    set_gpio_direction(GPIOA, BOARD_CAM_RST_PIN, 1);
+
+    set_gpio_function(GPIOA, BOARD_CAM_PWDN_PIN, BOARD_CAM_CTRL_FUNCTION);
+    set_gpio_mode(GPIOA, BOARD_CAM_PWDN_PIN, GPIO_UP);
+    set_gpio_direction(GPIOA, BOARD_CAM_PWDN_PIN, 1);
+}
+
+void board_camera_power_on_sequence(void)
+{
+    set_gpio_data(GPIOA, BOARD_CAM_PWDN_PIN, 1);
+    set_gpio_data(GPIOA, BOARD_CAM_RST_PIN, 0);
+    for (volatile int i = 0; i < 100000; i++);
+
+    set_gpio_data(GPIOA, BOARD_CAM_PWDN_PIN, 0);
+    for (volatile int i = 0; i < 50000; i++);
+
+    set_gpio_data(GPIOA, BOARD_CAM_RST_PIN, 1);
+    for (volatile int i = 0; i < 100000; i++);
+}
+
+int board_camera_i2c_init(void *i2c)
+{
+    board_camera_i2c_pins_init();
+
+#if HAS_I2C_SOFT
+    if (i2c != NULL) {
+        return i2c_soft_init_default_idx((i2c_soft_t *)i2c, 3, BOARD_CAMERA_I2C_FREQ);
+    }
+#else
+    (void)i2c;
+#endif
+
+    return 0;
 }
 
 /*===========================================================================
@@ -242,6 +303,35 @@ void board_led_toggle(uint8_t led_id)
 #else
     (void)led_id;
 #endif
+}
+
+void board_servo_pins_init(void)
+{
+    /* 兼容实现：沿用 UART3 + MOTO_BUSEN 作为舵机总线 */
+    set_gpio_function(GPIOA, BOARD_DEBUG_UART_TX_PIN, BOARD_DEBUG_UART_FUNCTION);
+    set_gpio_function(GPIOA, BOARD_DEBUG_UART_RX_PIN, BOARD_DEBUG_UART_FUNCTION);
+    set_gpio_function(GPIOA, BOARD_MOTO_BUSEN_PIN, FUNCTION_0);
+    set_gpio_direction(GPIOA, BOARD_MOTO_BUSEN_PIN, 1);
+    set_gpio_data(GPIOA, BOARD_MOTO_BUSEN_PIN, 1);
+}
+
+int board_servo_init(void *servo)
+{
+    set_cortex_m4_apb1_clock(RCC_CM4_APB1_UART3, true);
+    board_servo_pins_init();
+
+#if HAS_BUS_SERVO
+    if (servo != NULL) {
+        return bus_servo_init((bus_servo_t *)servo,
+                              3,
+                              BOARD_MOTO_BUSEN_PIN,
+                              rcc_get_clock(RCC_CLOCK_APB1));
+    }
+#else
+    (void)servo;
+#endif
+
+    return 0;
 }
 
 /*===========================================================================

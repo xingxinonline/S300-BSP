@@ -93,7 +93,19 @@ include_directories(${CMAKE_BINARY_DIR}/generated)
 # 生成一个 build_timestamp.h 头文件，每次构建都更新其内容（包含当前时间）
 # version.c 依赖此头文件，因此每次构建都会被重新编译
 # ===========================================================================
+file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/generated)
+
 set(BUILD_TIMESTAMP_HEADER "${CMAKE_BINARY_DIR}/generated/build_timestamp.h")
+
+if(NOT EXISTS ${BUILD_TIMESTAMP_HEADER})
+    file(WRITE ${BUILD_TIMESTAMP_HEADER}
+"// Auto-generated file - DO NOT EDIT
+#ifndef BUILD_TIMESTAMP_H
+#define BUILD_TIMESTAMP_H
+#define BUILD_TIMESTAMP_STR \"configure-time-placeholder\"
+#endif
+")
+endif()
 
 # 添加 CMake 脚本来生成时间戳头文件
 file(WRITE ${CMAKE_BINARY_DIR}/update_timestamp.cmake

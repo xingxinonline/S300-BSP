@@ -209,6 +209,7 @@ function(s300_add_executable)
 
     # 创建可执行目标
     add_executable(${ARG_TARGET} ${ALL_SRCS})
+    add_dependencies(${ARG_TARGET} s300_update_timestamp)
 
     # 设置 Include 路径
     target_include_directories(${ARG_TARGET} PRIVATE ${ALL_INCS})

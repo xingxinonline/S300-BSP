@@ -11,6 +11,8 @@
 #ifndef S300_BSP_VIDEO_CONFIG_H
 #define S300_BSP_VIDEO_CONFIG_H
 
+#include "board.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -180,6 +182,107 @@ typedef struct {
  */
 #ifndef BOARD_LCD_SCAN_DIR
 #define BOARD_LCD_SCAN_DIR          (0xE0)
+#endif
+
+/*===========================================================================
+ * Legacy Compatibility Macros
+ * 提供给通用 MM/OV5640/Display 代码的旧命名
+ *===========================================================================*/
+
+#ifndef RD_SOURCE_FRAME_START_X
+#define RD_SOURCE_FRAME_START_X     0
+#endif
+
+#ifndef RD_SOURCE_FRAME_START_Y
+#define RD_SOURCE_FRAME_START_Y     0
+#endif
+
+#ifndef BINNING_SIZE
+#define BINNING_SIZE                1
+#endif
+
+#ifndef BINNING_IMAGE_WIDTH
+#define BINNING_IMAGE_WIDTH         VIDEO_BINNING_WIDTH
+#endif
+
+#ifndef BINNING_IMAGE_HEIGHT
+#define BINNING_IMAGE_HEIGHT        VIDEO_BINNING_HEIGHT
+#endif
+
+#ifndef SENSOR_IMAGE_WIDTH
+#define SENSOR_IMAGE_WIDTH          VIDEO_SENSOR_WIDTH
+#endif
+
+#ifndef SENSOR_IMAGE_HEIGHT
+#define SENSOR_IMAGE_HEIGHT         VIDEO_SENSOR_HEIGHT
+#endif
+
+#ifndef DOWNSCALE_IMAGE_WIDTH
+#define DOWNSCALE_IMAGE_WIDTH       AI_HUMAN_DET_INPUT_WIDTH
+#endif
+
+#ifndef DOWNSCALE_IMAGE_HEIGHT
+#define DOWNSCALE_IMAGE_HEIGHT      AI_HUMAN_DET_INPUT_HEIGHT
+#endif
+
+#ifndef DISP_START_X
+#define DISP_START_X                0
+#endif
+
+#ifndef DISP_START_Y
+#define DISP_START_Y                0
+#endif
+
+#ifndef DISP_IMAGE_WIDTH
+#define DISP_IMAGE_WIDTH            BOARD_DISPLAY_WIDTH
+#endif
+
+#ifndef DISP_IMAGE_HEIGHT
+#define DISP_IMAGE_HEIGHT           BOARD_DISPLAY_HEIGHT
+#endif
+
+#ifndef SNAP_IMAGE_WIDTH
+#define SNAP_IMAGE_WIDTH            DOWNSCALE_IMAGE_WIDTH
+#endif
+
+#ifndef SNAP_IMAGE_HEIGHT
+#define SNAP_IMAGE_HEIGHT           DOWNSCALE_IMAGE_HEIGHT
+#endif
+
+#ifndef BINNING_LINE_MAX_SIZE
+#define BINNING_LINE_MAX_SIZE       1280
+#endif
+
+#ifndef DOWNSCALE_FACTOR
+#define DOWNSCALE_FACTOR            8192
+#endif
+
+#ifndef OFFLINE_IMAGE_BASE_ADDRESS
+#define OFFLINE_IMAGE_BASE_ADDRESS  0x44000000
+#endif
+
+#ifndef DISP_RALPHA0_ADDR
+#define DISP_RALPHA0_ADDR           (0x80700000 - (DISP_IMAGE_WIDTH * DISP_IMAGE_HEIGHT * 1))
+#endif
+
+#ifndef DISP_RALPHA1_ADDR
+#define DISP_RALPHA1_ADDR           (0x80700000 - (DISP_IMAGE_WIDTH * DISP_IMAGE_HEIGHT * 2))
+#endif
+
+#ifndef DISP_RFRAME0_ADDR
+#define DISP_RFRAME0_ADDR           (0x80700000 - (SNAP_IMAGE_WIDTH * SNAP_IMAGE_HEIGHT * 4))
+#endif
+
+#ifndef DISP_RFRAME1_ADDR
+#define DISP_RFRAME1_ADDR           (0x80700000 - (SNAP_IMAGE_WIDTH * SNAP_IMAGE_HEIGHT * 6))
+#endif
+
+#ifndef DISP_WFRAME0_ADDR
+#define DISP_WFRAME0_ADDR           (0x80700000 - (SNAP_IMAGE_WIDTH * SNAP_IMAGE_HEIGHT * 8))
+#endif
+
+#ifndef DISP_WFRAME1_ADDR
+#define DISP_WFRAME1_ADDR           (0x80700000 - (SNAP_IMAGE_WIDTH * SNAP_IMAGE_HEIGHT * 10))
 #endif
 
 #ifdef __cplusplus
