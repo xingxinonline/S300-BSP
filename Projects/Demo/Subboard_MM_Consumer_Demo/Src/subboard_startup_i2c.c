@@ -14,21 +14,18 @@ static volatile uint8_t g_reg_map[SUBBOARD_REG_MAP_SIZE];
 static volatile uint8_t g_reg_addr;
 static volatile uint8_t g_tx_index;
 static volatile uint8_t g_first_byte;
-static volatile subboard_startup_i2c_debug_stats_t g_debug_stats;
 
 void I2C1_IRQHandler(void)
 {
     uint32_t status = I2C_INTR_STAT(EM_I2C1);
 
     if ((status & EM_I2C_START_DET) != 0u) {
-        g_debug_stats.start_det_count++;
         (void)I2C_CLR_START_DET(EM_I2C1);
         g_first_byte = 1u;
     }
 
     if ((status & EM_I2C_RX_FULL) != 0u) {
         uint8_t data = i2c_slave_recv_byte(EM_I2C1);
-        g_debug_stats.rx_full_count++;
         if (g_first_byte != 0u) {
             g_reg_addr = data;
             g_tx_index = data;
@@ -37,30 +34,23 @@ void I2C1_IRQHandler(void)
             g_reg_map[g_reg_addr] = data;
             g_reg_addr++;
         }
-        g_debug_stats.current_reg_addr = g_reg_addr;
-        g_debug_stats.current_tx_index = g_tx_index;
     }
 
     if ((status & EM_I2C_RD_REQ) != 0u) {
-        g_debug_stats.rd_req_count++;
         (void)I2C_CLR_RD_REQ(EM_I2C1);
         i2c_slave_send_byte(EM_I2C1, g_reg_map[g_tx_index]);
         g_tx_index++;
-        g_debug_stats.current_tx_index = g_tx_index;
     }
 
     if ((status & EM_I2C_RX_DONE) != 0u) {
-        g_debug_stats.rx_done_count++;
         (void)I2C_CLR_RX_DONE(EM_I2C1);
     }
 
     if ((status & EM_I2C_STOP_DET) != 0u) {
-        g_debug_stats.stop_det_count++;
         (void)I2C_CLR_STOP_DET(EM_I2C1);
     }
 
     if ((status & EM_I2C_RESTART_DET) != 0u) {
-        g_debug_stats.restart_det_count++;
         (void)I2C_CLR_RESTART_DET(EM_I2C1);
     }
 }
@@ -70,7 +60,6 @@ int subboard_startup_i2c_init(uint8_t slave_addr)
     i2c_slave_config_t cfg;
 
     memset((void *)g_reg_map, 0, sizeof(g_reg_map));
-    memset((void *)&g_debug_stats, 0, sizeof(g_debug_stats));
     g_reg_addr = 0u;
     g_tx_index = 0u;
     g_first_byte = 1u;
@@ -200,25 +189,4 @@ void subboard_startup_i2c_clear_command(void)
     g_reg_map[SUBBOARD_STARTUP_REG_CMD] = SUBBOARD_STARTUP_CMD_NONE;
     g_reg_map[SUBBOARD_STARTUP_REG_CMD_ARG] = 0u;
     __enable_irq();
-}
-
-void subboard_startup_i2c_get_debug_stats(subboard_startup_i2c_debug_stats_t *stats)
-{
-    if (stats == NULL) {
-        return;
-    }
-
-    __disable_irq();
-    *stats = g_debug_stats;
-    __enable_irq();
-}
-
-uint8_t subboard_startup_i2c_peek_reg(uint8_t reg)
-{
-    uint8_t value;
-
-    __disable_irq();
-    value = g_reg_map[reg];
-    __enable_irq();
-    return value;
 }

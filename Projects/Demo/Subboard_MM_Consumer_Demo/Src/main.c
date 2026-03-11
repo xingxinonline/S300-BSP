@@ -102,7 +102,6 @@ static int start_mm_consumer(void)
 int main(void)
 {
     uint32_t last_heartbeat_ms;
-    uint32_t last_debug_ms;
     uint8_t last_logged_state;
 
     board_init();
@@ -135,7 +134,6 @@ int main(void)
            SUBBOARD_STARTUP_PROTO_VER);
 
     last_heartbeat_ms = millis();
-    last_debug_ms = millis();
     last_logged_state = 0xFFu;
 
     while (1) {
@@ -145,29 +143,6 @@ int main(void)
         if ((millis() - last_heartbeat_ms) >= 1000u) {
             subboard_startup_i2c_bump_heartbeat();
             last_heartbeat_ms = millis();
-        }
-
-        if ((millis() - last_debug_ms) >= 1000u) {
-            subboard_startup_i2c_debug_stats_t stats;
-
-            subboard_startup_i2c_get_debug_stats(&stats);
-            printf("[SUB-MM][I2CDBG] reg00=%02X reg01=%02X reg03=%02X reg04=%02X reg05=%02X reg07=%02X\r\n",
-                   subboard_startup_i2c_peek_reg(SUBBOARD_STARTUP_REG_STATUS),
-                   subboard_startup_i2c_peek_reg(SUBBOARD_STARTUP_REG_SYS_STATE),
-                   subboard_startup_i2c_peek_reg(SUBBOARD_STARTUP_REG_HEARTBEAT),
-                   subboard_startup_i2c_peek_reg(SUBBOARD_STARTUP_REG_PROTO_VER),
-                   subboard_startup_i2c_peek_reg(SUBBOARD_STARTUP_REG_REQUEST),
-                   subboard_startup_i2c_peek_reg(SUBBOARD_STARTUP_REG_REQUEST_ACK));
-            printf("[SUB-MM][I2CDBG] start=%lu rx=%lu rd=%lu done=%lu stop=%lu restart=%lu reg=%u tx=%u\r\n",
-                   (unsigned long)stats.start_det_count,
-                   (unsigned long)stats.rx_full_count,
-                   (unsigned long)stats.rd_req_count,
-                   (unsigned long)stats.rx_done_count,
-                   (unsigned long)stats.stop_det_count,
-                   (unsigned long)stats.restart_det_count,
-                   (unsigned)stats.current_reg_addr,
-                   (unsigned)stats.current_tx_index);
-            last_debug_ms = millis();
         }
 
         if (!g_master_mm_requested &&
