@@ -5,7 +5,7 @@
 #include "board.h"
 #include "camera_ov5640.h"
 #include "gpio.h"
-#include "i2c_soft.h"
+#include "i2c.h"
 #include "psram.h"
 #include "rcc.h"
 #include "s300.h"
@@ -22,7 +22,6 @@
 #define MASTER_POLL_MS    200u
 
 static volatile uint32_t g_tick_ms = 0u;
-static i2c_soft_t g_i2c;
 static bool g_i2c_ready = false;
 static bool g_video_prepared = false;
 static bool g_prepare_sent = false;
@@ -80,55 +79,64 @@ static const char *request_name(uint8_t request)
 
 static int master_i2c_init(void)
 {
-    i2c_soft_cfg_t cfg;
+    uint32_t apb_clk;
     int ret;
 
-    cfg.port = GPIOA;
-    cfg.pin_scl = 0u;
-    cfg.pin_sda = 1u;
-    cfg.func_scl = FUNCTION_2;
-    cfg.func_sda = FUNCTION_2;
-    cfg.pull_mode = GPIO_UP;
-    cfg.bus_hz = MASTER_I2C_BUS_HZ;
-
     set_cortex_m4_apb1_clock(RCC_CM4_APB1_GPIO, true);
-    ret = i2c_soft_init(&g_i2c, &cfg, SystemCoreClock);
+    set_cortex_m4_apb1_clock(RCC_CM4_APB1_I2C1, true);
+    gpio_set_function(GPIOA, 0u, FUNCTION_3);
+    gpio_set_mode(GPIOA, 0u, GPIO_UP);
+    gpio_set_function(GPIOA, 1u, FUNCTION_3);
+    gpio_set_mode(GPIOA, 1u, GPIO_UP);
+
+    apb_clk = rcc_get_clock(RCC_CLOCK_APB1);
+    ret = init_i2c(EM_I2C1,
+                   EM_I2C_MASTER | EM_I2C_100K | EM_I2C_RESTART_EN,
+                   SUBBOARD_STARTUP_SLAVE_ADDR_CARD1,
+                   apb_clk,
+                   MASTER_I2C_BUS_HZ);
     if (ret != 0) {
         printf("[MASTER] i2c init failed=%d\r\n", ret);
         return -1;
     }
 
-    i2c_soft_bus_recover(&g_i2c);
+    i2c_reset_stats(EM_I2C1);
     g_i2c_ready = true;
     return 0;
 }
 
 static int read_reg8(uint8_t reg, uint8_t *value)
 {
+    int ret;
+
     if ((value == NULL) || !g_i2c_ready) {
         return -1;
     }
 
-    return i2c_soft_mem_read(&g_i2c,
-                             SUBBOARD_STARTUP_SLAVE_ADDR_CARD1,
-                             reg,
-                             false,
-                             value,
-                             1u);
+    ret = i2c_read(EM_I2C1,
+                   SUBBOARD_STARTUP_SLAVE_ADDR_CARD1,
+                   reg,
+                   EM_BOOL_FALSE,
+                   value,
+                   1u);
+    return (ret > 0) ? 0 : ret;
 }
 
 static int write_reg8(uint8_t reg, uint8_t value)
 {
+    int ret;
+
     if (!g_i2c_ready) {
         return -1;
     }
 
-    return i2c_soft_mem_write(&g_i2c,
-                              SUBBOARD_STARTUP_SLAVE_ADDR_CARD1,
-                              reg,
-                              false,
-                              &value,
-                              1u);
+    ret = i2c_write(EM_I2C1,
+                    SUBBOARD_STARTUP_SLAVE_ADDR_CARD1,
+                    reg,
+                    EM_BOOL_FALSE,
+                    &value,
+                    1u);
+    return (ret > 0) ? 0 : ret;
 }
 
 static int send_prepare_video_cmd(void)
@@ -205,15 +213,14 @@ int main(void)
         uint8_t cmd_ack = SUBBOARD_STARTUP_CMD_NONE;
         uint8_t cmd_result = SUBBOARD_STARTUP_RESULT_OK;
 
-        if (i2c_soft_probe(&g_i2c, SUBBOARD_STARTUP_SLAVE_ADDR_CARD1) != 0) {
+        if (read_reg8(SUBBOARD_STARTUP_REG_PROTO_VER, &proto_ver) != 0) {
             printf("[MASTER] waiting subboard at 0x%02X\r\n", SUBBOARD_STARTUP_SLAVE_ADDR_CARD1);
             g_video_prepared = false;
             g_prepare_sent = false;
             goto next_poll;
         }
 
-        if ((read_reg8(SUBBOARD_STARTUP_REG_PROTO_VER, &proto_ver) == 0) &&
-            (proto_ver != last_proto_ver)) {
+        if (proto_ver != last_proto_ver) {
             printf("[MASTER] subboard online, proto=0x%02X\r\n", proto_ver);
             last_proto_ver = proto_ver;
         }
