@@ -7,6 +7,7 @@
 #include "control_proto.h"
 #include "face_detection_app.h"
 #include "face_detection_overlay.h"
+#include "face_detection_runtime_proto.h"
 #include "gpio.h"
 #include "mailbox.h"
 #include "mailbox_proto.h"
@@ -29,6 +30,8 @@
 #define FD_STREAM_ID_MAIN         0x01u
 #define FD_CONFIG_SLOT_ID         0x31u
 #define FD_BUFFER_SLOT_ID         0x41u
+#define FD_REQUIRED_VIDEO_RESOURCES \
+    (CONTROL_RESOURCE_CAMERA_READY | CONTROL_RESOURCE_MM_READY | CONTROL_RESOURCE_LCD_READY)
 
 typedef enum {
     FD_STATE_RESET = 0,
@@ -56,6 +59,7 @@ static uint32_t s_state_since_ms = 0u;
 static uint32_t s_last_hello_ms = 0u;
 static uint32_t s_last_resource_ms = 0u;
 static uint32_t s_last_heartbeat_ms = 0u;
+static uint8_t s_video_resource_flags = 0u;
 
 static uint32_t millis(void)
 {
@@ -114,16 +118,35 @@ static void fill_overlay_buffers(void)
     *(volatile uint32_t *)(DSP_VIDEO_SS_BASE + 0x50u) = 1u;
 }
 
-static void init_video_path(void)
+static void trigger_core_reg_update(void)
 {
+    REG32(DSP_VIDEO_SS_BASE + 0x70u) = 1u;
+}
+
+static void trigger_spi_reg_update(void)
+{
+    REG32(DSP_VIDEO_SS_BASE + 0x1E0u) = 1u;
+}
+
+static int init_video_path(void)
+{
+    uint8_t resource_flags = 0u;
     int cam_ret = camera_ov5640_preinit();
     if (cam_ret != 0) {
-        printf("[FD-SM][WARN] OV5640 init failed (%d), continue with display path only\r\n", cam_ret);
+        printf("[FD-SM][ERR] OV5640 init failed (%d), video resources not ready\r\n", cam_ret);
+        return -1;
     }
+
+    resource_flags |= CONTROL_RESOURCE_CAMERA_READY;
 
     printf("[FD-SM] init video\r\n");
     init_video(EM_DVP, APP_CAM_FMT, C1080X720P);
+    resource_flags |= CONTROL_RESOURCE_MM_READY | CONTROL_RESOURCE_LCD_READY;
+
     fill_overlay_buffers();
+
+    s_video_resource_flags = resource_flags;
+    return 0;
 }
 
 static void control_mailbox_prepare(void)
@@ -144,11 +167,48 @@ static void dsp_uart_init(void)
 
 static void log_video_resources_ready(void)
 {
-    printf("[FD-SM] Video resources ready: camera/MM/LCD\r\n");
+    printf("[FD-SM] CM4 video resources ready: camera=%u mm=%u lcd=%u\r\n",
+           (unsigned)((s_video_resource_flags & CONTROL_RESOURCE_CAMERA_READY) != 0u),
+           (unsigned)((s_video_resource_flags & CONTROL_RESOURCE_MM_READY) != 0u),
+           (unsigned)((s_video_resource_flags & CONTROL_RESOURCE_LCD_READY) != 0u));
+    printf("[FD-SM] waiting DSP runtime notify for CORE_REG_UPDATE / SPI_REG_UPDATE\r\n");
     printf("[FD-SM] Overlay %ux%u, detection_base=0x%08lX\r\n",
            (unsigned)DISP_IMAGE_WIDTH,
            (unsigned)DISP_IMAGE_HEIGHT,
            (unsigned long)DSP_DETECTION_BASE_ADDR);
+}
+
+static bool handle_runtime_message(uint32_t msg)
+{
+    uint32_t sync_req;
+
+    if (!fd_runtime_msg_is_mm_sync_req(msg)) {
+        return false;
+    }
+
+    if ((s_video_resource_flags & FD_REQUIRED_VIDEO_RESOURCES) != FD_REQUIRED_VIDEO_RESOURCES) {
+        printf("[FD-SM][WARN] ignore MM sync req=0x%08lX, video resources incomplete\r\n",
+               (unsigned long)msg);
+        return true;
+    }
+
+    sync_req = fd_runtime_msg_get_mm_sync_req(msg);
+    switch (sync_req) {
+    case FD_RT_SYNC_REQ_CORE_REG_UPDATE:
+        trigger_core_reg_update();
+        printf("[FD-SM] DSP requested CORE_REG_UPDATE, CM4 synced MM core registers\r\n");
+        return true;
+
+    case FD_RT_SYNC_REQ_SPI_REG_UPDATE:
+        trigger_spi_reg_update();
+        printf("[FD-SM] DSP requested SPI_REG_UPDATE, CM4 synced LCD SPI registers\r\n");
+        return true;
+
+    default:
+        printf("[FD-SM][WARN] unknown MM sync request payload=0x%08lX\r\n",
+               (unsigned long)sync_req);
+        return true;
+    }
 }
 
 static void dsp_start_new_session(void)
@@ -193,15 +253,17 @@ static void send_hello(void)
 
 static void send_resource_ready(void)
 {
-    uint8_t resource_flags = CONTROL_RESOURCE_CAMERA_READY |
-                             CONTROL_RESOURCE_MM_READY |
-                             CONTROL_RESOURCE_LCD_READY;
+    if ((s_video_resource_flags & FD_REQUIRED_VIDEO_RESOURCES) != FD_REQUIRED_VIDEO_RESOURCES) {
+        printf("[FD-SM][ERR] Skip SYS.CM4_RESOURCE_READY, CM4 video resources incomplete: flags=0x%02X\r\n",
+               (unsigned)s_video_resource_flags);
+        return;
+    }
 
     send_control_msg(
         CONTROL_SYS_CM4_RESOURCE_READY(
             s_session_id,
             CONTROL_INPUT_VIDEO,
-            resource_flags,
+            s_video_resource_flags,
             FD_CONFIG_SLOT_ID),
         "SYS.CM4_RESOURCE_READY");
 
@@ -358,6 +420,10 @@ static void process_mailbox(void)
             break;
         }
 
+        if (handle_runtime_message(msg)) {
+            continue;
+        }
+
         switch (CONTROL_GET_TYPE(msg)) {
         case CONTROL_MSG_TYPE_SYS:
         case CONTROL_MSG_TYPE_ACK:
@@ -459,8 +525,14 @@ static void step_state_machine(void)
 void face_detection_app_init(uint32_t (*get_millis_fn)(void))
 {
     s_get_millis = get_millis_fn;
+    s_video_resource_flags = 0u;
 
-    init_video_path();
+    if (init_video_path() != 0) {
+        enter_state(FD_STATE_ERROR);
+        printf("[FD-SM][ERR] Face detection demo requires CM4-owned camera/MM/LCD resources\r\n");
+        return;
+    }
+
     face_detection_overlay_init(get_millis_fn);
     control_mailbox_prepare();
     dsp_uart_init();

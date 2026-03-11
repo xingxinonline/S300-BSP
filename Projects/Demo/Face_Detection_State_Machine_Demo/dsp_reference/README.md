@@ -25,8 +25,25 @@
 2. 收到 `SYS.CM4_RESOURCE_READY(session, VIDEO, ...)` 后，初始化模型和结果缓冲，回复 `SYS.DSP_MODEL_READY`。
 3. 收到 `CMD.CONFIG_APPLY` 后回复 `ACK(kind=CMD, code=CONFIG_APPLY)`。
 4. 收到 `CMD.BUFFER_BIND` 后回复 `ACK(kind=CMD, code=BUFFER_BIND)`。
-5. 收到 `SYS.START_STREAM` 后回复 `ACK(kind=SYS, code=START_STREAM)` 并进入 `RUNNING`。
-6. `RUNNING` 状态下持续推理，并在每帧结束后发送结果通知。
+5. 如果需要 CM4 触发 MM/LCD 硬件同步，DSP 发送独立的运行时通知给 CM4，而不是直接写主板寄存器。
+6. 收到 `SYS.START_STREAM` 后回复 `ACK(kind=SYS, code=START_STREAM)` 并进入 `RUNNING`。
+7. `RUNNING` 状态下持续推理，并在每帧结束后发送结果通知。
+
+和 CM4 侧的对应关系建议保持严格对齐：
+
+| DSP 状态 | 对应的 CM4 观察点 | DSP 约束 |
+| --- | --- | --- |
+| `WAIT_HELLO` | CM4 处于 `HANDSHAKING` 并周期重发 `SYS.HELLO` | 不要做耗时初始化阻塞 `HELLO_ACK` |
+| `READY` | CM4 已收到 `HELLO_ACK`，即将发送 `SYS.CM4_RESOURCE_READY` | 接下来只接受当前 session 的资源声明 |
+| `RESOURCE_ACCEPTED` | CM4 正等待 `DSP_MODEL_READY` 和配置链路推进 | 发送 `DSP_MODEL_READY` 后继续处理 `CONFIG_APPLY`/`BUFFER_BIND` |
+| `CONFIGURED` | CM4 已发 `SYS.START_STREAM` | 准备推理资源，但不要提前发数据面结果 |
+| `RUNNING` | CM4 已收到 `ACK(START_STREAM)` 并开始 heartbeat | 才开始发送 `MAILBOX_MSG_TYPE_MULTI` 或 `NO_RESULT` |
+| `ERROR` | CM4 可能在 2 秒内放弃当前 session 并回到 `RESET` | 不要再对旧 session 发 ACK/状态 |
+
+DSP 侧最容易踩坑的点有两个：
+
+1. 不要在回 `HELLO_ACK` 之前做模型加载、共享内存清零、外设重建这类耗时操作。
+2. 一旦发现 CM4 的 session 已经变化，应立刻放弃旧状态并重新等待新的 `SYS.HELLO`。
 
 ## 2. DSP 必须支持的 mailbox 消息
 
@@ -52,6 +69,13 @@
 
 1. `MAILBOX_MSG_TYPE_MULTI | offset`
 2. 可选 `MAILBOX_MSG_TYPE_NO_RESULT`
+
+运行时同步通知：
+
+1. `FD_RT_MAKE_MM_SYNC_REQ(FD_RT_SYNC_REQ_CORE_REG_UPDATE)`
+2. `FD_RT_MAKE_MM_SYNC_REQ(FD_RT_SYNC_REQ_SPI_REG_UPDATE)`
+
+这两条通知需要分别发送，CM4 收到后分别写 `0x70` 和 `0x1E0`。
 
 ## 3. DetectionResult_t 的最小填写要求
 
@@ -122,6 +146,12 @@ for (;;) {
         }
 
         handle_control_message(msg);
+    }
+
+    if (g_state == RESOURCE_ACCEPTED) {
+        mailbox_write(FD_RT_MAKE_MM_SYNC_REQ(FD_RT_SYNC_REQ_CORE_REG_UPDATE));
+        mailbox_write(FD_RT_MAKE_MM_SYNC_REQ(FD_RT_SYNC_REQ_SPI_REG_UPDATE));
+        g_state = RUNNING;
     }
 
     if (g_state == RUNNING) {
