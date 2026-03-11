@@ -5,7 +5,7 @@
 #include "board.h"
 #include "camera_ov5640.h"
 #include "gpio.h"
-#include "i2c.h"
+#include "i2c_soft.h"
 #include "psram.h"
 #include "rcc.h"
 #include "s300.h"
@@ -20,8 +20,10 @@
 
 #define MASTER_I2C_BUS_HZ 100000u
 #define MASTER_POLL_MS    200u
+#define MASTER_I2C_RETRY    2u
 
 static volatile uint32_t g_tick_ms = 0u;
+static i2c_soft_t g_i2c;
 static bool g_i2c_ready = false;
 static bool g_video_prepared = false;
 static bool g_prepare_sent = false;
@@ -79,28 +81,25 @@ static const char *request_name(uint8_t request)
 
 static int master_i2c_init(void)
 {
-    uint32_t apb_clk;
+    i2c_soft_cfg_t cfg;
     int ret;
 
     set_cortex_m4_apb1_clock(RCC_CM4_APB1_GPIO, true);
-    set_cortex_m4_apb1_clock(RCC_CM4_APB1_I2C1, true);
-    gpio_set_function(GPIOA, 0u, FUNCTION_3);
-    gpio_set_mode(GPIOA, 0u, GPIO_UP);
-    gpio_set_function(GPIOA, 1u, FUNCTION_3);
-    gpio_set_mode(GPIOA, 1u, GPIO_UP);
+    cfg.port = GPIOA;
+    cfg.pin_scl = 0u;
+    cfg.pin_sda = 1u;
+    cfg.func_scl = FUNCTION_2;
+    cfg.func_sda = FUNCTION_2;
+    cfg.pull_mode = GPIO_UP;
+    cfg.bus_hz = MASTER_I2C_BUS_HZ;
 
-    apb_clk = rcc_get_clock(RCC_CLOCK_APB1);
-    ret = init_i2c(EM_I2C1,
-                   EM_I2C_MASTER | EM_I2C_100K | EM_I2C_RESTART_EN,
-                   SUBBOARD_STARTUP_SLAVE_ADDR_CARD1,
-                   apb_clk,
-                   MASTER_I2C_BUS_HZ);
+    ret = i2c_soft_init(&g_i2c, &cfg, SystemCoreClock);
     if (ret != 0) {
         printf("[MASTER] i2c init failed=%d\r\n", ret);
         return -1;
     }
 
-    i2c_reset_stats(EM_I2C1);
+    i2c_soft_bus_recover(&g_i2c);
     g_i2c_ready = true;
     return 0;
 }
@@ -108,35 +107,53 @@ static int master_i2c_init(void)
 static int read_reg8(uint8_t reg, uint8_t *value)
 {
     int ret;
+    uint32_t attempt;
 
     if ((value == NULL) || !g_i2c_ready) {
         return -1;
     }
 
-    ret = i2c_read(EM_I2C1,
-                   SUBBOARD_STARTUP_SLAVE_ADDR_CARD1,
-                   reg,
-                   EM_BOOL_FALSE,
-                   value,
-                   1u);
-    return (ret > 0) ? 0 : ret;
+    for (attempt = 0u; attempt < MASTER_I2C_RETRY; attempt++) {
+        ret = i2c_soft_mem_read(&g_i2c,
+                                SUBBOARD_STARTUP_SLAVE_ADDR_CARD1,
+                                reg,
+                                false,
+                                value,
+                                1u);
+        if (ret == 0) {
+            return 0;
+        }
+
+        i2c_soft_bus_recover(&g_i2c);
+    }
+
+    return -1;
 }
 
 static int write_reg8(uint8_t reg, uint8_t value)
 {
     int ret;
+    uint32_t attempt;
 
     if (!g_i2c_ready) {
         return -1;
     }
 
-    ret = i2c_write(EM_I2C1,
-                    SUBBOARD_STARTUP_SLAVE_ADDR_CARD1,
-                    reg,
-                    EM_BOOL_FALSE,
-                    &value,
-                    1u);
-    return (ret > 0) ? 0 : ret;
+    for (attempt = 0u; attempt < MASTER_I2C_RETRY; attempt++) {
+        ret = i2c_soft_mem_write(&g_i2c,
+                                 SUBBOARD_STARTUP_SLAVE_ADDR_CARD1,
+                                 reg,
+                                 false,
+                                 &value,
+                                 1u);
+        if (ret == 0) {
+            return 0;
+        }
+
+        i2c_soft_bus_recover(&g_i2c);
+    }
+
+    return -1;
 }
 
 static int send_prepare_video_cmd(void)
