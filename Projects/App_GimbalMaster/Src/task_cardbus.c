@@ -46,6 +46,7 @@ static TickType_t g_last_target_tick;
 static TickType_t g_last_gesture_tick;
 static uint8_t g_card1_start_sent;
 static uint8_t g_card1_wait_display_logged;
+static uint8_t g_card1_absent_logged;
 
 static bool post_event_safe(TrackEvent_t evt)
 {
@@ -161,13 +162,21 @@ static void task_cardbus_entry(void *arg)
             } else
 #endif
             {
-                if (i2c_cardbus_write_reg8(CARDBUS_CARD1_ADDR,
-                                           CARDBUS_REG_CMD,
-                                           CARDBUS_CMD_START_MM_DSP) == 0) {
-                    app_log_puts("[CARDBUS] card1 start command sent (after display ready)\r\n");
-                    g_card1_start_sent = 1u;
+                if (i2c_cardbus_probe(CARDBUS_CARD1_ADDR) < 0) {
+                    if (g_card1_absent_logged == 0u) {
+                        app_log_puts("[CARDBUS] card1 not detected, skip start command\r\n");
+                        g_card1_absent_logged = 1u;
+                    }
                 } else {
-                    app_log_puts("[CARDBUS] card1 start command failed\r\n");
+                    g_card1_absent_logged = 0u;
+                    if (i2c_cardbus_write_reg8(CARDBUS_CARD1_ADDR,
+                                               CARDBUS_REG_CMD,
+                                               CARDBUS_CMD_START_MM_DSP) == 0) {
+                        app_log_puts("[CARDBUS] card1 start command sent (after display ready)\r\n");
+                        g_card1_start_sent = 1u;
+                    } else {
+                        app_log_puts("[CARDBUS] card1 start command failed\r\n");
+                    }
                 }
             }
         }
@@ -221,6 +230,7 @@ int task_cardbus_init(void)
     g_last_gesture_tick = 0u;
     g_card1_start_sent = 0u;
     g_card1_wait_display_logged = 0u;
+    g_card1_absent_logged = 0u;
     memset(&g_snapshot, 0, sizeof(g_snapshot));
 
     return 0;

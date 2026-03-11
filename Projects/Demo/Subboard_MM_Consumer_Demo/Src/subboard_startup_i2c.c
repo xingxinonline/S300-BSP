@@ -91,12 +91,11 @@ int subboard_startup_i2c_init(uint8_t slave_addr)
     /*
      * 当前主板/子板 bring-up 链路按实际连线走 I2C1 <-> I2C1。
      * gimbal_node 板级头目前未抽象 I2C1 通信宏，这里先按固定管脚配置。
+        * 初始化方式保持与 App_Card1_HumanDetection 的 I2C1 从机实现一致。
      */
     rcc_set_cortex_m4_apb1_clock(RCC_CM4_APB1_I2C1, true);
     gpio_set_function(GPIOA, 0u, FUNCTION_3);
-    gpio_set_mode(GPIOA, 0u, GPIO_UP);
     gpio_set_function(GPIOA, 1u, FUNCTION_3);
-    gpio_set_mode(GPIOA, 1u, GPIO_UP);
 
     cfg.slave_addr = slave_addr;
     cfg.speed = EM_I2C_400K;
