@@ -156,6 +156,31 @@ static int write_reg8(uint8_t reg, uint8_t value)
     return -1;
 }
 
+static void dump_startup_regs_once(void)
+{
+    const uint8_t regs[] = {
+        SUBBOARD_STARTUP_REG_STATUS,
+        SUBBOARD_STARTUP_REG_SYS_STATE,
+        SUBBOARD_STARTUP_REG_ERROR_CODE,
+        SUBBOARD_STARTUP_REG_HEARTBEAT,
+        SUBBOARD_STARTUP_REG_PROTO_VER,
+        SUBBOARD_STARTUP_REG_REQUEST,
+        SUBBOARD_STARTUP_REG_REQUEST_ARG,
+        SUBBOARD_STARTUP_REG_REQUEST_ACK,
+    };
+    uint8_t value;
+
+    printf("[MASTER][I2CDBG]");
+    for (uint32_t i = 0; i < (sizeof(regs) / sizeof(regs[0])); i++) {
+        if (read_reg8(regs[i], &value) == 0) {
+            printf(" reg%02X=%02X", regs[i], value);
+        } else {
+            printf(" reg%02X=ERR", regs[i]);
+        }
+    }
+    printf("\r\n");
+}
+
 static int send_prepare_video_cmd(void)
 {
     if (write_reg8(SUBBOARD_STARTUP_REG_CMD_ARG, 0u) != 0) {
@@ -194,6 +219,7 @@ static int video_path_prepare(void)
 
 int main(void)
 {
+    uint32_t last_debug_ms;
     uint8_t last_proto_ver = 0xFFu;
     uint8_t last_state = 0xFFu;
     uint8_t last_error = 0xFFu;
@@ -220,6 +246,8 @@ int main(void)
         }
     }
 
+    last_debug_ms = millis();
+
     while (1) {
         uint8_t proto_ver = 0u;
         uint8_t state = SUBBOARD_STARTUP_STATE_BOOT;
@@ -239,7 +267,13 @@ int main(void)
 
         if (proto_ver != last_proto_ver) {
             printf("[MASTER] subboard online, proto=0x%02X\r\n", proto_ver);
+            dump_startup_regs_once();
             last_proto_ver = proto_ver;
+        }
+
+        if ((millis() - last_debug_ms) >= 1000u) {
+            dump_startup_regs_once();
+            last_debug_ms = millis();
         }
 
         (void)read_reg8(SUBBOARD_STARTUP_REG_SYS_STATE, &state);
