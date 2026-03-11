@@ -10,9 +10,10 @@ s300_add_executable(
     TARGET s300_subboard_mm_consumer_demo
     SOURCES
         Src/main.c
+        Src/subboard_dsp_ctrl.c
         Src/subboard_startup_i2c.c
-    DRIVERS rcc gpio uart mm psram i2c
-    INCLUDES . Inc ${CMAKE_SOURCE_DIR}/Projects/Demo/Subboard_Bringup_Common
+    DRIVERS rcc gpio uart mm psram i2c mailbox
+    INCLUDES . Inc ${CMAKE_SOURCE_DIR}/Projects/Demo/Subboard_Bringup_Common ${CMAKE_SOURCE_DIR}/Algorithm_Models/protocol
     DBG_NAME subboard_mm_consumer
     MM_ENABLE
 )
