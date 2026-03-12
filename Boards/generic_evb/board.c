@@ -36,13 +36,20 @@ void board_clock_init(void)
 
 void board_debug_uart_init(void)
 {
-    // 开启 UART 时钟
-    // 注意：当前仅适配 UART3，如需切换 UART0-2 需根据 IDX 修改时钟
-    if (BOARD_DEBUG_UART_IDX == 3) {
-        set_cortex_m4_apb1_clock(RCC_CM4_APB1_UART3, true);
-    } else {
-        // TODO: Handle other UART clocks
-        set_cortex_m4_apb1_clock(RCC_CM4_APB1_UART0, true); 
+    switch (BOARD_DEBUG_UART_IDX) {
+        case 0:
+            set_cortex_m4_apb1_clock(RCC_CM4_APB1_UART0, true);
+            break;
+        case 1:
+            set_cortex_m4_apb1_clock(RCC_CM4_APB1_UART1, true);
+            break;
+        case 2:
+            set_cortex_m4_apb1_clock(RCC_CM4_APB1_UART2, true);
+            break;
+        case 3:
+        default:
+            set_cortex_m4_apb1_clock(RCC_CM4_APB1_UART3, true);
+            break;
     }
 
     board_uart_pins_init();

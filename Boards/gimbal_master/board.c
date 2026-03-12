@@ -33,7 +33,10 @@ static void board_gpio_clock_init(void)
 }
 
 /**
- * @brief 配置调试 UART 引脚复用 (UART3: PA26/PA27)
+ * @brief 配置调试 UART 引脚复用
+ *
+ * 实际使用的 UART 及引脚由 BOARD_DEBUG_UART_* 宏决定。
+ * 对 gimbal_master 默认配置，CM4 printf 走 UART2: PA23/PA24。
  */
 static void board_debug_uart_pins_init(void)
 {

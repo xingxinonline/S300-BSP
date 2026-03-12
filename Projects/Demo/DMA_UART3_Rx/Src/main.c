@@ -8,29 +8,67 @@
 
 static uint8_t rx_buffer[32];
 
+static uart_idx_t demo_uart_idx(void)
+{
+    return (uart_idx_t)BOARD_DEBUG_UART_IDX;
+}
+
+static volatile uint32_t *demo_uart_rbr(void)
+{
+    switch (demo_uart_idx())
+    {
+    case UART_IDX0:
+        return &UART0->RBR_THR_DLL;
+    case UART_IDX1:
+        return &UART1->RBR_THR_DLL;
+    case UART_IDX2:
+        return &UART2->RBR_THR_DLL;
+    case UART_IDX3:
+    default:
+        return &UART3->RBR_THR_DLL;
+    }
+}
+
+static uint16_t demo_uart_rx_handshake(void)
+{
+    switch (demo_uart_idx())
+    {
+    case UART_IDX0:
+        return EM_HAND_UART0_RX;
+    case UART_IDX1:
+        return EM_HAND_UART1_RX;
+    case UART_IDX2:
+        return EM_HAND_UART2_RX;
+    case UART_IDX3:
+    default:
+        return EM_HAND_UART3_RX;
+    }
+}
+
 int main(void)
 {
-    board_debug_uart_init(); /* UART3 用于 printf 重定向 */
-    printf("[DMA_UART3_Rx] start (UART3 is printf too)\n");
-    rcc_set_cortex_m4_sys_clock(1, 0, 1, true); /* 打开 DMA0 */
-    set_cortex_m4_apb1_clock(RCC_CM4_APB1_UART3, true);
-    /* 将 UART3 置为 DMA 模式，RX 触发阈值 1 字节，开启 FIFO */
-    uart_set_fifo(UART_IDX3, (uart_fifo_t)(UART_FIFO_RX_1B | UART_FIFO_TX_1_2 | UART_FIFO_DMAMODE | UART_FIFO_TX_RESET | UART_FIFO_RX_RESET | UART_FIFO_EN));
+    board_init();
+    printf("[DMA_UART_Rx] start on UART%u\n", (unsigned)demo_uart_idx());
+
+    rcc_set_cortex_m4_sys_clock(1, 0, 1, true);
+    uart_set_fifo(demo_uart_idx(), (uart_fifo_t)(UART_FIFO_RX_1B | UART_FIFO_TX_1_2 | UART_FIFO_DMAMODE | UART_FIFO_TX_RESET | UART_FIFO_RX_RESET | UART_FIFO_EN));
     memset(rx_buffer, 0, sizeof(rx_buffer));
     if (dma_init(DMA_IDX0) != 0)
     {
         printf("dma_init failed\n");
         for (;;) __WFI();
     }
-    /* 配置通道0：外设(UART3 RBR) -> 内存，源保持，目的递增，8bit 宽度 */
-    dma_set_std(DMA_IDX0, 0, (uint32_t)&UART3->RBR_THR_DLL, (uint32_t)rx_buffer, 16, DMA_WIDTH_8);
-    /* UART 接收建议突发=1，避免一次握手读取多字节导致读到0 */
+
+    /* 使用板级调试 UART 做 DMA 接收，避免额外依赖板型专用引脚配置。 */
+    dma_set_std(DMA_IDX0, 0, (uint32_t)demo_uart_rbr(), (uint32_t)rx_buffer, 16, DMA_WIDTH_8);
     dma_set_burst(DMA_IDX0, 0, DMA_MSIZE_1, DMA_MSIZE_1);
     dma_set_increment(DMA_IDX0, 0, DMA_ADDR_KEEP, DMA_ADDR_INC);
     dma_set_transfer_type(DMA_IDX0, 0, DMA_TR_TYPE_P2M_FD);
-    /* 绑定握手：源为 UART3_RX；目的为内存无需编号 */
-    dma_set_handshaking(DMA_IDX0, 0, 6 /* 假定 UART3_RX 为 6，需与芯片手册映射一致 */, 0xF);
-    printf("Please type 16 bytes on UART3...\n");
+
+    /* 绑定 DMA 握手到当前调试 UART 的 RX 通道，目的端为内存无需握手。 */
+    dma_set_handshaking(DMA_IDX0, 0, demo_uart_rx_handshake(), EM_HAND_NULL);
+    printf("Please type 16 bytes on UART%u...\n", (unsigned)demo_uart_idx());
+
     dma_start(DMA_IDX0, 0);
     while (dma_is_busy(DMA_IDX0, 0)) { /* busy wait */ }
     printf("Received (%d): ", 16);
