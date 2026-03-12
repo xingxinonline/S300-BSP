@@ -15,6 +15,7 @@
 
 # 但是保留算法模型目录下的 bin 文件
 !Algorithm_Models/**/*.bin
+!Projects/Demo/Subboard_MM_Consumer_Demo/dsp_bin/*.bin
 
 # 构建目录
 build/
