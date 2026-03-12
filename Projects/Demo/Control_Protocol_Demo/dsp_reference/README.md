@@ -2,7 +2,7 @@
 
 本文档用于指导 DSP 侧实现与 `s300_control_protocol_demo` 对应的联调 Demo。
 
-DSP 编译完成后，请将生成的 `model_ptcm_boot.bin` 和 `model_dtcm_boot.bin` 放入同级目录 `../dsp_bin/`，供 CM4 侧调试脚本和镜像打包使用。
+DSP 编译完成后，请将生成的 `model_ptcm_boot.bin` 和 `model_dtcm_boot.bin` 放入同级目录 `../model_bin/`，供 CM4 侧调试脚本和镜像打包使用。
 
 目标不是实现 AI 推理，而是实现一套最小可运行的 DSP 控制面状态机，使 CM4 侧能够完整走通：
 

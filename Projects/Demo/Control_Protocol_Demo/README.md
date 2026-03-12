@@ -19,7 +19,7 @@
 
 1. `Src/main.c`：CM4 侧伪状态机实现
 2. `dsp_reference/README.md`：DSP 侧实现指引
-3. `dsp_bin/README.md`：DSP bin 放置约定
+3. `model_bin/README.md`：DSP bin 放置约定
 4. `Algorithm_Models/protocol/control_proto.h`：共享协议头
 
 构建目标：
@@ -32,5 +32,5 @@
 
 1. 该 Demo 已进行 CM4 侧编译验证
 2. 运行时需要 DSP 按照 `dsp_reference/README.md` 实现对应的协议响应
-3. 本 Demo 使用独立的 `dsp_bin/` 目录存放 DSP 镜像，避免与其他 Demo 混用
-4. 替换 `dsp_bin/` 中的 bin 后，无需手动重新配置 CMake；重新执行 `dbg_control_protocol` 即会刷新加载脚本
+3. 本 Demo 使用独立的 `model_bin/` 目录存放 DSP 镜像，避免与其他 Demo 混用
+4. 替换 `model_bin/` 中的 bin 后，无需手动重新配置 CMake；重新执行 `dbg_control_protocol` 即会刷新加载脚本

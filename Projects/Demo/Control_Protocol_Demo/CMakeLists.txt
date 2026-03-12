@@ -3,17 +3,17 @@
 # =============================================================================
 
 # 使用方法:
-#   1. 将本 Demo 对应的 DSP bin 文件放到 dsp_bin/ 目录
+#   1. 将本 Demo 对应的 DSP bin 文件放到 model_bin/ 目录
 #   2. 运行 ninja dbg_control_protocol 启动调试 (自动加载本 Demo 的 DSP bin)
 #
 # DSP bin 文件:
-#   - dsp_bin/model_ptcm_boot.bin  (DSP 程序代码, 加载到 0x44A00000)
-#   - dsp_bin/model_dtcm_boot.bin  (DSP 数据段, 加载到 0x44800000)
+#   - model_bin/model_ptcm_boot.bin  (DSP 程序代码, 加载到 0x44A00000)
+#   - model_bin/model_dtcm_boot.bin  (DSP 数据段, 加载到 0x44800000)
 
 cmake_minimum_required(VERSION 3.16)
 project(Control_Protocol_Demo)
 
-set(DSP_BIN_DIR ${CMAKE_CURRENT_SOURCE_DIR}/dsp_bin)
+set(DSP_BIN_DIR ${CMAKE_CURRENT_SOURCE_DIR}/model_bin)
 set(CONTROL_PROTOCOL_GDB_SCRIPT ${CMAKE_CURRENT_BINARY_DIR}/gdbinit.control_protocol.gdb)
 
 s300_add_executable(

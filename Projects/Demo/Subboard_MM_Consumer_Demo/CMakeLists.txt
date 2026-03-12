@@ -7,7 +7,7 @@ if(NOT BOARD STREQUAL "gimbal_node")
 endif()
 
 set(PROJECT_DIR ${CMAKE_CURRENT_SOURCE_DIR})
-set(DSP_BIN_DIR ${PROJECT_DIR}/dsp_bin)
+set(DSP_BIN_DIR ${PROJECT_DIR}/model_bin)
 
 s300_add_executable(
     TARGET s300_subboard_mm_consumer_demo

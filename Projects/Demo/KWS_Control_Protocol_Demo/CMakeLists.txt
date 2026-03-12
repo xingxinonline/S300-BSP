@@ -5,7 +5,7 @@ set(TARGET s300_kws_control_protocol_demo)
 set(PROJECT_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 set(ROOT ${PROJECT_DIR}/../../..)
 set(AUDIO_SHARED_DIR ${ROOT}/Projects/Demo/Audio_KWS_Demo/Src)
-set(DSP_BIN_DIR ${PROJECT_DIR}/dsp_bin)
+set(DSP_BIN_DIR ${PROJECT_DIR}/model_bin)
 set(KWS_CTRL_GDB_SCRIPT ${CMAKE_CURRENT_BINARY_DIR}/gdbinit.kws-control-protocol.gdb)
 
 if(BOARD STREQUAL "app_board" OR BOARD STREQUAL "gimbal_master")

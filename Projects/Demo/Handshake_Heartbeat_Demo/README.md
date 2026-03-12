@@ -44,7 +44,7 @@ Handshake_Heartbeat_Demo/
 ├── gdbinit.handshake.gdb.in        # GDB 脚本模板
 ├── Src/
 │   └── main.c                      # CM4 端主程序
-├── dsp_bin/                        # DSP 二进制文件目录
+├── model_bin/                      # DSP 二进制文件目录
 │   ├── README.md                   # DSP bin 文件说明
 │   ├── model_ptcm_boot.bin         # DSP 程序代码 (放置后自动检测)
 │   └── model_dtcm_boot.bin         # DSP 数据段 (放置后自动检测)
@@ -58,10 +58,10 @@ Handshake_Heartbeat_Demo/
 
 ### 1. 放置 DSP bin 文件
 
-将 DSP 编译生成的 bin 文件放到 `dsp_bin/` 目录：
+将 DSP 编译生成的 bin 文件放到 `model_bin/` 目录：
 
 ```
-dsp_bin/
+model_bin/
 ├── model_ptcm_boot.bin    # DSP 程序代码 → 加载到 0x44A00000
 └── model_dtcm_boot.bin    # DSP 数据段   → 加载到 0x44800000
 ```

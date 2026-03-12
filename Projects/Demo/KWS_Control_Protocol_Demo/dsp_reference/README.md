@@ -184,7 +184,7 @@ for (;;) {
 
 ## 8. DSP bin 输出建议
 
-本 Demo 使用独立的 `dsp_bin/` 目录，建议至少输出以下文件：
+本 Demo 使用独立的 `model_bin/` 目录，建议至少输出以下文件：
 
 1. `model_dtcm_boot.bin`
 2. `model_ptcm_boot.bin`
@@ -307,7 +307,7 @@ DSP 在 `main()` 里应优先完成：
 2. `Debug/model_ptcm_boot.bin`
 3. `Debug/model_sram1_boot.bin`
 
-已经重新由当前源码编译生成，并且已复制到本 Demo 的 `dsp_bin/` 目录。
+已经重新由当前源码编译生成，并且已复制到本 Demo 的 `model_bin/` 目录。
 
 ---
 

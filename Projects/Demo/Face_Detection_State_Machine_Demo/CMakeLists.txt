@@ -5,7 +5,7 @@ set(TARGET s300_face_detection_state_machine_demo)
 set(PROJECT_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 set(ROOT ${PROJECT_DIR}/../../..)
 set(SHARED_DETECTION_DIR ${ROOT}/Projects/Demo/Algorithm_Detection_Demo)
-set(DSP_BIN_DIR ${PROJECT_DIR}/dsp_bin)
+set(DSP_BIN_DIR ${PROJECT_DIR}/model_bin)
 set(FD_CTRL_GDB_SCRIPT ${CMAKE_CURRENT_BINARY_DIR}/gdbinit.face_detection_state_machine.gdb)
 
 s300_resolve_drivers(
@@ -71,4 +71,4 @@ add_s300_image(${TARGET}
     DSP_DIR ${DSP_BIN_DIR}
 )
 
-message(STATUS "Face_Detection_State_Machine_Demo: DSP bin dir = ${DSP_BIN_DIR}")
+message(STATUS "Face_Detection_State_Machine_Demo: model bin dir = ${DSP_BIN_DIR}")

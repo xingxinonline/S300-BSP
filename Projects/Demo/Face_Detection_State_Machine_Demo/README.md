@@ -153,7 +153,7 @@ CM4 在 `face_detection_app_tick()` 中先收 mailbox，再推进状态机。收
 2. `Src/face_detection_app.c`：CM4 控制面状态机、视频链路初始化。
 3. `Src/face_detection_overlay.c`：多目标叠框，只处理检测结果，不处理追踪语义。
 4. `dsp_reference/README.md`：DSP 最小实现指引。
-5. `dsp_bin/README.md`：DSP 固件放置约定。
+5. `model_bin/README.md`：DSP 固件放置约定。
 
 ## 当前数据面约定
 

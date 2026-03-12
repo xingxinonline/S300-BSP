@@ -8,14 +8,14 @@
 #   - DSP 由 CM4 Mailbox 消息触发打印 Heartbeat
 #
 # 使用方法:
-#   1. 将 DSP 编译好的 bin 文件放到 dsp_bin/ 目录
+#   1. 将 DSP 编译好的 bin 文件放到 model_bin/ 目录
 #   2. 重新配置 CMake
 #   3. 运行 ninja dbg_handshake_hb 启动调试 (自动加载 DSP bin)
 #   4. 观察串口输出，验证握手和 Heartbeat 功能
 #
 # DSP bin 文件:
-#   - dsp_bin/model_ptcm_boot.bin  (DSP 程序代码, 加载到 0x44A00000)
-#   - dsp_bin/model_dtcm_boot.bin  (DSP 数据段, 加载到 0x44800000)
+#   - model_bin/model_ptcm_boot.bin  (DSP 程序代码, 加载到 0x44A00000)
+#   - model_bin/model_dtcm_boot.bin  (DSP 数据段, 加载到 0x44800000)
 #
 # =============================================================================
 
@@ -23,7 +23,7 @@ cmake_minimum_required(VERSION 3.16)
 project(Handshake_Heartbeat_Demo)
 
 # DSP bin 目录
-set(DSP_BIN_DIR ${CMAKE_CURRENT_SOURCE_DIR}/dsp_bin)
+set(DSP_BIN_DIR ${CMAKE_CURRENT_SOURCE_DIR}/model_bin)
 
 # =============================================================================
 # 生成 GDB restore 命令的辅助函数

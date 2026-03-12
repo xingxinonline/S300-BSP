@@ -10,17 +10,17 @@
 
 1. Src/main.c：子板 CM4 启动入口、I2C 启动状态机、MM 启动、START_DSP 命令处理。
 2. Src/subboard_dsp_ctrl.c：子板 CM4 和本板 DSP 的 mailbox 控制面状态机。
-3. dsp_bin/README.md：本 Demo 本地 DSP 镜像目录约定。
+3. model_bin/README.md：本 Demo 本地 DSP 镜像目录约定。
 4. dsp_reference/README.md：DSP 侧最小实现约定和联调顺序。
 
 ## DSP 镜像目录约定
 
 本 Demo 现在支持两种 DSP 镜像来源，优先级如下：
 
-1. 优先使用本目录下的 dsp_bin/。
-2. 如果本地 dsp_bin/ 不完整，则回退到 Algorithm_Models/Face_Detection。
+1. 优先使用本目录下的 model_bin/。
+2. 如果本地 model_bin/ 不完整，则回退到 Algorithm_Models/Face_Detection。
 
-本地 dsp_bin/ 至少需要以下文件：
+本地 model_bin/ 至少需要以下文件：
 
 1. model_ptcm_boot.bin
 2. model_dtcm_boot.bin

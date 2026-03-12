@@ -2,7 +2,7 @@
 
 请将本 Demo 对应的 DSP 工程编译产物放置在本目录下。
 
-不同 Demo 的 DSP 固件不应混放，因此 `Control_Protocol_Demo` 使用独立的 `dsp_bin/` 目录。
+不同 Demo 的 DSP 固件不应混放，因此 `Control_Protocol_Demo` 使用独立的 `model_bin/` 目录。
 
 ## 期望文件
 
