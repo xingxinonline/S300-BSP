@@ -21,7 +21,6 @@
 #define SUB_DSP_STREAM_ID_MAIN        0x01u
 #define SUB_DSP_CONFIG_SLOT_ID        0x31u
 #define SUB_DSP_BUFFER_SLOT_ID        0x41u
-#define SUB_DSP_RESOURCE_FLAGS        (CONTROL_RESOURCE_MM_READY)
 
 #define SUB_DSP_REQ_MASK_MM_RUNTIME   (1u << 0)
 
@@ -46,6 +45,7 @@ static uint32_t (*s_get_millis)(void) = 0;
 static SubboardDspState_t s_state = SUB_DSP_STATE_IDLE;
 static SubboardDspPending_t s_pending = SUB_DSP_PENDING_NONE;
 static bool s_mm_ready = false;
+static uint8_t s_resource_flags = 0u;
 static subboard_detection_result_t s_latest_result;
 static uint8_t s_session_id = 0u;
 static uint8_t s_heartbeat_seq = 0u;
@@ -263,9 +263,15 @@ static void send_resource_ready(void)
         CONTROL_SYS_CM4_RESOURCE_READY(
             s_session_id,
             CONTROL_INPUT_VIDEO,
-            SUB_DSP_RESOURCE_FLAGS,
+            s_resource_flags,
             SUB_DSP_CONFIG_SLOT_ID),
         "SYS.CM4_RESOURCE_READY");
+
+    printf("[SUB-DSP] TX RESOURCE_READY flags=0x%02X (camera=%u mm=%u lcd=%u)\r\n",
+           (unsigned)s_resource_flags,
+           (unsigned)((s_resource_flags & CONTROL_RESOURCE_CAMERA_READY) != 0u),
+           (unsigned)((s_resource_flags & CONTROL_RESOURCE_MM_READY) != 0u),
+           (unsigned)((s_resource_flags & CONTROL_RESOURCE_LCD_READY) != 0u));
 
     s_last_resource_ms = millis();
 }
@@ -578,6 +584,11 @@ void subboard_dsp_ctrl_reset(void)
 void subboard_dsp_ctrl_set_mm_ready(bool ready)
 {
     s_mm_ready = ready;
+}
+
+void subboard_dsp_ctrl_set_resource_flags(uint8_t resource_flags)
+{
+    s_resource_flags = resource_flags;
 }
 
 int subboard_dsp_ctrl_start(void)

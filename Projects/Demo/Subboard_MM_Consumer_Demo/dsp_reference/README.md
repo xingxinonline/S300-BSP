@@ -45,6 +45,16 @@ DSP 上电后，至少要完成以下顺序：
 2. 子板 CM4 不再区分 CORE 或 SPI 请求类型，而是统一转成主板侧 `REQUEST_MASTER_MM_RUNTIME`。
 3. 主板 CM4 根据板型决定是否只写核心寄存器，或同时补 SPI 寄存器同步。
 
+## 5.1 资源标志语义
+
+子板 DSP 仍然应该依赖 `SYS.CM4_RESOURCE_READY` 里的完整视频资源标志，而不是只看本地 `MM_READY`：
+
+1. `CONTROL_RESOURCE_MM_READY` 表示子板本地 MM 路径已经初始化完成。
+2. `CONTROL_RESOURCE_CAMERA_READY` 表示主板侧摄像头链路已经准备完成，并由子板 CM4 同步汇总给 DSP。
+3. `CONTROL_RESOURCE_LCD_READY` 表示主板侧显示/视频输出链路已经准备完成，并由子板 CM4 同步汇总给 DSP。
+
+也就是说，子板 DSP 对资源标志的依赖关系和单板人脸检测仍保持一致，只是 camera/lcd 资源的拥有者从“本板 CM4”变成了“主板完成后由子板 CM4 转述”。
+
 ## 6. 共享内存与协议来源
 
 1. 检测结果结构：Algorithm_Models/protocol/detection_proto.h。

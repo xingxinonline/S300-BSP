@@ -13,6 +13,7 @@ extern "C" {
 void subboard_dsp_ctrl_init(uint32_t (*get_millis_fn)(void));
 void subboard_dsp_ctrl_reset(void);
 void subboard_dsp_ctrl_set_mm_ready(bool ready);
+void subboard_dsp_ctrl_set_resource_flags(uint8_t resource_flags);
 int subboard_dsp_ctrl_start(void);
 void subboard_dsp_ctrl_tick(void);
 bool subboard_dsp_ctrl_is_active(void);

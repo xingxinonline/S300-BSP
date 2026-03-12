@@ -50,4 +50,4 @@ CMake 会为 s300_subboard_mm_consumer_demo 生成带 DSP 固件的 S300 镜像�
 4. ACK(BUFFER_BIND)
 5. ACK(START_STREAM)
 
-运行态结果上报沿用 detection_proto.h，运行态同步请求沿用 subboard_runtime_proto.h。DSP 现在只发送统一 MM 运行态使能请求，再由主板 CM4 根据板型决定具体寄存器写入。
+运行态结果上报沿用 detection_proto.h，运行态同步请求沿用 subboard_runtime_proto.h。子板 DSP 仍然依赖完整视频资源标志，只是这些标志由子板 CM4 汇总后再上报：本地 `MM_READY` 来自子板自身初始化，`CAMERA_READY` 和 `LCD_READY` 来自主板视频链路已经授权就绪的同步语义。

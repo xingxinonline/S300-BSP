@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "board.h"
+#include "control_proto.h"
 #include "psram.h"
 #include "rcc.h"
 #include "s300.h"
@@ -25,6 +26,22 @@ static bool g_master_mm_requested = false;
 static bool g_master_mm_granted = false;
 static uint8_t g_active_request = SUBBOARD_STARTUP_REQ_NONE;
 static subboard_detection_result_t g_last_published_result;
+
+static void refresh_dsp_resource_flags(void)
+{
+    uint8_t resource_flags = 0u;
+
+    if (g_master_mm_granted) {
+        resource_flags |= CONTROL_RESOURCE_CAMERA_READY;
+        resource_flags |= CONTROL_RESOURCE_LCD_READY;
+    }
+
+    if (g_mm_started) {
+        resource_flags |= CONTROL_RESOURCE_MM_READY;
+    }
+
+    subboard_dsp_ctrl_set_resource_flags(resource_flags);
+}
 
 void SysTick_Handler(void)
 {
@@ -112,6 +129,7 @@ static int start_mm_consumer(void)
 
     g_mm_started = true;
     subboard_dsp_ctrl_set_mm_ready(true);
+    refresh_dsp_resource_flags();
     return 0;
 }
 
@@ -120,6 +138,7 @@ static void reset_request_path(void)
     g_master_mm_requested = false;
     g_master_mm_granted = false;
     g_active_request = SUBBOARD_STARTUP_REQ_NONE;
+    refresh_dsp_resource_flags();
     subboard_startup_i2c_clear_request();
 }
 
@@ -160,6 +179,7 @@ static void consume_request_ack(uint8_t request_ack)
 
     if (g_active_request == SUBBOARD_STARTUP_REQ_MASTER_MM_ENABLE) {
         g_master_mm_granted = true;
+        refresh_dsp_resource_flags();
     } else {
         subboard_dsp_ctrl_complete_master_request(g_active_request);
     }
@@ -210,6 +230,7 @@ int main(void)
     printf("===========================================\r\n");
 
     subboard_dsp_ctrl_init(millis);
+    refresh_dsp_resource_flags();
     subboard_startup_i2c_update_result(&g_last_published_result);
 
     if (subboard_startup_i2c_init(SUBBOARD_STARTUP_SLAVE_ADDR_CARD1) != 0) {
@@ -345,6 +366,7 @@ int main(void)
             subboard_startup_i2c_set_error_code(SUBBOARD_STARTUP_ERR_NONE);
             subboard_dsp_ctrl_reset();
             subboard_dsp_ctrl_set_mm_ready(g_mm_started);
+            refresh_dsp_resource_flags();
             if (g_public_state == SUBBOARD_STARTUP_STATE_ERROR) {
                 if (g_mm_started && g_master_mm_granted) {
                     enter_public_state(SUBBOARD_STARTUP_STATE_MM_READY);
