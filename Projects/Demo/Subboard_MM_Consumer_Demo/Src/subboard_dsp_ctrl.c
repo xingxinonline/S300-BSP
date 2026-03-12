@@ -47,6 +47,7 @@ static SubboardDspPending_t s_pending = SUB_DSP_PENDING_NONE;
 static bool s_mm_ready = false;
 static uint8_t s_resource_flags = 0u;
 static subboard_detection_result_t s_latest_result;
+static bool s_proto_warned = false;
 static uint8_t s_session_id = 0u;
 static uint8_t s_heartbeat_seq = 0u;
 static uint8_t s_pending_master_requests = 0u;
@@ -82,6 +83,33 @@ static uint8_t score_to_u8(float score)
         value = 100;
     }
     return (uint8_t)value;
+}
+
+static bool is_supported_detection_version(uint32_t version)
+{
+    uint32_t major = version >> 8;
+    return (major == 0x02u) || (major == 0x03u);
+}
+
+static bool is_valid_detection_result_for_subboard(const DetectionResult_t *result)
+{
+    if (result == NULL) {
+        return false;
+    }
+
+    if (result->magic != DETECTION_RESULT_MAGIC) {
+        return false;
+    }
+
+    if (!is_supported_detection_version(result->version)) {
+        return false;
+    }
+
+    if (result->count > MAX_DETECTION_COUNT) {
+        return false;
+    }
+
+    return true;
 }
 
 static bool is_face_like_type(uint8_t raw_type)
@@ -128,9 +156,25 @@ static void update_result_from_multi(const DetectionResult_t *result)
     int best_idx;
     const DetectionBox_t *box;
 
-    if (!DETECTION_RESULT_IS_VALID(result)) {
+    if (!is_valid_detection_result_for_subboard(result)) {
+        if ((result != NULL) && !s_proto_warned) {
+            printf("[SUB-DSP][WARN] drop result: magic=0x%08lX version=0x%04lX count=%lu\r\n",
+                   (unsigned long)result->magic,
+                   (unsigned long)result->version,
+                   (unsigned long)result->count);
+            s_proto_warned = true;
+        }
         clear_latest_result();
         return;
+    }
+
+    if ((result->version >> 8) == 0x02u) {
+        static bool s_v2_logged = false;
+        if (!s_v2_logged) {
+            printf("[SUB-DSP] compatible protocol mode: DSP version=0x%04lX\r\n",
+                   (unsigned long)result->version);
+            s_v2_logged = true;
+        }
     }
 
     best_idx = find_best_face(result);
@@ -574,6 +618,7 @@ void subboard_dsp_ctrl_reset(void)
     s_pending = SUB_DSP_PENDING_NONE;
     s_heartbeat_seq = 0u;
     s_pending_master_requests = 0u;
+    s_proto_warned = false;
     clear_latest_result();
     s_state_since_ms = millis();
     s_last_hello_ms = 0u;
