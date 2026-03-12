@@ -106,6 +106,35 @@ static void dump_mm_video_regs(const char *tag)
            (unsigned long)reg_28);
 }
 
+static void trigger_core_reg_update(void)
+{
+    REG32(DSP_VIDEO_SS_BASE + 0x70u) = 1u;
+}
+
+#if !defined(BOARD_LCD_SPI_ENABLE_ON_INIT) || (BOARD_LCD_SPI_ENABLE_ON_INIT != 0)
+static void trigger_spi_reg_update(void)
+{
+    REG32(DSP_VIDEO_SS_BASE + 0x1E0u) = 1u;
+}
+#endif
+
+static void trigger_local_mm_runtime_enable(void)
+{
+    if (!g_mm_started) {
+        printf("[SUB-MM] skip local MM runtime enable: MM consumer not started\r\n");
+        return;
+    }
+
+    trigger_core_reg_update();
+
+#if defined(BOARD_LCD_SPI_ENABLE_ON_INIT) && (BOARD_LCD_SPI_ENABLE_ON_INIT == 0)
+    printf("[SUB-MM] applied local MM runtime enable: core only, local LCD SPI path disabled\r\n");
+#else
+    trigger_spi_reg_update();
+    printf("[SUB-MM] applied local MM runtime enable: core + lcd spi\r\n");
+#endif
+}
+
 __attribute__((used, noinline)) void subboard_dsp_image_load_point(void)
 {
     __asm volatile("" ::: "memory");
@@ -169,6 +198,10 @@ static void post_next_master_request(void)
 
     request = subboard_dsp_ctrl_peek_master_request();
     if (request != SUBBOARD_STARTUP_REQ_NONE) {
+        if (request == SUBBOARD_STARTUP_REQ_MASTER_MM_RUNTIME) {
+            trigger_local_mm_runtime_enable();
+        }
+
         subboard_startup_i2c_set_request(request, 0u);
         g_active_request = request;
         printf("[SUB-MM] REQUEST %s posted from DSP runtime notify\r\n",

@@ -354,7 +354,7 @@ static bool handle_runtime_message(uint32_t msg)
     }
 
     queue_master_request(SUBBOARD_STARTUP_REQ_MASTER_MM_RUNTIME);
-    printf("[SUB-DSP] DSP requested master MM runtime enable\r\n");
+    printf("[SUB-DSP] DSP requested MM runtime enable\r\n");
     return true;
 }
 

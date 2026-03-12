@@ -8,7 +8,7 @@
 2. 在模型和内部资源 ready 后上报 SYS.DSP_MODEL_READY。
 3. 接受 CONFIG_APPLY、BUFFER_BIND、START_STREAM，并返回 ACK。
 4. 运行态把检测结果写到共享内存，再通过 mailbox 通知 CM4。
-5. 当主板侧视频链路需要刷新时，只发送统一 MM 运行态使能请求。
+5. 当本地 MM 需要进入运行态时，只向子板 CM4 发送统一 MM 运行态使能请求。
 
 ## 2. 必须完成的最小握手顺序
 
@@ -42,15 +42,17 @@ DSP 上电后，至少要完成以下顺序：
 当前 gimbal_node 约束如下：
 
 1. DSP 发送 `SUBBOARD_RT_MAKE_MM_ENABLE_REQ()`。
-2. 子板 CM4 不再区分 CORE 或 SPI 请求类型，而是统一转成主板侧 `REQUEST_MASTER_MM_RUNTIME`。
-3. 主板 CM4 根据板型决定是否只写核心寄存器，或同时补 SPI 寄存器同步。
+2. 子板 CM4 先对本地 MM 执行运行态同步，再根据系统拓扑决定是否转成主板侧 `REQUEST_MASTER_MM_RUNTIME`。
+3. 主板 CM4 仅负责主板侧显示链路相关的 MM 同步，并根据板型决定是否只写核心寄存器，或同时补 SPI 寄存器同步。
+
+这里的边界是：DSP 不直接承担跨板同步语义。DSP 只表达“本地 MM 现在需要 enable”；是否需要继续通知主板，是子板 CM4 的判断逻辑。
 
 ## 5.1 资源标志语义
 
 子板 DSP 仍然应该依赖 `SYS.CM4_RESOURCE_READY` 里的完整视频资源标志，而不是只看本地 `MM_READY`：
 
 1. `CONTROL_RESOURCE_MM_READY` 表示子板本地 MM 路径已经初始化完成。
-2. `CONTROL_RESOURCE_CAMERA_READY` 表示主板侧摄像头链路已经准备完成，并由子板 CM4 同步汇总给 DSP。
+2. `CONTROL_RESOURCE_CAMERA_READY` 表示主板侧摄像头链路已经准备完成，并由子板 CM4 同步汇总给 DSP。因为子板没有本地 OV5640，主板 OV5640 ready 是子板 MM 可启动的前提。
 3. `CONTROL_RESOURCE_LCD_READY` 表示主板侧显示/视频输出链路已经准备完成，并由子板 CM4 同步汇总给 DSP。
 
 也就是说，子板 DSP 对资源标志的依赖关系和单板人脸检测仍保持一致，只是 camera/lcd 资源的拥有者从“本板 CM4”变成了“主板完成后由子板 CM4 转述”。
