@@ -106,8 +106,9 @@ static void dump_mm_video_regs(const char *tag)
            (unsigned long)reg_28);
 }
 
-void subboard_dsp_image_load_point(void)
+__attribute__((used, noinline)) void subboard_dsp_image_load_point(void)
 {
+    __asm volatile("" ::: "memory");
 }
 
 static int start_mm_consumer(void)
