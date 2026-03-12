@@ -7,7 +7,10 @@ if(NOT BOARD STREQUAL "gimbal_node")
 endif()
 
 set(PROJECT_DIR ${CMAKE_CURRENT_SOURCE_DIR})
+set(ROOT ${PROJECT_DIR}/../../..)
 set(DSP_BIN_DIR ${PROJECT_DIR}/model_bin)
+set(SUBBOARD_GDB_TEMPLATE ${CMAKE_CURRENT_SOURCE_DIR}/gdbinit.subboard_mm_consumer.gdb.in)
+set(SUBBOARD_GDB_SCRIPT ${CMAKE_CURRENT_BINARY_DIR}/gdbinit.subboard_mm_consumer.gdb)
 
 s300_add_executable(
     TARGET s300_subboard_mm_consumer_demo
@@ -18,6 +21,7 @@ s300_add_executable(
     DRIVERS rcc gpio uart mm psram i2c mailbox
     INCLUDES . Inc ${CMAKE_SOURCE_DIR}/Projects/Demo/Subboard_Bringup_Common ${CMAKE_SOURCE_DIR}/Algorithm_Models/protocol
     DBG_NAME subboard_mm_consumer
+    DBG_SCRIPT ${SUBBOARD_GDB_SCRIPT}
     MM_ENABLE
     NO_IMAGE
 )
@@ -34,6 +38,15 @@ if(EXISTS ${DSP_BIN_DIR}/model_dtcm_boot.bin AND
    EXISTS ${DSP_BIN_DIR}/model_ptcm_boot.bin)
     set(SUBBOARD_DSP_IMAGE_DIR ${DSP_BIN_DIR})
 endif()
+
+add_custom_command(TARGET s300_subboard_mm_consumer_demo POST_BUILD
+    COMMAND ${CMAKE_COMMAND}
+        -DDSP_BIN_DIR=${SUBBOARD_DSP_IMAGE_DIR}
+        -DTEMPLATE_FILE=${SUBBOARD_GDB_TEMPLATE}
+        -DOUTPUT_FILE=${SUBBOARD_GDB_SCRIPT}
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/generate_subboard_mm_consumer_gdb.cmake
+    COMMENT "Refreshing Subboard_MM_Consumer_Demo GDB script from current DSP bins"
+)
 
 add_s300_image(s300_subboard_mm_consumer_demo
     OUTPUT s300_subboard_mm_consumer_demo.bin

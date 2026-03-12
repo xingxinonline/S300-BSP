@@ -40,6 +40,17 @@ CMake 会为 s300_subboard_mm_consumer_demo 生成带 DSP 固件的 S300 镜像�
 
 最终镜像输出到 build/s300_subboard_mm_consumer_demo_gimbal_node.bin。
 
+## 调试加载说明
+
+如果使用 `dbg_subboard_mm_consumer` 调试子板，GDB 脚本现在会自动从当前选中的 DSP 镜像目录恢复 DSP bin：
+
+1. 优先使用 `model_bin/` 中的本地 DSP 产物。
+2. 如果本地核心 bin 不完整，则回退到 `Algorithm_Models/Face_Detection`。
+3. `model_dtcm_boot.bin`、`model_ptcm_boot.bin`、`model_sram0_boot.bin` 会在连接后立即恢复。
+4. `model_psram_boot.bin` 会在 `subboard_dsp_image_load_point()` 断点命中后恢复，确保子板本地 PSRAM 已初始化。
+
+如果调试日志里出现子板 DSP 持续重发 `SYS.HELLO` 且收不到 `HELLO_ACK`，优先检查是否使用了这条调试链，而不是只下载了 CM4 ELF。
+
 ## 运行时控制面摘要
 
 子板 DSP 需要和 CM4 完成以下控制面链路：

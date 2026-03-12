@@ -106,6 +106,10 @@ static void dump_mm_video_regs(const char *tag)
            (unsigned long)reg_28);
 }
 
+void subboard_dsp_image_load_point(void)
+{
+}
+
 static int start_mm_consumer(void)
 {
     int ret;
@@ -124,6 +128,7 @@ static int start_mm_consumer(void)
     }
 
     init_psram(4, 1);
+    subboard_dsp_image_load_point();
     init_video(EM_DVP, APP_CAM_FMT, C1080X720P);
     dump_mm_video_regs("after init_video");
 
