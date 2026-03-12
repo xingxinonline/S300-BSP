@@ -47,6 +47,43 @@ static uint32_t millis(void)
     return g_tick_ms;
 }
 
+static void card1_dump_mm_video_regs(const char *tag)
+{
+    uint32_t reg_20;
+    uint32_t reg_28;
+    uint32_t reg_30;
+    uint32_t reg_40;
+    uint32_t reg_58;
+
+    reg_20 = REG32(DSP_VIDEO_SS_BASE + 0x20);
+    reg_28 = REG32(DSP_VIDEO_SS_BASE + 0x28);
+    reg_30 = REG32(DSP_VIDEO_SS_BASE + 0x30);
+    reg_40 = REG32(DSP_VIDEO_SS_BASE + 0x40);
+    reg_58 = REG32(DSP_VIDEO_SS_BASE + 0x58);
+
+    printf("[CARD1][MMDBG] %s macro disp=%ux%u snap=%ux%u\r\n",
+        tag,
+        (unsigned)DISP_IMAGE_WIDTH,
+        (unsigned)DISP_IMAGE_HEIGHT,
+        (unsigned)SNAP_IMAGE_WIDTH,
+        (unsigned)SNAP_IMAGE_HEIGHT);
+    printf("[CARD1][MMDBG] %s reg20=0x%08lX disp=%lux%lu\r\n",
+        tag,
+        (unsigned long)reg_20,
+        (unsigned long)(reg_20 & 0xFFFFu),
+        (unsigned long)((reg_20 >> 16) & 0xFFFFu));
+    printf("[CARD1][MMDBG] %s reg28=0x%08lX snap=%lux%lu\r\n",
+        tag,
+        (unsigned long)reg_28,
+        (unsigned long)(reg_28 & 0xFFFFu),
+        (unsigned long)((reg_28 >> 16) & 0xFFFFu));
+    printf("[CARD1][MMDBG] %s reg30=0x%08lX reg40=0x%08lX reg58=0x%08lX\r\n",
+        tag,
+        (unsigned long)reg_30,
+        (unsigned long)reg_40,
+        (unsigned long)reg_58);
+}
+
 static int card1_wait_handshake_done(void)
 {
     uint32_t t0 = millis();
@@ -86,6 +123,7 @@ static int card1_start_mm_dsp(void)
 
     /* 子板不初始化 OV5640：仅消费主板经 CPLD 分发过来的视频流。 */
     init_video(EM_DVP, APP_CAM_FMT, C1080X720P);
+    card1_dump_mm_video_regs("after init_video");
 
     init_mailbox(MAILBOX_BASE, 4, MAILBOX_IRQ_NONE);
 
@@ -105,6 +143,8 @@ static int card1_start_mm_dsp(void)
     if (card1_wait_handshake_done() != 0) {
         return -1;
     }
+
+    card1_dump_mm_video_regs("after handshake");
 
     (void)write_mailbox(MAILBOX_BASE, MAILBOX_CMD_START_TRACK);
 
