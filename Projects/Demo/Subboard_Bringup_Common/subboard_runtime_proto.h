@@ -12,6 +12,8 @@ extern "C" {
 /*
  * 子板 DSP 运行时通知：DSP 不直接配置主板 MM/LCD 同步寄存器，
  * 而是通知子板 CM4，再由子板 CM4 通过 I2C 请求主板执行。
+ * 当前 gimbal_node 无本地 LCD，因此运行期应只使用 CORE_REG_UPDATE；
+ * SPI_REG_UPDATE 枚举值仅为协议兼容保留。
  */
 #define SUBBOARD_RT_MSG_TYPE_MM_SYNC_REQ      0x40000000u
 

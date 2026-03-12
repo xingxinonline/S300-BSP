@@ -1,6 +1,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 
 #include "board.h"
 #include "camera_ov5640.h"
@@ -9,6 +10,7 @@
 #include "psram.h"
 #include "rcc.h"
 #include "s300.h"
+#include "subboard_detection_result.h"
 #include "subboard_startup_proto.h"
 #include "video.h"
 
@@ -27,6 +29,8 @@ static i2c_soft_t g_i2c;
 static bool g_i2c_ready = false;
 static bool g_video_prepared = false;
 static bool g_prepare_sent = false;
+static bool g_start_dsp_sent = false;
+static subboard_detection_result_t g_last_result;
 
 void SysTick_Handler(void)
 {
@@ -130,6 +134,32 @@ static int read_reg8(uint8_t reg, uint8_t *value)
     return -1;
 }
 
+static int read_regs(uint8_t reg, uint8_t *buffer, uint32_t length)
+{
+    int ret;
+    uint32_t attempt;
+
+    if ((buffer == NULL) || (length == 0u) || !g_i2c_ready) {
+        return -1;
+    }
+
+    for (attempt = 0u; attempt < MASTER_I2C_RETRY; attempt++) {
+        ret = i2c_soft_mem_read(&g_i2c,
+                                SUBBOARD_STARTUP_SLAVE_ADDR_CARD1,
+                                reg,
+                                false,
+                                buffer,
+                                length);
+        if (ret == 0) {
+            return 0;
+        }
+
+        i2c_soft_bus_recover(&g_i2c);
+    }
+
+    return -1;
+}
+
 static int write_reg8(uint8_t reg, uint8_t value)
 {
     int ret;
@@ -167,6 +197,29 @@ static int send_prepare_video_cmd(void)
     }
 
     return 0;
+}
+
+static int send_start_dsp_cmd(void)
+{
+    if (write_reg8(SUBBOARD_STARTUP_REG_CMD_ARG, 0u) != 0) {
+        return -1;
+    }
+
+    if (write_reg8(SUBBOARD_STARTUP_REG_CMD, SUBBOARD_STARTUP_CMD_START_DSP) != 0) {
+        return -1;
+    }
+
+    return 0;
+}
+
+static void trigger_core_reg_update(void)
+{
+    REG32(DSP_VIDEO_SS_BASE + 0x70u) = 1u;
+}
+
+static void trigger_spi_reg_update(void)
+{
+    REG32(DSP_VIDEO_SS_BASE + 0x1E0u) = 1u;
 }
 
 static int video_path_prepare(void)
@@ -234,6 +287,7 @@ int main(void)
             printf("[MASTER] waiting subboard at 0x%02X\r\n", SUBBOARD_STARTUP_SLAVE_ADDR_CARD1);
             g_video_prepared = false;
             g_prepare_sent = false;
+            g_start_dsp_sent = false;
             goto next_poll;
         }
 
@@ -281,21 +335,28 @@ int main(void)
             last_cmd_result = cmd_result;
         }
 
-        if ((request == SUBBOARD_STARTUP_REQ_MASTER_MM_ENABLE) &&
-            (request_ack != SUBBOARD_STARTUP_REQ_MASTER_MM_ENABLE)) {
-            if (!g_video_prepared) {
-                if (video_path_prepare() != 0) {
-                    printf("[MASTER] video path prepare failed, waiting retry\r\n");
-                    goto next_poll;
+        if ((request != SUBBOARD_STARTUP_REQ_NONE) &&
+            (request_ack != request)) {
+            if (request == SUBBOARD_STARTUP_REQ_MASTER_MM_ENABLE) {
+                if (!g_video_prepared) {
+                    if (video_path_prepare() != 0) {
+                        printf("[MASTER] video path prepare failed, waiting retry\r\n");
+                        goto next_poll;
+                    }
+                    g_video_prepared = true;
                 }
-                g_video_prepared = true;
+            } else if (request == SUBBOARD_STARTUP_REQ_MASTER_CORE_SYNC) {
+                trigger_core_reg_update();
+                printf("[MASTER] executed REQUEST_MASTER_CORE_SYNC\r\n");
+            } else if (request == SUBBOARD_STARTUP_REQ_MASTER_SPI_SYNC) {
+                trigger_spi_reg_update();
+                printf("[MASTER] executed REQUEST_MASTER_SPI_SYNC\r\n");
             }
 
-            if (write_reg8(SUBBOARD_STARTUP_REG_REQUEST_ACK,
-                           SUBBOARD_STARTUP_REQ_MASTER_MM_ENABLE) == 0) {
-                printf("[MASTER] acknowledged REQUEST_MASTER_MM_ENABLE\r\n");
+            if (write_reg8(SUBBOARD_STARTUP_REG_REQUEST_ACK, request) == 0) {
+                printf("[MASTER] acknowledged %s\r\n", request_name(request));
             } else {
-                printf("[MASTER] failed to acknowledge REQUEST_MASTER_MM_ENABLE\r\n");
+                printf("[MASTER] failed to acknowledge %s\r\n", request_name(request));
             }
         }
 
@@ -314,6 +375,43 @@ int main(void)
 
         if (state == SUBBOARD_STARTUP_STATE_MM_READY) {
             printf("[MASTER] bring-up success: subboard MM_READY\r\n");
+        }
+
+        if (!g_start_dsp_sent &&
+            (state == SUBBOARD_STARTUP_STATE_MM_READY) &&
+            (cmd_ack == SUBBOARD_STARTUP_CMD_PREPARE_VIDEO) &&
+            (cmd_result == SUBBOARD_STARTUP_RESULT_OK)) {
+            if (send_start_dsp_cmd() == 0) {
+                printf("[MASTER] sent START_DSP\r\n");
+                g_start_dsp_sent = true;
+            } else {
+                printf("[MASTER] failed to send START_DSP\r\n");
+            }
+        }
+
+        if (state == SUBBOARD_STARTUP_STATE_RUNNING) {
+            subboard_detection_result_t result;
+
+            printf("[MASTER] bring-up success: subboard RUNNING\r\n");
+
+            if ((read_regs(SUBBOARD_STARTUP_REG_RESULT,
+                           (uint8_t *)&result,
+                           sizeof(result)) == 0) &&
+                (memcmp(&result, &g_last_result, sizeof(result)) != 0)) {
+                g_last_result = result;
+                if (result.valid != 0u) {
+                    printf("[MASTER] face result: count=%u conf=%u box=(%d,%d)-(%d,%d) face_id=%u\r\n",
+                           (unsigned)result.count,
+                           (unsigned)result.confidence,
+                           (int)result.x1,
+                           (int)result.y1,
+                           (int)result.x2,
+                           (int)result.y2,
+                           (unsigned)result.face_id);
+                } else {
+                    printf("[MASTER] face result cleared\r\n");
+                }
+            }
         }
 
 next_poll:

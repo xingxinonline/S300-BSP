@@ -121,6 +121,18 @@ void subboard_startup_i2c_set_error_code(uint8_t error_code)
     __enable_irq();
 }
 
+void subboard_startup_i2c_update_result(const subboard_detection_result_t *result)
+{
+    if (result == NULL) {
+        return;
+    }
+
+    __disable_irq();
+    g_reg_map[SUBBOARD_STARTUP_REG_STATUS] = result->valid;
+    memcpy((void *)&g_reg_map[SUBBOARD_STARTUP_REG_RESULT], result, sizeof(*result));
+    __enable_irq();
+}
+
 void subboard_startup_i2c_bump_heartbeat(void)
 {
     __disable_irq();

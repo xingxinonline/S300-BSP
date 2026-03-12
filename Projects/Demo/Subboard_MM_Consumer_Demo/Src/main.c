@@ -1,11 +1,13 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 
 #include "board.h"
 #include "psram.h"
 #include "rcc.h"
 #include "s300.h"
+#include "subboard_dsp_ctrl.h"
 #include "subboard_startup_i2c.h"
 #include "subboard_startup_proto.h"
 #include "video.h"
@@ -21,6 +23,8 @@ static uint8_t g_public_state = SUBBOARD_STARTUP_STATE_BOOT;
 static bool g_mm_started = false;
 static bool g_master_mm_requested = false;
 static bool g_master_mm_granted = false;
+static uint8_t g_active_request = SUBBOARD_STARTUP_REQ_NONE;
+static subboard_detection_result_t g_last_published_result;
 
 void SysTick_Handler(void)
 {
@@ -44,6 +48,17 @@ static const char *public_state_name(uint8_t state)
     case SUBBOARD_STARTUP_STATE_DSP_READY: return "DSP_READY";
     case SUBBOARD_STARTUP_STATE_RUNNING: return "RUNNING";
     case SUBBOARD_STARTUP_STATE_ERROR: return "ERROR";
+    default: return "UNKNOWN";
+    }
+}
+
+static const char *request_name(uint8_t request)
+{
+    switch (request) {
+    case SUBBOARD_STARTUP_REQ_NONE: return "NONE";
+    case SUBBOARD_STARTUP_REQ_MASTER_MM_ENABLE: return "REQUEST_MASTER_MM_ENABLE";
+    case SUBBOARD_STARTUP_REQ_MASTER_CORE_SYNC: return "REQUEST_MASTER_CORE_SYNC";
+    case SUBBOARD_STARTUP_REQ_MASTER_SPI_SYNC: return "REQUEST_MASTER_SPI_SYNC";
     default: return "UNKNOWN";
     }
 }
@@ -82,8 +97,8 @@ static int start_mm_consumer(void)
         return 0;
     }
 
-    printf("[SUB-MM] starting MM-only consumer path\r\n");
-    printf("[SUB-MM] OV5640 init skipped; LCD init skipped\r\n");
+    printf("[SUB-MM] starting MM consumer path\r\n");
+    printf("[SUB-MM] OV5640 init skipped; MM/SPI config mirrored from master, LCD SPI output disabled\r\n");
 
     ret = rcc_init_mm_pll(8, 400, 0, 3, 2);
     if (ret != RCC_STATUS_OK) {
@@ -96,7 +111,84 @@ static int start_mm_consumer(void)
     dump_mm_video_regs("after init_video");
 
     g_mm_started = true;
+    subboard_dsp_ctrl_set_mm_ready(true);
     return 0;
+}
+
+static void reset_request_path(void)
+{
+    g_master_mm_requested = false;
+    g_master_mm_granted = false;
+    g_active_request = SUBBOARD_STARTUP_REQ_NONE;
+    subboard_startup_i2c_clear_request();
+}
+
+static void post_next_master_request(void)
+{
+    uint8_t request = SUBBOARD_STARTUP_REQ_NONE;
+
+    if (g_active_request != SUBBOARD_STARTUP_REQ_NONE) {
+        return;
+    }
+
+    if (!g_master_mm_requested &&
+        (g_public_state == SUBBOARD_STARTUP_STATE_WAIT_VIDEO)) {
+        request = SUBBOARD_STARTUP_REQ_MASTER_MM_ENABLE;
+        subboard_startup_i2c_set_request(request, 0u);
+        enter_public_state(SUBBOARD_STARTUP_STATE_WAIT_MASTER_MM);
+        g_master_mm_requested = true;
+        g_active_request = request;
+        printf("[SUB-MM] REQUEST %s posted\r\n", request_name(request));
+        return;
+    }
+
+    request = subboard_dsp_ctrl_peek_master_request();
+    if (request != SUBBOARD_STARTUP_REQ_NONE) {
+        subboard_startup_i2c_set_request(request, 0u);
+        g_active_request = request;
+        printf("[SUB-MM] REQUEST %s posted from DSP runtime notify\r\n",
+               request_name(request));
+    }
+}
+
+static void consume_request_ack(uint8_t request_ack)
+{
+    if ((g_active_request == SUBBOARD_STARTUP_REQ_NONE) ||
+        (request_ack != g_active_request)) {
+        return;
+    }
+
+    if (g_active_request == SUBBOARD_STARTUP_REQ_MASTER_MM_ENABLE) {
+        g_master_mm_granted = true;
+    } else {
+        subboard_dsp_ctrl_complete_master_request(g_active_request);
+    }
+
+    printf("[SUB-MM] REQUEST %s acknowledged by master\r\n",
+           request_name(g_active_request));
+    subboard_startup_i2c_clear_request();
+    g_active_request = SUBBOARD_STARTUP_REQ_NONE;
+}
+
+static void sync_public_state_from_dsp(void)
+{
+    uint8_t dsp_state;
+
+    if (!subboard_dsp_ctrl_is_active()) {
+        return;
+    }
+
+    dsp_state = subboard_dsp_ctrl_get_public_state();
+    if (dsp_state == SUBBOARD_STARTUP_STATE_ERROR) {
+        subboard_startup_i2c_set_error_code(SUBBOARD_STARTUP_ERR_DSP_START_FAIL);
+        enter_public_state(SUBBOARD_STARTUP_STATE_ERROR);
+        return;
+    }
+
+    if ((dsp_state != SUBBOARD_STARTUP_STATE_MM_READY) &&
+        (g_public_state != dsp_state)) {
+        enter_public_state(dsp_state);
+    }
 }
 
 int main(void)
@@ -114,8 +206,11 @@ int main(void)
 
     printf("\r\n===========================================\r\n");
     printf("  S300 Subboard MM Consumer Demo\r\n");
-    printf("  MM-only video bring-up, no DSP\r\n");
+    printf("  MM consumer bring-up with optional DSP\r\n");
     printf("===========================================\r\n");
+
+    subboard_dsp_ctrl_init(millis);
+    subboard_startup_i2c_update_result(&g_last_published_result);
 
     if (subboard_startup_i2c_init(SUBBOARD_STARTUP_SLAVE_ADDR_CARD1) != 0) {
         printf("[SUB-MM] i2c slave init failed\r\n");
@@ -139,27 +234,34 @@ int main(void)
     while (1) {
         uint8_t cmd = subboard_startup_i2c_get_command();
         uint8_t request_ack = subboard_startup_i2c_get_request_ack();
+        subboard_detection_result_t latest_result;
+
+        subboard_dsp_ctrl_tick();
+
+        if (subboard_dsp_ctrl_get_latest_result(&latest_result) &&
+            (memcmp(&latest_result, &g_last_published_result, sizeof(latest_result)) != 0)) {
+            subboard_startup_i2c_update_result(&latest_result);
+            g_last_published_result = latest_result;
+
+            if (latest_result.valid != 0u) {
+                printf("[SUB-MM] face result: count=%u conf=%u box=(%d,%d)-(%d,%d)\r\n",
+                       (unsigned)latest_result.count,
+                       (unsigned)latest_result.confidence,
+                       (int)latest_result.x1,
+                       (int)latest_result.y1,
+                       (int)latest_result.x2,
+                       (int)latest_result.y2);
+            }
+        }
 
         if ((millis() - last_heartbeat_ms) >= 1000u) {
             subboard_startup_i2c_bump_heartbeat();
             last_heartbeat_ms = millis();
         }
 
-        if (!g_master_mm_requested &&
-            (g_public_state == SUBBOARD_STARTUP_STATE_WAIT_VIDEO)) {
-            subboard_startup_i2c_set_request(SUBBOARD_STARTUP_REQ_MASTER_MM_ENABLE, 0u);
-            enter_public_state(SUBBOARD_STARTUP_STATE_WAIT_MASTER_MM);
-            g_master_mm_requested = true;
-            printf("[SUB-MM] REQUEST MASTER_MM_ENABLE posted\r\n");
-        }
-
-        if (!g_master_mm_granted &&
-            g_master_mm_requested &&
-            (request_ack == SUBBOARD_STARTUP_REQ_MASTER_MM_ENABLE)) {
-            g_master_mm_granted = true;
-            subboard_startup_i2c_clear_request();
-            printf("[SUB-MM] REQUEST MASTER_MM_ENABLE acknowledged by master\r\n");
-        }
+        consume_request_ack(request_ack);
+        sync_public_state_from_dsp();
+        post_next_master_request();
 
         if (last_logged_state != g_public_state) {
             printf("[SUB-MM] public_state=%s\r\n", public_state_name(g_public_state));
@@ -209,20 +311,47 @@ int main(void)
             break;
 
         case SUBBOARD_STARTUP_CMD_START_DSP:
-            printf("[SUB-MM] CMD START_DSP not supported in MM-only demo\r\n");
-            subboard_startup_i2c_set_error_code(SUBBOARD_STARTUP_ERR_UNSUPPORTED_CMD);
-            subboard_startup_i2c_set_command_result(cmd, SUBBOARD_STARTUP_RESULT_NOT_SUPPORTED);
+            printf("[SUB-MM] CMD START_DSP arg=0x%02X\r\n",
+                   subboard_startup_i2c_get_command_arg());
+
+            if (!g_mm_started || !g_master_mm_granted) {
+                printf("[SUB-MM] reject START_DSP: MM path not ready\r\n");
+                subboard_startup_i2c_set_command_result(cmd, SUBBOARD_STARTUP_RESULT_BUSY);
+                subboard_startup_i2c_clear_command();
+                break;
+            }
+
+            if (subboard_dsp_ctrl_is_active()) {
+                printf("[SUB-MM] reject START_DSP: DSP control already active\r\n");
+                subboard_startup_i2c_set_command_result(cmd, SUBBOARD_STARTUP_RESULT_BUSY);
+                subboard_startup_i2c_clear_command();
+                break;
+            }
+
+            if (subboard_dsp_ctrl_start() == 0) {
+                subboard_startup_i2c_set_error_code(SUBBOARD_STARTUP_ERR_NONE);
+                enter_public_state(SUBBOARD_STARTUP_STATE_DSP_STARTING);
+                subboard_startup_i2c_set_command_result(cmd, SUBBOARD_STARTUP_RESULT_OK);
+            } else {
+                subboard_startup_i2c_set_error_code(SUBBOARD_STARTUP_ERR_DSP_START_FAIL);
+                enter_public_state(SUBBOARD_STARTUP_STATE_ERROR);
+                subboard_startup_i2c_set_command_result(cmd, SUBBOARD_STARTUP_RESULT_DSP_FAILED);
+            }
             subboard_startup_i2c_clear_command();
             break;
 
         case SUBBOARD_STARTUP_CMD_CLEAR_ERROR:
             printf("[SUB-MM] CMD CLEAR_ERROR\r\n");
             subboard_startup_i2c_set_error_code(SUBBOARD_STARTUP_ERR_NONE);
+            subboard_dsp_ctrl_reset();
+            subboard_dsp_ctrl_set_mm_ready(g_mm_started);
             if (g_public_state == SUBBOARD_STARTUP_STATE_ERROR) {
-                enter_public_state(SUBBOARD_STARTUP_STATE_WAIT_VIDEO);
-                g_master_mm_requested = false;
-                g_master_mm_granted = false;
-                subboard_startup_i2c_clear_request();
+                if (g_mm_started && g_master_mm_granted) {
+                    enter_public_state(SUBBOARD_STARTUP_STATE_MM_READY);
+                } else {
+                    enter_public_state(SUBBOARD_STARTUP_STATE_WAIT_VIDEO);
+                    reset_request_path();
+                }
             }
             subboard_startup_i2c_set_command_result(cmd, SUBBOARD_STARTUP_RESULT_OK);
             subboard_startup_i2c_clear_command();

@@ -2,9 +2,11 @@
 
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 
 #include "board.h"
 #include "control_proto.h"
+#include "detection_proto.h"
 #include "mailbox.h"
 #include "rcc.h"
 #include "s300.h"
@@ -22,7 +24,6 @@
 #define SUB_DSP_RESOURCE_FLAGS        (CONTROL_RESOURCE_MM_READY)
 
 #define SUB_DSP_REQ_MASK_CORE         (1u << 0)
-#define SUB_DSP_REQ_MASK_SPI          (1u << 1)
 
 typedef enum {
     SUB_DSP_STATE_IDLE = 0,
@@ -45,6 +46,7 @@ static uint32_t (*s_get_millis)(void) = 0;
 static SubboardDspState_t s_state = SUB_DSP_STATE_IDLE;
 static SubboardDspPending_t s_pending = SUB_DSP_PENDING_NONE;
 static bool s_mm_ready = false;
+static subboard_detection_result_t s_latest_result;
 static uint8_t s_session_id = 0u;
 static uint8_t s_heartbeat_seq = 0u;
 static uint8_t s_pending_master_requests = 0u;
@@ -56,6 +58,135 @@ static uint32_t s_last_heartbeat_ms = 0u;
 static uint32_t millis(void)
 {
     return (s_get_millis != 0) ? s_get_millis() : 0u;
+}
+
+static int16_t to_i16_clamped(int32_t value)
+{
+    if (value > 32767) {
+        return 32767;
+    }
+    if (value < -32768) {
+        return -32768;
+    }
+    return (int16_t)value;
+}
+
+static uint8_t score_to_u8(float score)
+{
+    int32_t value = (int32_t)(score * 100.0f + 0.5f);
+
+    if (value < 0) {
+        value = 0;
+    }
+    if (value > 100) {
+        value = 100;
+    }
+    return (uint8_t)value;
+}
+
+static bool is_face_like_type(uint8_t raw_type)
+{
+    DetectionType_t type = detection_type_from_raw(raw_type);
+    return (type == DETECTION_TYPE_FACE) || (type == DETECTION_TYPE_UNKNOWN);
+}
+
+static void clear_latest_result(void)
+{
+    memset(&s_latest_result, 0, sizeof(s_latest_result));
+}
+
+static int find_best_face(const DetectionResult_t *result)
+{
+    int best_idx = -1;
+    float best_score = 0.0f;
+
+    if ((result->selected_idx >= 0) &&
+        (result->selected_idx < (int32_t)result->count) &&
+        is_face_like_type(result->boxes[result->selected_idx].type)) {
+        return result->selected_idx;
+    }
+
+    for (uint32_t index = 0u; index < result->count; index++) {
+        const DetectionBox_t *box = &result->boxes[index];
+
+        if (!is_face_like_type(box->type)) {
+            continue;
+        }
+
+        if ((best_idx < 0) || (box->score > best_score)) {
+            best_idx = (int)index;
+            best_score = box->score;
+        }
+    }
+
+    return best_idx;
+}
+
+static void update_result_from_multi(const DetectionResult_t *result)
+{
+    subboard_detection_result_t next;
+    int best_idx;
+    const DetectionBox_t *box;
+
+    if (!DETECTION_RESULT_IS_VALID(result)) {
+        clear_latest_result();
+        return;
+    }
+
+    best_idx = find_best_face(result);
+    if (best_idx < 0) {
+        clear_latest_result();
+        s_latest_result.count = (uint8_t)((result->count > 255u) ? 255u : result->count);
+        return;
+    }
+
+    box = &result->boxes[best_idx];
+    memset(&next, 0, sizeof(next));
+
+    next.valid = 1u;
+    next.count = (uint8_t)((result->count > 255u) ? 255u : result->count);
+    next.type = box->type;
+    next.selected_idx = (uint8_t)best_idx;
+    next.x1 = to_i16_clamped(box->x1);
+    next.y1 = to_i16_clamped(box->y1);
+    next.x2 = to_i16_clamped(box->x2);
+    next.y2 = to_i16_clamped(box->y2);
+    next.cx = to_i16_clamped((box->x1 + box->x2) / 2);
+    next.cy = to_i16_clamped((box->y1 + box->y2) / 2);
+    next.vx = box->vx;
+    next.vy = box->vy;
+    next.face_id = box->track_id;
+    next.confidence = score_to_u8(box->score);
+
+    s_latest_result = next;
+}
+
+static void update_result_from_single(const DetectionBox_t *box)
+{
+    subboard_detection_result_t next;
+
+    if ((box == NULL) || !is_face_like_type(box->type)) {
+        clear_latest_result();
+        return;
+    }
+
+    memset(&next, 0, sizeof(next));
+    next.valid = 1u;
+    next.count = 1u;
+    next.type = box->type;
+    next.selected_idx = 0u;
+    next.x1 = to_i16_clamped(box->x1);
+    next.y1 = to_i16_clamped(box->y1);
+    next.x2 = to_i16_clamped(box->x2);
+    next.y2 = to_i16_clamped(box->y2);
+    next.cx = to_i16_clamped((box->x1 + box->x2) / 2);
+    next.cy = to_i16_clamped((box->y1 + box->y2) / 2);
+    next.vx = box->vx;
+    next.vy = box->vy;
+    next.face_id = box->track_id;
+    next.confidence = score_to_u8(box->score);
+
+    s_latest_result = next;
 }
 
 static void app_delay_ms(uint32_t delay)
@@ -183,10 +314,6 @@ static void queue_master_request(uint8_t request)
         bit = SUB_DSP_REQ_MASK_CORE;
         break;
 
-    case SUBBOARD_STARTUP_REQ_MASTER_SPI_SYNC:
-        bit = SUB_DSP_REQ_MASK_SPI;
-        break;
-
     default:
         break;
     }
@@ -213,8 +340,7 @@ static bool handle_runtime_message(uint32_t msg)
         return true;
 
     case SUBBOARD_RT_SYNC_REQ_SPI_REG_UPDATE:
-        queue_master_request(SUBBOARD_STARTUP_REQ_MASTER_SPI_SYNC);
-        printf("[SUB-DSP] DSP requested master SPI_REG_UPDATE\r\n");
+        printf("[SUB-DSP][WARN] ignore SPI_REG_UPDATE request: gimbal_node has no local LCD/SPI display path\r\n");
         return true;
 
     default:
@@ -370,7 +496,17 @@ static void process_mailbox(void)
             break;
 
         default:
-            printf("[SUB-DSP] RX data/runtime msg=0x%08lX\r\n", (unsigned long)msg);
+            if (MAILBOX_GET_MSG_TYPE(msg) == MAILBOX_MSG_TYPE_MULTI) {
+                uintptr_t addr = (uintptr_t)DSP_DETECTION_BASE_ADDR + (uintptr_t)MAILBOX_GET_PAYLOAD(msg);
+                update_result_from_multi((const DetectionResult_t *)addr);
+            } else if (MAILBOX_GET_MSG_TYPE(msg) == MAILBOX_MSG_TYPE_SINGLE) {
+                uintptr_t addr = (uintptr_t)DSP_DETECTION_BASE_ADDR + (uintptr_t)MAILBOX_GET_PAYLOAD(msg);
+                update_result_from_single((const DetectionBox_t *)addr);
+            } else if (MAILBOX_GET_MSG_TYPE(msg) == MAILBOX_MSG_TYPE_NO_RESULT) {
+                clear_latest_result();
+            } else {
+                printf("[SUB-DSP] RX data/runtime msg=0x%08lX\r\n", (unsigned long)msg);
+            }
             break;
         }
     }
@@ -430,6 +566,7 @@ void subboard_dsp_ctrl_reset(void)
     s_pending = SUB_DSP_PENDING_NONE;
     s_heartbeat_seq = 0u;
     s_pending_master_requests = 0u;
+    clear_latest_result();
     s_state_since_ms = millis();
     s_last_hello_ms = 0u;
     s_last_resource_ms = 0u;
@@ -515,10 +652,6 @@ uint8_t subboard_dsp_ctrl_peek_master_request(void)
         return SUBBOARD_STARTUP_REQ_MASTER_CORE_SYNC;
     }
 
-    if ((s_pending_master_requests & SUB_DSP_REQ_MASK_SPI) != 0u) {
-        return SUBBOARD_STARTUP_REQ_MASTER_SPI_SYNC;
-    }
-
     return SUBBOARD_STARTUP_REQ_NONE;
 }
 
@@ -529,11 +662,17 @@ void subboard_dsp_ctrl_complete_master_request(uint8_t request)
         s_pending_master_requests &= (uint8_t)~SUB_DSP_REQ_MASK_CORE;
         break;
 
-    case SUBBOARD_STARTUP_REQ_MASTER_SPI_SYNC:
-        s_pending_master_requests &= (uint8_t)~SUB_DSP_REQ_MASK_SPI;
-        break;
-
     default:
         break;
     }
+}
+
+bool subboard_dsp_ctrl_get_latest_result(subboard_detection_result_t *out_result)
+{
+    if (out_result == NULL) {
+        return false;
+    }
+
+    *out_result = s_latest_result;
+    return true;
 }
