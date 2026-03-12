@@ -8,10 +8,18 @@
 
 ## 目录说明
 
-1. Src/main.c：子板 CM4 启动入口、I2C 启动状态机、MM 启动、START_DSP 命令处理。
-2. Src/subboard_dsp_ctrl.c：子板 CM4 和本板 DSP 的 mailbox 控制面状态机。
-3. model_bin/README.md：本 Demo 本地 DSP 镜像目录约定。
-4. algorithm_reference/README.md：DSP 侧最小实现约定和联调顺序。
+1. Src/main.c：子板 CM4 启动入口，只负责板级初始化、SysTick 和 app 调度。
+2. Src/subboard_mm_app.c：子板 I2C 启动状态机、MM 启动、START_DSP 命令处理、运行态结果发布。
+3. Src/subboard_dsp_ctrl.c：子板 CM4 和本板 DSP 的 mailbox 控制面状态机。
+4. Inc/subboard_mm_app.h：子板 app 对 main 暴露的最小接口。
+5. model_bin/README.md：本 Demo 本地 DSP 镜像目录约定。
+6. algorithm_reference/README.md：DSP 侧最小实现约定和联调顺序。
+
+## 启动前置检查
+
+1. 主板必须先完成 OV5640 初始化并通过 I2C 授权共享视频资源，子板才能继续 MM 消费链路启动。
+2. 子板在下发 START_DSP 前，除了 MM ready，还必须先完成 DSP PLL 初始化；这一步现在由 subboard_mm_app 在启动 DSP 前显式执行。
+3. 如果只恢复了 CM4 ELF 而没有按约定恢复 DSP bin，子板 DSP 会停留在 HELLO 重发阶段。
 
 ## DSP 镜像目录约定
 

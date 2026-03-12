@@ -16,7 +16,13 @@ s300_add_executable(
     TARGET s300_subboard_mm_consumer_demo
     SOURCES
         Src/main.c
+        Src/subboard_mm_app.c
+        Src/subboard_mm_app_runtime.c
+        Src/subboard_mm_app_commands.c
         Src/subboard_dsp_ctrl.c
+        Src/subboard_dsp_control_plane.c
+        Src/subboard_detection_adapter.c
+        Src/subboard_dsp_mailbox.c
         Src/subboard_startup_i2c.c
     DRIVERS rcc gpio uart mm psram i2c mailbox
     INCLUDES . Inc ${CMAKE_SOURCE_DIR}/Projects/Demo/Subboard_Bringup_Common ${CMAKE_SOURCE_DIR}/Algorithm_Models/protocol
