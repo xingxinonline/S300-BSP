@@ -22,6 +22,7 @@
 static volatile uint32_t g_tick_ms = 0u;
 static uint8_t g_public_state = SUBBOARD_STARTUP_STATE_BOOT;
 static bool g_mm_started = false;
+static bool g_dsp_pll_started = false;
 static bool g_master_mm_requested = false;
 static bool g_master_mm_granted = false;
 static uint8_t g_active_request = SUBBOARD_STARTUP_REQ_NONE;
@@ -165,6 +166,25 @@ static int start_mm_consumer(void)
     g_mm_started = true;
     subboard_dsp_ctrl_set_mm_ready(true);
     refresh_dsp_resource_flags();
+    return 0;
+}
+
+static int ensure_dsp_pll_started(void)
+{
+    int ret;
+
+    if (g_dsp_pll_started) {
+        return 0;
+    }
+
+    ret = rcc_init_dsp_pll(6, 800, 0, 2, 2);
+    if (ret != RCC_STATUS_OK) {
+        printf("[SUB-MM] rcc_init_dsp_pll failed=%d\r\n", ret);
+        return -1;
+    }
+
+    g_dsp_pll_started = true;
+    printf("[SUB-MM] DSP PLL ready\r\n");
     return 0;
 }
 
@@ -384,6 +404,14 @@ int main(void)
             if (subboard_dsp_ctrl_is_active()) {
                 printf("[SUB-MM] reject START_DSP: DSP control already active\r\n");
                 subboard_startup_i2c_set_command_result(cmd, SUBBOARD_STARTUP_RESULT_BUSY);
+                subboard_startup_i2c_clear_command();
+                break;
+            }
+
+            if (ensure_dsp_pll_started() != 0) {
+                subboard_startup_i2c_set_error_code(SUBBOARD_STARTUP_ERR_DSP_START_FAIL);
+                enter_public_state(SUBBOARD_STARTUP_STATE_ERROR);
+                subboard_startup_i2c_set_command_result(cmd, SUBBOARD_STARTUP_RESULT_DSP_FAILED);
                 subboard_startup_i2c_clear_command();
                 break;
             }
