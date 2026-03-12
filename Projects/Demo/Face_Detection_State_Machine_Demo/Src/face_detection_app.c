@@ -128,6 +128,18 @@ static void trigger_spi_reg_update(void)
     REG32(DSP_VIDEO_SS_BASE + 0x1E0u) = 1u;
 }
 
+static void trigger_mm_runtime_enable(void)
+{
+    trigger_core_reg_update();
+
+#if defined(BOARD_LCD_SPI_ENABLE_ON_INIT) && (BOARD_LCD_SPI_ENABLE_ON_INIT == 0)
+    printf("[FD-SM] CM4 applied MM runtime enable: core only, local LCD SPI path disabled\r\n");
+#else
+    trigger_spi_reg_update();
+    printf("[FD-SM] CM4 applied MM runtime enable: core + lcd spi\r\n");
+#endif
+}
+
 static int init_video_path(void)
 {
     uint8_t resource_flags = 0u;
@@ -171,7 +183,7 @@ static void log_video_resources_ready(void)
            (unsigned)((s_video_resource_flags & CONTROL_RESOURCE_CAMERA_READY) != 0u),
            (unsigned)((s_video_resource_flags & CONTROL_RESOURCE_MM_READY) != 0u),
            (unsigned)((s_video_resource_flags & CONTROL_RESOURCE_LCD_READY) != 0u));
-    printf("[FD-SM] waiting DSP runtime notify for CORE_REG_UPDATE / SPI_REG_UPDATE\r\n");
+    printf("[FD-SM] waiting DSP runtime notify for MM runtime enable\r\n");
     printf("[FD-SM] Overlay %ux%u, detection_base=0x%08lX\r\n",
            (unsigned)DISP_IMAGE_WIDTH,
            (unsigned)DISP_IMAGE_HEIGHT,
@@ -180,35 +192,35 @@ static void log_video_resources_ready(void)
 
 static bool handle_runtime_message(uint32_t msg)
 {
-    uint32_t sync_req;
+    uint32_t enable_req;
 
-    if (!fd_runtime_msg_is_mm_sync_req(msg)) {
+    if (!fd_runtime_msg_is_mm_enable_req(msg)) {
         return false;
     }
 
-    if ((s_video_resource_flags & FD_REQUIRED_VIDEO_RESOURCES) != FD_REQUIRED_VIDEO_RESOURCES) {
-        printf("[FD-SM][WARN] ignore MM sync req=0x%08lX, video resources incomplete\r\n",
+    if ((s_state != FD_STATE_CONFIGURED) && (s_state != FD_STATE_RUNNING)) {
+        printf("[FD-SM][WARN] ignore MM enable req before stream start, state=%s msg=0x%08lX\r\n",
+               state_name(s_state),
                (unsigned long)msg);
         return true;
     }
 
-    sync_req = fd_runtime_msg_get_mm_sync_req(msg);
-    switch (sync_req) {
-    case FD_RT_SYNC_REQ_CORE_REG_UPDATE:
-        trigger_core_reg_update();
-        printf("[FD-SM] DSP requested CORE_REG_UPDATE, CM4 synced MM core registers\r\n");
-        return true;
-
-    case FD_RT_SYNC_REQ_SPI_REG_UPDATE:
-        trigger_spi_reg_update();
-        printf("[FD-SM] DSP requested SPI_REG_UPDATE, CM4 synced LCD SPI registers\r\n");
-        return true;
-
-    default:
-        printf("[FD-SM][WARN] unknown MM sync request payload=0x%08lX\r\n",
-               (unsigned long)sync_req);
+    if ((s_video_resource_flags & FD_REQUIRED_VIDEO_RESOURCES) != FD_REQUIRED_VIDEO_RESOURCES) {
+        printf("[FD-SM][WARN] ignore MM enable req=0x%08lX, video resources incomplete\r\n",
+               (unsigned long)msg);
         return true;
     }
+
+    enable_req = fd_runtime_msg_get_mm_enable_req(msg);
+    if ((enable_req != FD_RT_MM_ENABLE_REQ) &&
+        (enable_req != FD_RT_SYNC_REQ_SPI_REG_UPDATE)) {
+        printf("[FD-SM][WARN] unknown MM enable payload=0x%08lX\r\n",
+               (unsigned long)enable_req);
+        return true;
+    }
+
+    trigger_mm_runtime_enable();
+    return true;
 }
 
 static void dsp_start_new_session(void)

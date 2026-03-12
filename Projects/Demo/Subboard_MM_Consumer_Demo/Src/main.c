@@ -57,7 +57,7 @@ static const char *request_name(uint8_t request)
     switch (request) {
     case SUBBOARD_STARTUP_REQ_NONE: return "NONE";
     case SUBBOARD_STARTUP_REQ_MASTER_MM_ENABLE: return "REQUEST_MASTER_MM_ENABLE";
-    case SUBBOARD_STARTUP_REQ_MASTER_CORE_SYNC: return "REQUEST_MASTER_CORE_SYNC";
+    case SUBBOARD_STARTUP_REQ_MASTER_MM_RUNTIME: return "REQUEST_MASTER_MM_RUNTIME";
     case SUBBOARD_STARTUP_REQ_MASTER_SPI_SYNC: return "REQUEST_MASTER_SPI_SYNC";
     default: return "UNKNOWN";
     }

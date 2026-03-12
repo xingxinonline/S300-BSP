@@ -25,7 +25,7 @@
 2. 收到 `SYS.CM4_RESOURCE_READY(session, VIDEO, ...)` 后，初始化模型和结果缓冲，回复 `SYS.DSP_MODEL_READY`。
 3. 收到 `CMD.CONFIG_APPLY` 后回复 `ACK(kind=CMD, code=CONFIG_APPLY)`。
 4. 收到 `CMD.BUFFER_BIND` 后回复 `ACK(kind=CMD, code=BUFFER_BIND)`。
-5. 如果需要 CM4 触发 MM/LCD 硬件同步，DSP 发送独立的运行时通知给 CM4，而不是直接写主板寄存器。
+5. 如果需要 CM4 让 MM 配置进入运行态，DSP 发送统一的 MM 运行态使能通知给 CM4，而不是直接写主板寄存器。
 6. 收到 `SYS.START_STREAM` 后回复 `ACK(kind=SYS, code=START_STREAM)` 并进入 `RUNNING`。
 7. `RUNNING` 状态下持续推理，并在每帧结束后发送结果通知。
 
@@ -72,10 +72,9 @@ DSP 侧最容易踩坑的点有两个：
 
 运行时同步通知：
 
-1. `FD_RT_MAKE_MM_SYNC_REQ(FD_RT_SYNC_REQ_CORE_REG_UPDATE)`
-2. `FD_RT_MAKE_MM_SYNC_REQ(FD_RT_SYNC_REQ_SPI_REG_UPDATE)`
+1. `FD_RT_MAKE_MM_ENABLE_REQ()`
 
-这两条通知需要分别发送，CM4 收到后分别写 `0x70` 和 `0x1E0`。
+DSP 只负责声明“请使能 MM 运行态”。CM4 收到后根据当前板型决定是只写 `0x70`，还是同时写 `0x70` 和 `0x1E0`。这条通知应在 DSP 收到 `START_STREAM` 的 ACK 并进入运行态后再发送。
 
 ## 3. DetectionResult_t 的最小填写要求
 
@@ -127,6 +126,7 @@ CM4 会按 `DSP_DETECTION_BASE_ADDR + offset` 取到结果。
 ```c
 static uint8_t g_session_id;
 static DspState g_state = WAIT_HELLO;
+static bool g_mm_enable_posted;
 static DetectionResult_t g_result;
 
 for (;;) {
@@ -136,6 +136,7 @@ for (;;) {
         if (is_hello(msg)) {
             g_session_id = get_session(msg);
             reset_runtime_state();
+            g_mm_enable_posted = false;
             send_hello_ack(g_session_id);
             g_state = READY;
             continue;
@@ -148,10 +149,9 @@ for (;;) {
         handle_control_message(msg);
     }
 
-    if (g_state == RESOURCE_ACCEPTED) {
-        mailbox_write(FD_RT_MAKE_MM_SYNC_REQ(FD_RT_SYNC_REQ_CORE_REG_UPDATE));
-        mailbox_write(FD_RT_MAKE_MM_SYNC_REQ(FD_RT_SYNC_REQ_SPI_REG_UPDATE));
-        g_state = RUNNING;
+    if ((g_state == RUNNING) && !g_mm_enable_posted) {
+        mailbox_write(FD_RT_MAKE_MM_ENABLE_REQ());
+        g_mm_enable_posted = true;
     }
 
     if (g_state == RUNNING) {

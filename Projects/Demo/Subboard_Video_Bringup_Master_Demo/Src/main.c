@@ -77,7 +77,7 @@ static const char *request_name(uint8_t request)
     switch (request) {
     case SUBBOARD_STARTUP_REQ_NONE: return "NONE";
     case SUBBOARD_STARTUP_REQ_MASTER_MM_ENABLE: return "REQUEST_MASTER_MM_ENABLE";
-    case SUBBOARD_STARTUP_REQ_MASTER_CORE_SYNC: return "REQUEST_MASTER_CORE_SYNC";
+    case SUBBOARD_STARTUP_REQ_MASTER_MM_RUNTIME: return "REQUEST_MASTER_MM_RUNTIME";
     case SUBBOARD_STARTUP_REQ_MASTER_SPI_SYNC: return "REQUEST_MASTER_SPI_SYNC";
     default: return "UNKNOWN";
     }
@@ -222,6 +222,18 @@ static void trigger_spi_reg_update(void)
     REG32(DSP_VIDEO_SS_BASE + 0x1E0u) = 1u;
 }
 
+static void trigger_mm_runtime_enable(void)
+{
+    trigger_core_reg_update();
+
+#if defined(BOARD_LCD_SPI_ENABLE_ON_INIT) && (BOARD_LCD_SPI_ENABLE_ON_INIT == 0)
+    printf("[MASTER] applied MM runtime enable: core only, local LCD SPI path disabled\r\n");
+#else
+    trigger_spi_reg_update();
+    printf("[MASTER] applied MM runtime enable: core + lcd spi\r\n");
+#endif
+}
+
 static int video_path_prepare(void)
 {
     int ret;
@@ -345,12 +357,12 @@ int main(void)
                     }
                     g_video_prepared = true;
                 }
-            } else if (request == SUBBOARD_STARTUP_REQ_MASTER_CORE_SYNC) {
-                trigger_core_reg_update();
-                printf("[MASTER] executed REQUEST_MASTER_CORE_SYNC\r\n");
+            } else if (request == SUBBOARD_STARTUP_REQ_MASTER_MM_RUNTIME) {
+                trigger_mm_runtime_enable();
+                printf("[MASTER] executed REQUEST_MASTER_MM_RUNTIME\r\n");
             } else if (request == SUBBOARD_STARTUP_REQ_MASTER_SPI_SYNC) {
-                trigger_spi_reg_update();
-                printf("[MASTER] executed REQUEST_MASTER_SPI_SYNC\r\n");
+                trigger_mm_runtime_enable();
+                printf("[MASTER] executed legacy REQUEST_MASTER_SPI_SYNC as MM runtime enable\r\n");
             }
 
             if (write_reg8(SUBBOARD_STARTUP_REG_REQUEST_ACK, request) == 0) {

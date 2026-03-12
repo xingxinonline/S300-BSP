@@ -23,7 +23,7 @@
 #define SUB_DSP_BUFFER_SLOT_ID        0x41u
 #define SUB_DSP_RESOURCE_FLAGS        (CONTROL_RESOURCE_MM_READY)
 
-#define SUB_DSP_REQ_MASK_CORE         (1u << 0)
+#define SUB_DSP_REQ_MASK_MM_RUNTIME   (1u << 0)
 
 typedef enum {
     SUB_DSP_STATE_IDLE = 0,
@@ -310,8 +310,8 @@ static void queue_master_request(uint8_t request)
     uint8_t bit = 0u;
 
     switch (request) {
-    case SUBBOARD_STARTUP_REQ_MASTER_CORE_SYNC:
-        bit = SUB_DSP_REQ_MASK_CORE;
+    case SUBBOARD_STARTUP_REQ_MASTER_MM_RUNTIME:
+        bit = SUB_DSP_REQ_MASK_MM_RUNTIME;
         break;
 
     default:
@@ -326,28 +326,30 @@ static void queue_master_request(uint8_t request)
 
 static bool handle_runtime_message(uint32_t msg)
 {
-    uint32_t sync_req;
+    uint32_t enable_req;
 
-    if (!subboard_runtime_msg_is_mm_sync_req(msg)) {
+    if (!subboard_runtime_msg_is_mm_enable_req(msg)) {
         return false;
     }
 
-    sync_req = subboard_runtime_msg_get_mm_sync_req(msg);
-    switch (sync_req) {
-    case SUBBOARD_RT_SYNC_REQ_CORE_REG_UPDATE:
-        queue_master_request(SUBBOARD_STARTUP_REQ_MASTER_CORE_SYNC);
-        printf("[SUB-DSP] DSP requested master CORE_REG_UPDATE\r\n");
-        return true;
-
-    case SUBBOARD_RT_SYNC_REQ_SPI_REG_UPDATE:
-        printf("[SUB-DSP][WARN] ignore SPI_REG_UPDATE request: gimbal_node has no local LCD/SPI display path\r\n");
-        return true;
-
-    default:
-        printf("[SUB-DSP][WARN] unknown runtime sync payload=0x%08lX\r\n",
-               (unsigned long)sync_req);
+    if ((s_state != SUB_DSP_STATE_CONFIGURED) && (s_state != SUB_DSP_STATE_RUNNING)) {
+        printf("[SUB-DSP][WARN] ignore MM enable req before stream start, state=%s msg=0x%08lX\r\n",
+               state_name(s_state),
+               (unsigned long)msg);
         return true;
     }
+
+    enable_req = subboard_runtime_msg_get_mm_enable_req(msg);
+    if ((enable_req != SUBBOARD_RT_MM_ENABLE_REQ) &&
+        (enable_req != SUBBOARD_RT_SYNC_REQ_SPI_REG_UPDATE)) {
+        printf("[SUB-DSP][WARN] unknown MM enable payload=0x%08lX\r\n",
+               (unsigned long)enable_req);
+        return true;
+    }
+
+    queue_master_request(SUBBOARD_STARTUP_REQ_MASTER_MM_RUNTIME);
+    printf("[SUB-DSP] DSP requested master MM runtime enable\r\n");
+    return true;
 }
 
 static void handle_ack(uint32_t msg)
@@ -648,8 +650,8 @@ uint8_t subboard_dsp_ctrl_get_public_state(void)
 
 uint8_t subboard_dsp_ctrl_peek_master_request(void)
 {
-    if ((s_pending_master_requests & SUB_DSP_REQ_MASK_CORE) != 0u) {
-        return SUBBOARD_STARTUP_REQ_MASTER_CORE_SYNC;
+    if ((s_pending_master_requests & SUB_DSP_REQ_MASK_MM_RUNTIME) != 0u) {
+        return SUBBOARD_STARTUP_REQ_MASTER_MM_RUNTIME;
     }
 
     return SUBBOARD_STARTUP_REQ_NONE;
@@ -658,8 +660,8 @@ uint8_t subboard_dsp_ctrl_peek_master_request(void)
 void subboard_dsp_ctrl_complete_master_request(uint8_t request)
 {
     switch (request) {
-    case SUBBOARD_STARTUP_REQ_MASTER_CORE_SYNC:
-        s_pending_master_requests &= (uint8_t)~SUB_DSP_REQ_MASK_CORE;
+    case SUBBOARD_STARTUP_REQ_MASTER_MM_RUNTIME:
+        s_pending_master_requests &= (uint8_t)~SUB_DSP_REQ_MASK_MM_RUNTIME;
         break;
 
     default:

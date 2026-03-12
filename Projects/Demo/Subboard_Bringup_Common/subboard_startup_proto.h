@@ -40,7 +40,7 @@ extern "C" {
 /* 子板向主板暴露的反向请求：由子板 DSP/CM4 提出，主板轮询后执行。 */
 #define SUBBOARD_STARTUP_REQ_NONE                 0x00u
 #define SUBBOARD_STARTUP_REQ_MASTER_MM_ENABLE     0x20u
-#define SUBBOARD_STARTUP_REQ_MASTER_CORE_SYNC     0x21u
+#define SUBBOARD_STARTUP_REQ_MASTER_MM_RUNTIME    0x21u
 #define SUBBOARD_STARTUP_REQ_MASTER_SPI_SYNC      0x22u
 
 #define SUBBOARD_STARTUP_CMD_NONE             0x00u

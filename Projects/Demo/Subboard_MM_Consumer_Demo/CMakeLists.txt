@@ -6,6 +6,9 @@ if(NOT BOARD STREQUAL "gimbal_node")
     return()
 endif()
 
+set(PROJECT_DIR ${CMAKE_CURRENT_SOURCE_DIR})
+set(DSP_BIN_DIR ${PROJECT_DIR}/dsp_bin)
+
 s300_add_executable(
     TARGET s300_subboard_mm_consumer_demo
     SOURCES
@@ -16,8 +19,25 @@ s300_add_executable(
     INCLUDES . Inc ${CMAKE_SOURCE_DIR}/Projects/Demo/Subboard_Bringup_Common ${CMAKE_SOURCE_DIR}/Algorithm_Models/protocol
     DBG_NAME subboard_mm_consumer
     MM_ENABLE
+    NO_IMAGE
 )
 
 target_compile_definitions(s300_subboard_mm_consumer_demo PRIVATE
     BOARD_MM_ENABLE=1
 )
+
+cmake_path(ABSOLUTE_PATH CMAKE_SOURCE_DIR NORMALIZE OUTPUT_VARIABLE ROOT_ABS)
+set(FACE_DETECTION_MODEL_DIR ${ROOT_ABS}/Algorithm_Models/Face_Detection)
+
+set(SUBBOARD_DSP_IMAGE_DIR ${FACE_DETECTION_MODEL_DIR})
+if(EXISTS ${DSP_BIN_DIR}/model_dtcm_boot.bin AND
+   EXISTS ${DSP_BIN_DIR}/model_ptcm_boot.bin)
+    set(SUBBOARD_DSP_IMAGE_DIR ${DSP_BIN_DIR})
+endif()
+
+add_s300_image(s300_subboard_mm_consumer_demo
+    OUTPUT s300_subboard_mm_consumer_demo.bin
+    DSP_DIR ${SUBBOARD_DSP_IMAGE_DIR}
+)
+
+message(STATUS "Subboard_MM_Consumer_Demo: DSP image dir = ${SUBBOARD_DSP_IMAGE_DIR}")
