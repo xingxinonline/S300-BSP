@@ -12,7 +12,8 @@
       "problemMatcher": [],
       "presentation": {
         "reveal": "silent",
-        "close": true
+        "close": true,
+        "showReuseMessage": false
       },
       "detail": "选择目标板子"
     },
@@ -33,7 +34,9 @@
       "detail": "切换到开发板并重新配置 CMake",
       "presentation": {
         "reveal": "always",
-        "panel": "shared"
+        "panel": "shared",
+        "showReuseMessage": false,
+        "close": true
       }
     },
     {
@@ -53,7 +56,9 @@
       "detail": "切换到应用板并重新配置 CMake",
       "presentation": {
         "reveal": "always",
-        "panel": "shared"
+        "panel": "shared",
+        "showReuseMessage": false,
+        "close": true
       }
     },
     {
@@ -73,7 +78,9 @@
       "detail": "切换到智能云台主控板并重新配置 CMake",
       "presentation": {
         "reveal": "always",
-        "panel": "shared"
+        "panel": "shared",
+        "showReuseMessage": false,
+        "close": true
       }
     },
     {
@@ -93,7 +100,9 @@
       "detail": "切换到智能云台AI节点(mPCIE)并重新配置 CMake",
       "presentation": {
         "reveal": "always",
-        "panel": "shared"
+        "panel": "shared",
+        "showReuseMessage": false,
+        "close": true
       }
     },
     // =============================================================================
@@ -112,7 +121,12 @@
         "isDefault": true
       },
       "problemMatcher": "$gcc",
-      "detail": "编译当前配置的项目"
+      "detail": "编译当前配置的项目",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "showReuseMessage": false
+      }
     },
     {
       "label": "Clean",
@@ -123,14 +137,24 @@
         "cwd": "${workspaceFolder}/build"
       },
       "problemMatcher": [],
-      "detail": "清理构建目录"
+      "detail": "清理构建目录",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "showReuseMessage": false
+      }
     },
     {
       "label": "Rebuild",
       "dependsOn": ["Clean", "Build"],
       "dependsOrder": "sequence",
       "problemMatcher": "$gcc",
-      "detail": "清理并重新编译"
+      "detail": "清理并重新编译",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "showReuseMessage": false
+      }
     }
   ],
   "inputs": [
