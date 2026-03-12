@@ -46,7 +46,7 @@
 | ------------------------------------------------------- | ------------------------ |
 | `Algorithm_Models/protocol/handshake_proto.h`           | 协议定义（CM4/DSP 共用） |
 | `Projects/Demo/Handshake_Heartbeat_Demo/Src/main.c`     | CM4 端实现               |
-| `Projects/Demo/Handshake_Heartbeat_Demo/dsp_reference/` | DSP 端参考实现           |
+| `Projects/Demo/Handshake_Heartbeat_Demo/algorithm_reference/` | DSP 端参考实现           |
 
 ---
 

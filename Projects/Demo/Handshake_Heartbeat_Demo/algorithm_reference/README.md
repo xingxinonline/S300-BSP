@@ -17,8 +17,8 @@
 
 ```
 Algorithm_Models/protocol/handshake_proto.h  → DSP 工程的 include 目录
-dsp_reference/dsp_mailbox_hal.h              → DSP 工程的 include 目录
-dsp_reference/dsp_handshake_main.c           → DSP 工程的 src 目录（或参考集成）
+algorithm_reference/dsp_mailbox_hal.h        → DSP 工程的 include 目录
+algorithm_reference/dsp_handshake_main.c     → DSP 工程的 src 目录（或参考集成）
 ```
 
 ### 2. 适配 Mailbox 驱动

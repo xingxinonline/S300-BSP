@@ -11,7 +11,7 @@
 1. Src/main.c：子板 CM4 启动入口、I2C 启动状态机、MM 启动、START_DSP 命令处理。
 2. Src/subboard_dsp_ctrl.c：子板 CM4 和本板 DSP 的 mailbox 控制面状态机。
 3. model_bin/README.md：本 Demo 本地 DSP 镜像目录约定。
-4. dsp_reference/README.md：DSP 侧最小实现约定和联调顺序。
+4. algorithm_reference/README.md：DSP 侧最小实现约定和联调顺序。
 
 ## DSP 镜像目录约定
 

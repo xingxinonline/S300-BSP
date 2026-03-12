@@ -48,7 +48,7 @@ Handshake_Heartbeat_Demo/
 │   ├── README.md                   # DSP bin 文件说明
 │   ├── model_ptcm_boot.bin         # DSP 程序代码 (放置后自动检测)
 │   └── model_dtcm_boot.bin         # DSP 数据段 (放置后自动检测)
-└── dsp_reference/
+└── algorithm_reference/
     ├── README.md                   # DSP 端使用说明
     ├── dsp_handshake_main.c        # DSP 端参考实现
     └── dsp_mailbox_hal.h           # DSP Mailbox 硬件抽象层
@@ -141,7 +141,7 @@ CM4 端串口输出示例：
 ## 注意事项
 
 1. **DSP 程序需先加载**：通过 Flash Boot 或调试器加载 DSP 程序
-2. **Mailbox 地址**：CM4 和 DSP 视角的地址不同，请参考 `dsp_reference/README.md`
+2. **Mailbox 地址**：CM4 和 DSP 视角的地址不同，请参考 `algorithm_reference/README.md`
 3. **超时配置**：可通过宏定义调整握手超时时间和重试间隔
 
 ## 相关文档
