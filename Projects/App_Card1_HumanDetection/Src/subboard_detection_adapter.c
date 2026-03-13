@@ -62,8 +62,8 @@ static bool is_valid_detection_result_for_subboard(const DetectionResult_t *resu
 
 static bool is_publishable_detection_type(uint8_t raw_type)
 {
-    DetectionType_t type = detection_type_from_raw(raw_type);
-    return !detection_type_is_gesture(type);
+    (void)raw_type;
+    return true;
 }
 
 static int find_best_publishable_box(const DetectionResult_t *result)
