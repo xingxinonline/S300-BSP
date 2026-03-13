@@ -16,6 +16,7 @@ typedef struct {
     bool result_active;
     uint8_t active_request;
     subboard_detection_result_t last_published_result;
+    uint32_t result_invalid_since_ms;
     uint32_t last_heartbeat_ms;
     uint8_t last_logged_state;
 } SubboardMmAppContext;

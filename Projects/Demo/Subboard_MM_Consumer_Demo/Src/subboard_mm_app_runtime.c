@@ -16,6 +16,8 @@
 #define REG32(addr) (*(volatile uint32_t *)(uintptr_t)(addr))
 #endif
 
+#define SUBBOARD_RESULT_IDLE_DEBOUNCE_MS 120u
+
 uint32_t subboard_mm_app_millis(const SubboardMmAppContext *ctx)
 {
     return ((ctx != NULL) && (ctx->get_millis != 0)) ? ctx->get_millis() : 0u;
@@ -197,24 +199,50 @@ void subboard_mm_app_sync_public_state_from_dsp(SubboardMmAppContext *ctx)
     }
 }
 
+static bool result_is_publishable(const subboard_detection_result_t *result)
+{
+    if (result == NULL) {
+        return false;
+    }
+
+    return (result->valid != 0u) &&
+           (result->count != 0u) &&
+           (result->confidence != 0u) &&
+           (result->x2 > result->x1) &&
+           (result->y2 > result->y1);
+}
+
 void subboard_mm_app_publish_latest_result(SubboardMmAppContext *ctx)
 {
     subboard_detection_result_t latest_result;
     bool result_active;
+    uint32_t now_ms;
 
-    if ((ctx == NULL) ||
-        !subboard_dsp_ctrl_get_latest_result(&latest_result) ||
-        (memcmp(&latest_result, &ctx->last_published_result, sizeof(latest_result)) == 0)) {
+    if ((ctx == NULL) || !subboard_dsp_ctrl_get_latest_result(&latest_result)) {
+        return;
+    }
+
+    now_ms = subboard_mm_app_millis(ctx);
+    result_active = result_is_publishable(&latest_result);
+
+    if (!result_active && ctx->result_active) {
+        if (ctx->result_invalid_since_ms == 0u) {
+            ctx->result_invalid_since_ms = now_ms;
+        }
+
+        if ((uint32_t)(now_ms - ctx->result_invalid_since_ms) < SUBBOARD_RESULT_IDLE_DEBOUNCE_MS) {
+            return;
+        }
+    } else {
+        ctx->result_invalid_since_ms = 0u;
+    }
+
+    if (memcmp(&latest_result, &ctx->last_published_result, sizeof(latest_result)) == 0) {
         return;
     }
 
     subboard_startup_i2c_update_result(&latest_result);
     ctx->last_published_result = latest_result;
-    result_active = (latest_result.valid != 0u) &&
-                    (latest_result.count != 0u) &&
-                    (latest_result.confidence != 0u) &&
-                    (latest_result.x2 > latest_result.x1) &&
-                    (latest_result.y2 > latest_result.y1);
 
     if (result_active && !ctx->result_active) {
         SUB_LOG_INFO("[SUB-MM] result active: count=%u conf=%u box=(%d,%d)-(%d,%d)\r\n",
@@ -228,6 +256,7 @@ void subboard_mm_app_publish_latest_result(SubboardMmAppContext *ctx)
     } else if (!result_active && ctx->result_active) {
         SUB_LOG_INFO("[SUB-MM] result idle\r\n");
         ctx->result_active = false;
+        ctx->result_invalid_since_ms = 0u;
     }
 
     if (result_active) {
