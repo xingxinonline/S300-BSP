@@ -1,110 +1,96 @@
-# =============================================================================
-# App_GimbalMaster - 云台主控应用 (MVP0)
-# =============================================================================
-
 cmake_minimum_required(VERSION 3.16)
 project(App_GimbalMaster)
 
-if(NOT TARGET ws2812)
-    add_subdirectory(${CMAKE_SOURCE_DIR}/Drivers/External/WS2812 ${CMAKE_CURRENT_BINARY_DIR}/WS2812)
+if(NOT BOARD STREQUAL "gimbal_master")
+    message(STATUS "App_GimbalMaster: skipped for BOARD=${BOARD}, gimbal_master only")
+    return()
 endif()
 
-set(FREERTOS_KERNEL_LOCAL_PATH "" CACHE PATH "Local path to FreeRTOS-Kernel (optional)")
-set(FREERTOS_PORT GCC_ARM_CM4F CACHE STRING "FreeRTOS port")
-set(FREERTOS_HEAP 4 CACHE STRING "FreeRTOS heap implementation (1..5)")
-set(FREERTOS_CONFIG_FILE_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} CACHE PATH "Path to FreeRTOSConfig.h")
+set(PROJECT_DIR ${CMAKE_CURRENT_SOURCE_DIR})
+set(ROOT ${PROJECT_DIR}/../..)
+set(KWS_DEMO_DIR ${ROOT}/Projects/Demo/KWS_Control_Protocol_Demo)
+set(AUDIO_SHARED_DIR ${ROOT}/Projects/Demo/Audio_KWS_Demo/Src)
+set(SHARED_DETECTION_DIR ${ROOT}/Projects/Demo/Algorithm_Detection_Demo)
+set(DSP_BIN_DIR ${PROJECT_DIR}/model_bin)
+set(KWS_GDB_TEMPLATE ${KWS_DEMO_DIR}/gdbinit.kws_control_protocol.gdb.in)
+set(KWS_GDB_SCRIPT ${CMAKE_CURRENT_BINARY_DIR}/gdbinit.gimbal_master_kws.gdb)
+set(MASTER_APP_LOG_LEVEL "INFO" CACHE STRING "Master app log level: WARN, INFO, DEBUG")
 
-if(NOT TARGET freertos_kernel)
-    if(FREERTOS_KERNEL_LOCAL_PATH AND EXISTS ${FREERTOS_KERNEL_LOCAL_PATH}/CMakeLists.txt)
-        message(STATUS "Using FreeRTOS-Kernel from local path: ${FREERTOS_KERNEL_LOCAL_PATH}")
-        add_subdirectory(${FREERTOS_KERNEL_LOCAL_PATH} ${CMAKE_CURRENT_BINARY_DIR}/freertos-kernel-local)
-    else()
-        include(FetchContent)
-        FetchContent_Declare(
-            freertos_kernel
-            GIT_REPOSITORY https://github.com/FreeRTOS/FreeRTOS-Kernel.git
-            GIT_TAG V10.5.1
-            GIT_SHALLOW TRUE
-        )
-        FetchContent_MakeAvailable(freertos_kernel)
-    endif()
+string(TOUPPER "${MASTER_APP_LOG_LEVEL}" MASTER_APP_LOG_LEVEL_NAME)
+if(MASTER_APP_LOG_LEVEL_NAME STREQUAL "WARN")
+    set(MASTER_APP_LOG_LEVEL_VALUE 1)
+elseif(MASTER_APP_LOG_LEVEL_NAME STREQUAL "INFO")
+    set(MASTER_APP_LOG_LEVEL_VALUE 2)
+elseif(MASTER_APP_LOG_LEVEL_NAME STREQUAL "DEBUG")
+    set(MASTER_APP_LOG_LEVEL_VALUE 3)
+else()
+    message(FATAL_ERROR "App_GimbalMaster: invalid MASTER_APP_LOG_LEVEL=${MASTER_APP_LOG_LEVEL}")
+endif()
 
-    target_include_directories(freertos_kernel PUBLIC
-        ${CMAKE_SOURCE_DIR}/CMSIS/Device/PiMCHIP/S300/Include
-        ${CMAKE_SOURCE_DIR}/CMSIS/Core/Include
-    )
+cmake_path(ABSOLUTE_PATH CMAKE_SOURCE_DIR NORMALIZE OUTPUT_VARIABLE ROOT_ABS)
+set(KEYWORD_SPOTTING_MODEL_DIR ${ROOT_ABS}/Algorithm_Models/Keyword_Spotting)
+set(APP_GIMBAL_MASTER_DSP_IMAGE_DIR ${KEYWORD_SPOTTING_MODEL_DIR})
+
+if(EXISTS ${DSP_BIN_DIR}/model_dtcm_boot.bin AND
+   EXISTS ${DSP_BIN_DIR}/model_ptcm_boot.bin)
+    set(APP_GIMBAL_MASTER_DSP_IMAGE_DIR ${DSP_BIN_DIR})
+endif()
+
+if(BOARD STREQUAL "app_board" OR BOARD STREQUAL "gimbal_master")
+    set(AUDIO_CODEC_DRIVERS es7210 es8311)
+    message(STATUS "App_GimbalMaster: using ES7210+ES8311 codec for ${BOARD}")
+else()
+    set(AUDIO_CODEC_DRIVERS wm8978)
+    message(STATUS "App_GimbalMaster: using WM8978 codec for ${BOARD}")
 endif()
 
 s300_add_executable(
     TARGET s300_gimbal_master
     SOURCES
         Src/main.c
-        Src/app_log.c
-        Src/track_state.c
-        Src/track_events.c
-        Src/task_state.c
-        Src/task_command.c
-        Src/task_heartbeat.c
-        Src/task_kws.c
-        Src/i2c_cardbus.c
-        Src/task_cardbus.c
-        Src/display_overlay.c
-        ${CMAKE_SOURCE_DIR}/Projects/Demo/Audio_KWS_Demo/Src/audio_app.c
-        ${CMAKE_SOURCE_DIR}/Projects/Demo/Audio_KWS_Demo/Src/audio_codec.c
-    DRIVERS rcc gpio uart mailbox i2s dma i2c_soft es7210 es8311 mm psram
-    INCLUDES . Inc ${CMAKE_SOURCE_DIR}/Algorithm_Models/protocol ${CMAKE_SOURCE_DIR}/Projects/Demo/Audio_KWS_Demo/Src
-    LIBRARIES freertos_kernel ws2812
-    DBG_SCRIPT ${CMAKE_CURRENT_BINARY_DIR}/gdbinit.keyword-spotting.gdb
+        Src/master_demo_app.c
+        Src/master_detection_overlay.c
+        ${KWS_DEMO_DIR}/Src/kws_control_stream.c
+        ${AUDIO_SHARED_DIR}/audio_app.c
+        ${AUDIO_SHARED_DIR}/audio_codec.c
+        ${SHARED_DETECTION_DIR}/Src/camera_ov5640.c
+    DRIVERS rcc gpio uart dma i2s i2c_soft mailbox mm psram ${AUDIO_CODEC_DRIVERS}
+    INCLUDES . Inc ${KWS_DEMO_DIR}/Src ${AUDIO_SHARED_DIR} ${SHARED_DETECTION_DIR}/Inc ${CMAKE_SOURCE_DIR}/Projects/Demo/Subboard_Bringup_Common ${CMAKE_SOURCE_DIR}/Algorithm_Models/protocol
+    DBG_NAME gimbal_master
+    DBG_SCRIPT ${KWS_GDB_SCRIPT}
     NO_IMAGE
 )
 
+if(BOARD STREQUAL "app_board" OR BOARD STREQUAL "gimbal_master")
+    target_compile_definitions(s300_gimbal_master PRIVATE
+        BOARD_AUDIO_CODEC_ES7210=1
+        BOARD_AUDIO_CODEC_ES8311=1
+        BOARD_AUDIO_ENABLE=1
+    )
+else()
+    target_compile_definitions(s300_gimbal_master PRIVATE
+        BOARD_AUDIO_CODEC_WM8978=1
+        BOARD_AUDIO_ENABLE=1
+    )
+endif()
+
 target_compile_definitions(s300_gimbal_master PRIVATE
-    BOARD_AUDIO_ENABLE=1
-    BOARD_MM_ENABLE=1
-    BOARD_CAMERA_ENABLE=1
+    MASTER_LOG_LEVEL=${MASTER_APP_LOG_LEVEL_VALUE}
 )
 
-# =============================================================================
-# KWS DSP 模型打包与调试加载
-# =============================================================================
-set(GDB_PORT 3333 CACHE STRING "GDB server port")
-
-cmake_path(ABSOLUTE_PATH CMAKE_SOURCE_DIR NORMALIZE OUTPUT_VARIABLE ROOT_ABS)
-set(KWS_MODEL_DIR ${ROOT_ABS}/Algorithm_Models/Keyword_Spotting)
-
-function(generate_gdb_restore_cmd IMAGE_FILE ADDR OUTPUT_VAR)
-    if(EXISTS "${IMAGE_FILE}")
-        file(SIZE "${IMAGE_FILE}" FILE_SIZE)
-        cmake_path(NORMAL_PATH IMAGE_FILE OUTPUT_VARIABLE IMAGE_FILE_CLEAN)
-
-        if(FILE_SIZE GREATER 0)
-            set(${OUTPUT_VAR} "restore ${IMAGE_FILE_CLEAN} binary ${ADDR}" PARENT_SCOPE)
-        else()
-            set(${OUTPUT_VAR} "# ${IMAGE_FILE_CLEAN} is empty, skipping" PARENT_SCOPE)
-        endif()
-    else()
-        set(${OUTPUT_VAR} "# ${IMAGE_FILE} not found, skipping" PARENT_SCOPE)
-    endif()
-endfunction()
-
-set(MODEL_NAME "Keyword_Spotting")
-set(MODEL_KEBAB "keyword-spotting")
-set(MODEL_DIR ${KWS_MODEL_DIR})
-set(PSRAM_BREAKPOINT_FUNC "dsp_firmware_load_point")
-
-generate_gdb_restore_cmd("${KWS_MODEL_DIR}/model_dtcm_boot.bin" "0x44800000" GDB_RESTORE_DTCM)
-generate_gdb_restore_cmd("${KWS_MODEL_DIR}/model_ptcm_boot.bin" "0x44A00000" GDB_RESTORE_PTCM)
-generate_gdb_restore_cmd("${KWS_MODEL_DIR}/model_sram0_boot.bin" "0x44000000" GDB_RESTORE_SRAM0)
-generate_gdb_restore_cmd("${KWS_MODEL_DIR}/model_sram1_boot.bin" "0x44040000" KWS_RESTORE_SRAM1)
-set(GDB_RESTORE_PSRAM "${KWS_RESTORE_SRAM1}")
-
-configure_file(
-    ${CMAKE_SOURCE_DIR}/gdbinit.model.gdb.in
-    ${CMAKE_CURRENT_BINARY_DIR}/gdbinit.${MODEL_KEBAB}.gdb
-    @ONLY
+add_custom_command(TARGET s300_gimbal_master POST_BUILD
+    COMMAND ${CMAKE_COMMAND}
+        -DDSP_BIN_DIR=${APP_GIMBAL_MASTER_DSP_IMAGE_DIR}
+        -DTEMPLATE_FILE=${KWS_GDB_TEMPLATE}
+        -DOUTPUT_FILE=${KWS_GDB_SCRIPT}
+        -P ${KWS_DEMO_DIR}/generate_kws_control_protocol_gdb.cmake
+    COMMENT "Refreshing App_GimbalMaster KWS GDB script from current DSP bins"
 )
 
 add_s300_image(s300_gimbal_master
     OUTPUT s300_gimbal_master.bin
-    DSP_DIR ${KWS_MODEL_DIR}
+    DSP_DIR ${APP_GIMBAL_MASTER_DSP_IMAGE_DIR}
 )
+
+message(STATUS "App_GimbalMaster: DSP image dir = ${APP_GIMBAL_MASTER_DSP_IMAGE_DIR}")
+message(STATUS "App_GimbalMaster: log level = ${MASTER_APP_LOG_LEVEL_NAME}")

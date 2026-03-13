@@ -1,86 +1,45 @@
-# App_GimbalMaster (MVP0 → MVP1)
+# App_GimbalMaster
 
-本目录是 `gimbal_master` 板卡的主控应用入口，当前已完成 MVP0，并接入 MVP1 的 KWS 基础链路。
+该目录提供 `gimbal_master` 板卡的正式主控应用。应用在同一条 CM4 主循环内维护两条业务链路，但启动顺序经过显式编排：先把子板推进到运行态，再拉起主板本地 KWS。
 
-## 架构设计
+1. 面向子板的人机协调与启动控制。
+2. 主板本地 KWS 控制面与音频数据面。
 
-遵循模块化、高内聚、低耦合原则：
+最终目标不是展示参考工程，而是形成稳定的主板应用行为：主板先主动驱动子板进入视频就绪、DSP 启动和结果上报状态，再启动本板 KWS。
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                        main.c                               │
-│                    (初始化 + 任务创建)                        │
-└─────────────────┬───────────────────────────────────────────┘
-                  │
-    ┌─────────────┼─────────────┬─────────────────────────────┐
-    ▼             ▼             ▼                             ▼
-┌────────┐  ┌──────────┐  ┌──────────┐              ┌───────────┐
-│command │  │ task_    │  │ heartbeat│              │ app_log   │
-│_task   │  │ state    │  │ _task    │              │           │
-└───┬────┘  └────┬─────┘  └──────────┘              └───────────┘
-    │            │
-    │ post()     │ wait()
-    ▼            ▼
-┌─────────────────────────┐      ┌─────────────────────────┐
-│    track_events         │      │    track_state          │
-│    (FreeRTOS Queue)     │◄────►│    (纯逻辑状态机)        │
-└─────────────────────────┘      └─────────────────────────┘
-```
+## 职责边界
 
-### 模块职责
+1. 保持本板 KWS 的 CM4-DSP 握手顺序：`HELLO -> CM4_RESOURCE_READY -> CONFIG_APPLY -> BUFFER_BIND -> START_STREAM -> RUNNING`。
+2. 轮询子板启动寄存器，响应 `REQUEST_MASTER_MM_ENABLE`、`REQUEST_MASTER_MM_RUNTIME` 等请求。
+3. 在主板侧准备共享视频路径后，下发 `PREPARE_VIDEO` 与 `START_DSP`。
+4. 读取子板发布的检测结果，并在主板本地显示链路上完成叠框。
 
-| 模块           | 职责                       | 依赖                      |
-| -------------- | -------------------------- | ------------------------- |
-| `track_state`  | 状态机纯逻辑，无 RTOS 依赖 | 无                        |
-| `track_events` | 事件队列，任务间解耦       | FreeRTOS                  |
-| `task_state`   | 状态机服务任务，消费事件   | track_state, track_events |
-| `command_task` | 串口命令解析，生产事件     | track_events              |
+## 模型加载
 
-### 设计原则
+应用按独立 DSP bin 目录装载 KWS 模型：
 
-- **纯逻辑状态机**: `track_state.c` 无 RTOS/日志依赖，可独立单元测试
-- **事件驱动解耦**: 任务间通过 `track_events` 队列通信
-- **单一职责**: 每个模块只负责一个功能领域
+1. 优先使用本目录 `model_bin/` 下的本地产物。
+2. 如果本地目录不完整，则回退到 `Algorithm_Models/Keyword_Spotting`。
+3. `img_s300_gimbal_master` 与 `dbg_gimbal_master` 均使用当前解析出的 DSP bin 目录。
 
-## 功能
+## 构建
 
-- FreeRTOS 启动与调度
-- 心跳任务 (WS2812 LED + 1s 日志)
-- 状态机 (IDLE/TRACKING/LOCK/SEARCH)
-- 串口命令事件触发 (start/stop/found/lost/photo)
-- KWS 任务 (Mailbox 轮询)
-- 音频初始化骨架 (ES7210/ES8311 + I2S 基础配置)
+1. `cmake -B build -G Ninja -DBOARD=gimbal_master`
+2. `ninja -C build s300_gimbal_master img_s300_gimbal_master`
 
-## MVP1 当前进展
+## 启动顺序
 
-- 已打通 `KWS 结果 -> 事件队列 -> 状态机` 链路
-- 已完成 ES7210/ES8311 初始化与 I2S 基础启动日志
-- 已接入 I2S DMA 音频流处理与 DSP 轮询握手
-- 新增 MVP2 最小显示初始化：OV5640 预初始化 + `init_video()`
+1. 主板初始化 I2C 协调服务。
+2. 主板等待子板上线并响应 `REQUEST_MASTER_MM_ENABLE`。
+3. 主板完成本地视频准备并下发 `PREPARE_VIDEO`、`START_DSP`。
+4. 子板进入 `RUNNING` 后，主板再初始化音频、mailbox、DSP PLL 和 KWS 控制面。
+5. 之后主板持续并行执行本板 KWS 与子板结果轮询。
 
-## 编译
+## 运行结构
 
-```bash
-cmake -B build -G Ninja -DBOARD=gimbal_master .
-ninja -C build s300_gimbal_master
-```
+1. `Src/main.c` 负责先调度子板协调服务，再在子板进入 `RUNNING` 后启动主板 KWS 状态机。
+2. `Src/master_demo_app.c` 负责 I2C 启动协调、命令下发、运行态轮询和叠框更新。
+3. `Projects/Demo/KWS_Control_Protocol_Demo/Src/kws_control_stream.c` 负责 KWS 数据面缓冲与流控制。
+4. `Projects/Demo/Audio_KWS_Demo/Src/audio_app.c` 与 `audio_codec.c` 负责音频采集路径。
 
-## 运行验证
-
-串口周期输出：
-
-```text
-[Heartbeat] tick=...
-```
-
-串口命令测试：
-
-```text
-help   - 显示帮助
-start  - 启动跟踪
-found  - 发现目标
-lost   - 丢失目标
-stop   - 停止跟踪
-photo  - 拍照请求
-state  - 查询当前状态
-```
+更完整的主板、子板和联合状态机说明见 `docs/STATE_MACHINES.md`。

@@ -681,7 +681,7 @@ DSP 只需要保证：
 1. 主板 KWS 控制面：`Projects/Demo/KWS_Control_Protocol_Demo`
 2. 子板人脸检测控制面：`Projects/Demo/Face_Detection_State_Machine_Demo`
 3. 子板 I2C 从机雏形：`Projects/App_Card1_HumanDetection`
-4. 主板 I2C 主机雏形：`Projects/App_GimbalMaster/Src/i2c_cardbus.c`
+4. 主板 I2C 主机协调实现：`Projects/App_GimbalMaster/Src/master_demo_app.c`
 
 ### 12.2 需要调整的部分
 
