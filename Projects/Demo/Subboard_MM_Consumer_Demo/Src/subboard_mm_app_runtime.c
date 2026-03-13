@@ -200,6 +200,7 @@ void subboard_mm_app_sync_public_state_from_dsp(SubboardMmAppContext *ctx)
 void subboard_mm_app_publish_latest_result(SubboardMmAppContext *ctx)
 {
     subboard_detection_result_t latest_result;
+    bool result_active;
 
     if ((ctx == NULL) ||
         !subboard_dsp_ctrl_get_latest_result(&latest_result) ||
@@ -209,15 +210,34 @@ void subboard_mm_app_publish_latest_result(SubboardMmAppContext *ctx)
 
     subboard_startup_i2c_update_result(&latest_result);
     ctx->last_published_result = latest_result;
+    result_active = (latest_result.valid != 0u) &&
+                    (latest_result.count != 0u) &&
+                    (latest_result.confidence != 0u) &&
+                    (latest_result.x2 > latest_result.x1) &&
+                    (latest_result.y2 > latest_result.y1);
 
-    if (latest_result.valid != 0u) {
+    if (result_active && !ctx->result_active) {
+        SUB_LOG_INFO("[SUB-MM] result active: count=%u conf=%u box=(%d,%d)-(%d,%d)\r\n",
+                     (unsigned)latest_result.count,
+                     (unsigned)latest_result.confidence,
+                     (int)latest_result.x1,
+                     (int)latest_result.y1,
+                     (int)latest_result.x2,
+                     (int)latest_result.y2);
+        ctx->result_active = true;
+    } else if (!result_active && ctx->result_active) {
+        SUB_LOG_INFO("[SUB-MM] result idle\r\n");
+        ctx->result_active = false;
+    }
+
+    if (result_active) {
         SUB_LOG_DEBUG("[SUB-MM] face result: count=%u conf=%u box=(%d,%d)-(%d,%d)\r\n",
-                  (unsigned)latest_result.count,
-                  (unsigned)latest_result.confidence,
-                  (int)latest_result.x1,
-                  (int)latest_result.y1,
-                  (int)latest_result.x2,
-                  (int)latest_result.y2);
+                      (unsigned)latest_result.count,
+                      (unsigned)latest_result.confidence,
+                      (int)latest_result.x1,
+                      (int)latest_result.y1,
+                      (int)latest_result.x2,
+                      (int)latest_result.y2);
     }
 }
 

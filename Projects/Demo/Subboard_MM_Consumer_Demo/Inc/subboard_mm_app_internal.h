@@ -13,6 +13,7 @@ typedef struct {
     bool dsp_pll_started;
     bool master_mm_requested;
     bool master_mm_granted;
+    bool result_active;
     uint8_t active_request;
     subboard_detection_result_t last_published_result;
     uint32_t last_heartbeat_ms;
