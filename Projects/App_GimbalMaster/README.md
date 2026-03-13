@@ -43,3 +43,4 @@
 4. `Projects/Demo/Audio_KWS_Demo/Src/audio_app.c` 与 `audio_codec.c` 负责音频采集路径。
 
 更完整的主板、子板和联合状态机说明见 `docs/STATE_MACHINES.md`。
+后续开发阶段建议见 `docs/DEVELOPMENT_ROADMAP.md`。
