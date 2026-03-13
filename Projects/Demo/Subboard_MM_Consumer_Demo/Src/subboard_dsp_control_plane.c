@@ -79,7 +79,7 @@ void subboard_dsp_control_plane_handle_control_message(uint32_t msg,
     }
 
     clear_effect(out_effect);
-    type = (uint8_t)CONTROL_GET_TYPE(msg);
+    type = CONTROL_GET_TYPE(msg);
 
     if ((type != CONTROL_MSG_TYPE_SYS) &&
         (type != CONTROL_MSG_TYPE_ACK) &&
