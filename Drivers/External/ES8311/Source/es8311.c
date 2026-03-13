@@ -167,6 +167,7 @@ int es8311_init(es8311_t *dev, i2c_soft_t *i2c, uint8_t addr,
     dev->sample_rate = sample_rate;
 
     uint8_t datmp, regv;
+    int reg_read;
     uint32_t mclk = 12288000;  /* 默认使用 12.288MHz MCLK */
 
     int coeff_idx = get_coeff(mclk, (uint32_t)sample_rate);
@@ -203,8 +204,8 @@ int es8311_init(es8311_t *dev, i2c_soft_t *i2c, uint8_t addr,
     es8311_write_reg(dev, ES8311_CLK_MANAGER_REG01, datmp);
 
     /* 设置 pre_div, pre_multi */
-    regv = es8311_read_reg(dev, ES8311_CLK_MANAGER_REG02);
-    if (regv < 0) regv = 0;
+    reg_read = es8311_read_reg(dev, ES8311_CLK_MANAGER_REG02);
+    regv = (reg_read < 0) ? 0u : (uint8_t)reg_read;
     regv &= 0x07;
     regv |= (coeff->pre_div - 1) << 5;
     datmp = 0;
@@ -219,8 +220,8 @@ int es8311_init(es8311_t *dev, i2c_soft_t *i2c, uint8_t addr,
     es8311_write_reg(dev, ES8311_CLK_MANAGER_REG02, regv);
 
     /* 设置 ADC 和 DAC 时钟分频 */
-    regv = es8311_read_reg(dev, ES8311_CLK_MANAGER_REG05);
-    if (regv < 0) regv = 0;
+    reg_read = es8311_read_reg(dev, ES8311_CLK_MANAGER_REG05);
+    regv = (reg_read < 0) ? 0u : (uint8_t)reg_read;
     regv &= 0x00;
     regv |= (coeff->adc_div - 1) << 4;
     regv |= (coeff->dac_div - 1) << 0;
@@ -233,8 +234,8 @@ int es8311_init(es8311_t *dev, i2c_soft_t *i2c, uint8_t addr,
     es8311_write_reg(dev, ES8311_CLK_MANAGER_REG04, coeff->dac_osr);
 
     /* 设置 BCLK 分频和 LRCK 分频 */
-    regv = es8311_read_reg(dev, ES8311_CLK_MANAGER_REG06);
-    if (regv < 0) regv = 0;
+    reg_read = es8311_read_reg(dev, ES8311_CLK_MANAGER_REG06);
+    regv = (reg_read < 0) ? 0u : (uint8_t)reg_read;
     regv &= 0xE0;
     if (ES8311_INVERT_SCLK) {
         regv |= 0x20;
@@ -243,16 +244,16 @@ int es8311_init(es8311_t *dev, i2c_soft_t *i2c, uint8_t addr,
     es8311_write_reg(dev, ES8311_CLK_MANAGER_REG06, regv);
 
     /* LRCK */
-    regv = es8311_read_reg(dev, ES8311_CLK_MANAGER_REG07);
-    if (regv < 0) regv = 0;
+    reg_read = es8311_read_reg(dev, ES8311_CLK_MANAGER_REG07);
+    regv = (reg_read < 0) ? 0u : (uint8_t)reg_read;
     regv &= 0xC0;
     regv |= coeff->lrck_h;
     es8311_write_reg(dev, ES8311_CLK_MANAGER_REG07, regv);
     es8311_write_reg(dev, ES8311_CLK_MANAGER_REG08, coeff->lrck_l);
 
     /* 主/从模式 */
-    regv = es8311_read_reg(dev, ES8311_RESET_REG00);
-    if (regv < 0) regv = 0;
+    reg_read = es8311_read_reg(dev, ES8311_RESET_REG00);
+    regv = (reg_read < 0) ? 0u : (uint8_t)reg_read;
     if (mode == ES8311_MODE_SLAVE) {
         regv &= 0xBF;  /* Slave mode */
     } else {
