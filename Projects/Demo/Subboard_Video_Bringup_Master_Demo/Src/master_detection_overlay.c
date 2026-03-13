@@ -193,3 +193,8 @@ void master_detection_overlay_tick(void)
         master_detection_overlay_clear();
     }
 }
+
+bool master_detection_overlay_is_active(void)
+{
+    return s_box_drawn;
+}

@@ -26,6 +26,7 @@
 #define MASTER_POLL_MS     200u
 #define MASTER_RUN_POLL_MS 30u
 #define MASTER_I2C_RETRY   2u
+#define MASTER_OVERLAY_CLEAR_DEBOUNCE_MS 120u
 
 static uint32_t (*s_get_millis)(void) = 0;
 static i2c_soft_t s_i2c;
@@ -33,6 +34,8 @@ static bool s_i2c_ready = false;
 static bool s_video_prepared = false;
 static bool s_prepare_sent = false;
 static bool s_start_dsp_sent = false;
+static bool s_overlay_active = false;
+static uint32_t s_overlay_invalid_since_ms = 0u;
 static subboard_detection_result_t s_last_result;
 static uint32_t s_last_poll_ms = 0u;
 static uint8_t s_last_proto_ver = 0xFFu;
@@ -283,6 +286,8 @@ static void reset_online_state(void)
     s_video_prepared = false;
     s_prepare_sent = false;
     s_start_dsp_sent = false;
+    s_overlay_active = false;
+    s_overlay_invalid_since_ms = 0u;
     s_last_proto_ver = 0xFFu;
     s_last_state = 0xFFu;
     s_last_error = 0xFFu;
@@ -309,7 +314,9 @@ static void log_snapshot(uint8_t state,
     }
 
     if (error != s_last_error) {
-        MASTER_LOG_WARN("[MASTER] subboard_error=0x%02X\r\n", error);
+        if (error != SUBBOARD_STARTUP_ERR_NONE) {
+            MASTER_LOG_WARN("[MASTER] subboard_error=0x%02X\r\n", error);
+        }
         s_last_error = error;
     }
 
@@ -398,19 +405,58 @@ static void handle_commands(uint8_t state,
 static void handle_running_state(void)
 {
     subboard_detection_result_t result;
+    bool displayable;
+    uint32_t now_ms = millis();
 
     master_detection_overlay_tick();
+    if (s_overlay_active && !master_detection_overlay_is_active()) {
+        MASTER_LOG_INFO("[MASTER] overlay cleared\r\n");
+        s_overlay_active = false;
+        s_overlay_invalid_since_ms = 0u;
+    }
 
-    if ((read_regs(SUBBOARD_STARTUP_REG_RESULT,
-                   (uint8_t *)&result,
-                   sizeof(result)) != 0) ||
-        (memcmp(&result, &s_last_result, sizeof(result)) == 0)) {
+    if (read_regs(SUBBOARD_STARTUP_REG_RESULT,
+                  (uint8_t *)&result,
+                  sizeof(result)) != 0) {
+        return;
+    }
+
+    displayable = result_is_displayable(&result);
+    if (displayable) {
+        s_overlay_invalid_since_ms = 0u;
+    } else if (s_overlay_active) {
+        if (s_overlay_invalid_since_ms == 0u) {
+            s_overlay_invalid_since_ms = now_ms;
+        }
+
+        if ((uint32_t)(now_ms - s_overlay_invalid_since_ms) >= MASTER_OVERLAY_CLEAR_DEBOUNCE_MS) {
+            master_detection_overlay_clear();
+            if (s_overlay_active && !master_detection_overlay_is_active()) {
+                MASTER_LOG_INFO("[MASTER] overlay cleared\r\n");
+                s_overlay_active = false;
+            }
+            s_overlay_invalid_since_ms = 0u;
+        }
+    }
+
+    if (memcmp(&result, &s_last_result, sizeof(result)) == 0) {
         return;
     }
 
     s_last_result = result;
-    if (result_is_displayable(&result)) {
+    if (displayable) {
         master_detection_overlay_draw(&result);
+        if (!s_overlay_active) {
+            MASTER_LOG_INFO("[MASTER] overlay shown: count=%u conf=%u box=(%d,%d)-(%d,%d) face_id=%u\r\n",
+                            (unsigned)result.count,
+                            (unsigned)result.confidence,
+                            (int)result.x1,
+                            (int)result.y1,
+                            (int)result.x2,
+                            (int)result.y2,
+                            (unsigned)result.face_id);
+            s_overlay_active = true;
+        }
         MASTER_LOG_DEBUG("[MASTER] face result: count=%u conf=%u box=(%d,%d)-(%d,%d) face_id=%u\r\n",
                          (unsigned)result.count,
                          (unsigned)result.confidence,
@@ -420,7 +466,6 @@ static void handle_running_state(void)
                          (int)result.y2,
                          (unsigned)result.face_id);
     } else {
-        master_detection_overlay_clear();
         MASTER_LOG_DEBUG("[MASTER] face result cleared\r\n");
     }
 }
