@@ -8,10 +8,12 @@ endif()
 
 set(PROJECT_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 set(ROOT ${PROJECT_DIR}/../..)
+include(${ROOT}/cmake/s300_model_metadata.cmake)
 set(SUBBOARD_DEMO_DIR ${ROOT}/Projects/Demo/Subboard_MM_Consumer_Demo)
 set(DSP_BIN_DIR ${PROJECT_DIR}/model_bin)
 set(SUBBOARD_GDB_TEMPLATE ${SUBBOARD_DEMO_DIR}/gdbinit.subboard_mm_consumer.gdb.in)
 set(SUBBOARD_GDB_SCRIPT ${CMAKE_CURRENT_BINARY_DIR}/gdbinit.card1_human_detection.gdb)
+set(MODEL_MANIFEST ${CMAKE_CURRENT_BINARY_DIR}/card1_human_detection_model_manifest.txt)
 set(CARD1_APP_LOG_LEVEL "INFO" CACHE STRING "Card1 app log level: WARN, INFO, DEBUG")
 
 string(TOUPPER "${CARD1_APP_LOG_LEVEL}" CARD1_APP_LOG_LEVEL_NAME)
@@ -28,11 +30,23 @@ endif()
 cmake_path(ABSOLUTE_PATH CMAKE_SOURCE_DIR NORMALIZE OUTPUT_VARIABLE ROOT_ABS)
 set(HUMAN_DETECTION_MODEL_DIR ${ROOT_ABS}/Algorithm_Models/Human_Detection)
 set(APP_CARD1_DSP_IMAGE_DIR ${HUMAN_DETECTION_MODEL_DIR})
+set(APP_CARD1_USE_LOCAL_MODEL FALSE)
 
 if(EXISTS ${DSP_BIN_DIR}/model_dtcm_boot.bin AND
    EXISTS ${DSP_BIN_DIR}/model_ptcm_boot.bin)
     set(APP_CARD1_DSP_IMAGE_DIR ${DSP_BIN_DIR})
+    set(APP_CARD1_USE_LOCAL_MODEL TRUE)
 endif()
+
+s300_load_model_metadata("${APP_CARD1_DSP_IMAGE_DIR}" APP_CARD1_MODEL)
+
+if(APP_CARD1_USE_LOCAL_MODEL AND NOT APP_CARD1_MODEL_HAS_INFO)
+    message(WARNING "App_Card1_HumanDetection: local model_bin selected but model_info.json is missing, model version will be reported as Unknown")
+endif()
+
+file(GENERATE OUTPUT ${MODEL_MANIFEST}
+    CONTENT
+"model_dir=${APP_CARD1_DSP_IMAGE_DIR}\nmodel_source=$<IF:$<BOOL:${APP_CARD1_USE_LOCAL_MODEL}>,local_override,algorithm_models>\nmodel_name=${APP_CARD1_MODEL_NAME}\nmodel_id=${APP_CARD1_MODEL_ID}\nmodel_version=${APP_CARD1_MODEL_VERSION}\nmodel_date=${APP_CARD1_MODEL_DATE}\n")
 
 s300_add_executable(
     TARGET s300_card1_human_detection
@@ -77,4 +91,6 @@ add_custom_target(dbg_card1
 )
 
 message(STATUS "App_Card1_HumanDetection: DSP image dir = ${APP_CARD1_DSP_IMAGE_DIR}")
+message(STATUS "App_Card1_HumanDetection: model = ${APP_CARD1_MODEL_ID} ${APP_CARD1_MODEL_VERSION} (${APP_CARD1_MODEL_DATE})")
+message(STATUS "App_Card1_HumanDetection: model manifest = ${MODEL_MANIFEST}")
 message(STATUS "App_Card1_HumanDetection: log level = ${CARD1_APP_LOG_LEVEL_NAME}")

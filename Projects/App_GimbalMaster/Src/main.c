@@ -13,6 +13,22 @@
 #include "s300.h"
 #include "uart.h"
 
+#ifndef APP_GIMBAL_MASTER_MODEL_ID
+#define APP_GIMBAL_MASTER_MODEL_ID "unknown"
+#endif
+
+#ifndef APP_GIMBAL_MASTER_MODEL_VERSION
+#define APP_GIMBAL_MASTER_MODEL_VERSION "unknown"
+#endif
+
+#ifndef APP_GIMBAL_MASTER_MODEL_DATE
+#define APP_GIMBAL_MASTER_MODEL_DATE "unknown"
+#endif
+
+#ifndef APP_GIMBAL_MASTER_MODEL_DIR
+#define APP_GIMBAL_MASTER_MODEL_DIR "unknown"
+#endif
+
 #define CTRL_HELLO_RETRY_MS         200u
 #define CTRL_RESOURCE_RETRY_MS      300u
 #define CTRL_HEARTBEAT_INTERVAL_MS  1000u
@@ -494,6 +510,11 @@ int main(void)
     printf("  KWS runtime + subboard coordination service\r\n");
     printf("======================================================\r\n");
     printf("[KWS-CTRL] SystemCoreClock = %lu Hz\r\n", (unsigned long)SystemCoreClock);
+        printf("[KWS-CTRL] Model id=%s version=%s date=%s\r\n",
+            APP_GIMBAL_MASTER_MODEL_ID,
+            APP_GIMBAL_MASTER_MODEL_VERSION,
+            APP_GIMBAL_MASTER_MODEL_DATE);
+        printf("[KWS-CTRL] Model dir=%s\r\n", APP_GIMBAL_MASTER_MODEL_DIR);
 
     if (master_demo_app_init(millis) != 0) {
         printf("[MASTER] subboard coordination service init failed\r\n");

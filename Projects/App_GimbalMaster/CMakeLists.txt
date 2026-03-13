@@ -8,12 +8,14 @@ endif()
 
 set(PROJECT_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 set(ROOT ${PROJECT_DIR}/../..)
+include(${ROOT}/cmake/s300_model_metadata.cmake)
 set(KWS_DEMO_DIR ${ROOT}/Projects/Demo/KWS_Control_Protocol_Demo)
 set(AUDIO_SHARED_DIR ${ROOT}/Projects/Demo/Audio_KWS_Demo/Src)
 set(SHARED_DETECTION_DIR ${ROOT}/Projects/Demo/Algorithm_Detection_Demo)
 set(DSP_BIN_DIR ${PROJECT_DIR}/model_bin)
 set(KWS_GDB_TEMPLATE ${KWS_DEMO_DIR}/gdbinit.kws_control_protocol.gdb.in)
 set(KWS_GDB_SCRIPT ${CMAKE_CURRENT_BINARY_DIR}/gdbinit.gimbal_master_kws.gdb)
+set(MODEL_MANIFEST ${CMAKE_CURRENT_BINARY_DIR}/gimbal_master_model_manifest.txt)
 set(MASTER_APP_LOG_LEVEL "INFO" CACHE STRING "Master app log level: WARN, INFO, DEBUG")
 
 string(TOUPPER "${MASTER_APP_LOG_LEVEL}" MASTER_APP_LOG_LEVEL_NAME)
@@ -28,13 +30,26 @@ else()
 endif()
 
 cmake_path(ABSOLUTE_PATH CMAKE_SOURCE_DIR NORMALIZE OUTPUT_VARIABLE ROOT_ABS)
+cmake_path(ABSOLUTE_PATH DSP_BIN_DIR BASE_DIRECTORY ${PROJECT_DIR} NORMALIZE OUTPUT_VARIABLE DSP_BIN_DIR_ABS)
 set(KEYWORD_SPOTTING_MODEL_DIR ${ROOT_ABS}/Algorithm_Models/Keyword_Spotting)
 set(APP_GIMBAL_MASTER_DSP_IMAGE_DIR ${KEYWORD_SPOTTING_MODEL_DIR})
+set(APP_GIMBAL_MASTER_USE_LOCAL_MODEL FALSE)
 
 if(EXISTS ${DSP_BIN_DIR}/model_dtcm_boot.bin AND
    EXISTS ${DSP_BIN_DIR}/model_ptcm_boot.bin)
     set(APP_GIMBAL_MASTER_DSP_IMAGE_DIR ${DSP_BIN_DIR})
+    set(APP_GIMBAL_MASTER_USE_LOCAL_MODEL TRUE)
 endif()
+
+s300_load_model_metadata("${APP_GIMBAL_MASTER_DSP_IMAGE_DIR}" APP_GIMBAL_MASTER_MODEL)
+
+if(APP_GIMBAL_MASTER_USE_LOCAL_MODEL AND NOT APP_GIMBAL_MASTER_MODEL_HAS_INFO)
+    message(WARNING "App_GimbalMaster: local model_bin selected but model_info.json is missing, model version will be reported as Unknown")
+endif()
+
+file(GENERATE OUTPUT ${MODEL_MANIFEST}
+    CONTENT
+"model_dir=${APP_GIMBAL_MASTER_DSP_IMAGE_DIR}\nmodel_source=$<IF:$<BOOL:${APP_GIMBAL_MASTER_USE_LOCAL_MODEL}>,local_override,algorithm_models>\nmodel_name=${APP_GIMBAL_MASTER_MODEL_NAME}\nmodel_id=${APP_GIMBAL_MASTER_MODEL_ID}\nmodel_version=${APP_GIMBAL_MASTER_MODEL_VERSION}\nmodel_date=${APP_GIMBAL_MASTER_MODEL_DATE}\n")
 
 if(BOARD STREQUAL "app_board" OR BOARD STREQUAL "gimbal_master")
     set(AUDIO_CODEC_DRIVERS es7210 es8311)
@@ -76,6 +91,10 @@ endif()
 
 target_compile_definitions(s300_gimbal_master PRIVATE
     MASTER_LOG_LEVEL=${MASTER_APP_LOG_LEVEL_VALUE}
+    APP_GIMBAL_MASTER_MODEL_ID=\"${APP_GIMBAL_MASTER_MODEL_ID}\"
+    APP_GIMBAL_MASTER_MODEL_VERSION=\"${APP_GIMBAL_MASTER_MODEL_VERSION}\"
+    APP_GIMBAL_MASTER_MODEL_DATE=\"${APP_GIMBAL_MASTER_MODEL_DATE}\"
+    APP_GIMBAL_MASTER_MODEL_DIR=\"${APP_GIMBAL_MASTER_DSP_IMAGE_DIR}\"
 )
 
 add_custom_command(TARGET s300_gimbal_master POST_BUILD
@@ -93,4 +112,6 @@ add_s300_image(s300_gimbal_master
 )
 
 message(STATUS "App_GimbalMaster: DSP image dir = ${APP_GIMBAL_MASTER_DSP_IMAGE_DIR}")
+message(STATUS "App_GimbalMaster: model = ${APP_GIMBAL_MASTER_MODEL_ID} ${APP_GIMBAL_MASTER_MODEL_VERSION} (${APP_GIMBAL_MASTER_MODEL_DATE})")
+message(STATUS "App_GimbalMaster: model manifest = ${MODEL_MANIFEST}")
 message(STATUS "App_GimbalMaster: log level = ${MASTER_APP_LOG_LEVEL_NAME}")
