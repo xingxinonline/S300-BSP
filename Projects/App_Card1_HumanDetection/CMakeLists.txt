@@ -1,68 +1,80 @@
 cmake_minimum_required(VERSION 3.16)
 project(App_Card1_HumanDetection)
 
+if(NOT BOARD STREQUAL "gimbal_node")
+    message(STATUS "App_Card1_HumanDetection: skipped for BOARD=${BOARD}, gimbal_node only")
+    return()
+endif()
+
+set(PROJECT_DIR ${CMAKE_CURRENT_SOURCE_DIR})
+set(ROOT ${PROJECT_DIR}/../..)
+set(SUBBOARD_DEMO_DIR ${ROOT}/Projects/Demo/Subboard_MM_Consumer_Demo)
+set(DSP_BIN_DIR ${PROJECT_DIR}/model_bin)
+set(SUBBOARD_GDB_TEMPLATE ${SUBBOARD_DEMO_DIR}/gdbinit.subboard_mm_consumer.gdb.in)
+set(SUBBOARD_GDB_SCRIPT ${CMAKE_CURRENT_BINARY_DIR}/gdbinit.card1_human_detection.gdb)
+set(CARD1_APP_LOG_LEVEL "INFO" CACHE STRING "Card1 app log level: WARN, INFO, DEBUG")
+
+string(TOUPPER "${CARD1_APP_LOG_LEVEL}" CARD1_APP_LOG_LEVEL_NAME)
+if(CARD1_APP_LOG_LEVEL_NAME STREQUAL "WARN")
+    set(CARD1_APP_LOG_LEVEL_VALUE 1)
+elseif(CARD1_APP_LOG_LEVEL_NAME STREQUAL "INFO")
+    set(CARD1_APP_LOG_LEVEL_VALUE 2)
+elseif(CARD1_APP_LOG_LEVEL_NAME STREQUAL "DEBUG")
+    set(CARD1_APP_LOG_LEVEL_VALUE 3)
+else()
+    message(FATAL_ERROR "App_Card1_HumanDetection: invalid CARD1_APP_LOG_LEVEL=${CARD1_APP_LOG_LEVEL}")
+endif()
+
+cmake_path(ABSOLUTE_PATH CMAKE_SOURCE_DIR NORMALIZE OUTPUT_VARIABLE ROOT_ABS)
+set(HUMAN_DETECTION_MODEL_DIR ${ROOT_ABS}/Algorithm_Models/Human_Detection)
+set(APP_CARD1_DSP_IMAGE_DIR ${HUMAN_DETECTION_MODEL_DIR})
+
+if(EXISTS ${DSP_BIN_DIR}/model_dtcm_boot.bin AND
+   EXISTS ${DSP_BIN_DIR}/model_ptcm_boot.bin)
+    set(APP_CARD1_DSP_IMAGE_DIR ${DSP_BIN_DIR})
+endif()
+
 s300_add_executable(
     TARGET s300_card1_human_detection
     SOURCES
-        Src/main.c
-        Src/card1_detection.c
-        Src/card1_i2c_slave.c
+        ${SUBBOARD_DEMO_DIR}/Src/main.c
+        ${SUBBOARD_DEMO_DIR}/Src/subboard_mm_app.c
+        ${SUBBOARD_DEMO_DIR}/Src/subboard_mm_app_runtime.c
+        ${SUBBOARD_DEMO_DIR}/Src/subboard_mm_app_commands.c
+        ${SUBBOARD_DEMO_DIR}/Src/subboard_dsp_ctrl.c
+        ${SUBBOARD_DEMO_DIR}/Src/subboard_dsp_control_plane.c
+        ${SUBBOARD_DEMO_DIR}/Src/subboard_dsp_mailbox.c
+        ${SUBBOARD_DEMO_DIR}/Src/subboard_startup_i2c.c
+        Src/subboard_detection_adapter.c
     DRIVERS rcc gpio uart mm mailbox psram i2c
-    INCLUDES . Inc ${CMAKE_SOURCE_DIR}/Algorithm_Models/protocol
-    DBG_SCRIPT ${CMAKE_CURRENT_BINARY_DIR}/gdbinit.human-detection.gdb
+    INCLUDES . Inc ${SUBBOARD_DEMO_DIR}/Inc ${CMAKE_SOURCE_DIR}/Projects/Demo/Subboard_Bringup_Common ${CMAKE_SOURCE_DIR}/Algorithm_Models/protocol
+    DBG_SCRIPT ${SUBBOARD_GDB_SCRIPT}
     NO_IMAGE
+    MM_ENABLE
 )
 
 target_compile_definitions(s300_card1_human_detection PRIVATE
     BOARD_MM_ENABLE=1
+    SUBBOARD_LOG_LEVEL=${CARD1_APP_LOG_LEVEL_VALUE}
 )
 
-target_compile_options(s300_card1_human_detection PRIVATE
-    $<$<COMPILE_LANGUAGE:C>:-include card1_video_compat.h>
-)
-
-set(GDB_PORT 3333 CACHE STRING "GDB server port")
-
-cmake_path(ABSOLUTE_PATH CMAKE_SOURCE_DIR NORMALIZE OUTPUT_VARIABLE ROOT_ABS)
-set(HUMAN_MODEL_DIR ${ROOT_ABS}/Algorithm_Models/Human_Detection)
-
-function(generate_gdb_restore_cmd IMAGE_FILE ADDR OUTPUT_VAR)
-    if(EXISTS "${IMAGE_FILE}")
-        file(SIZE "${IMAGE_FILE}" FILE_SIZE)
-        cmake_path(NORMAL_PATH IMAGE_FILE OUTPUT_VARIABLE IMAGE_FILE_CLEAN)
-
-        if(FILE_SIZE GREATER 0)
-            set(${OUTPUT_VAR} "restore ${IMAGE_FILE_CLEAN} binary ${ADDR}" PARENT_SCOPE)
-        else()
-            set(${OUTPUT_VAR} "# ${IMAGE_FILE_CLEAN} is empty, skipping" PARENT_SCOPE)
-        endif()
-    else()
-        set(${OUTPUT_VAR} "# ${IMAGE_FILE} not found, skipping" PARENT_SCOPE)
-    endif()
-endfunction()
-
-set(MODEL_NAME "Human_Detection")
-set(MODEL_KEBAB "human-detection")
-set(MODEL_DIR ${HUMAN_MODEL_DIR})
-set(PSRAM_BREAKPOINT_FUNC "main")
-
-generate_gdb_restore_cmd("${HUMAN_MODEL_DIR}/model_dtcm_boot.bin" "0x44800000" GDB_RESTORE_DTCM)
-generate_gdb_restore_cmd("${HUMAN_MODEL_DIR}/model_ptcm_boot.bin" "0x44A00000" GDB_RESTORE_PTCM)
-generate_gdb_restore_cmd("${HUMAN_MODEL_DIR}/model_sram0_boot.bin" "0x44000000" GDB_RESTORE_SRAM0)
-generate_gdb_restore_cmd("${HUMAN_MODEL_DIR}/model_sram1_boot.bin" "0x44040000" HUMAN_RESTORE_SRAM1)
-set(GDB_RESTORE_PSRAM "${HUMAN_RESTORE_SRAM1}")
-
-configure_file(
-    ${CMAKE_SOURCE_DIR}/gdbinit.model.gdb.in
-    ${CMAKE_CURRENT_BINARY_DIR}/gdbinit.${MODEL_KEBAB}.gdb
-    @ONLY
+add_custom_command(TARGET s300_card1_human_detection POST_BUILD
+    COMMAND ${CMAKE_COMMAND}
+        -DDSP_BIN_DIR=${APP_CARD1_DSP_IMAGE_DIR}
+        -DTEMPLATE_FILE=${SUBBOARD_GDB_TEMPLATE}
+        -DOUTPUT_FILE=${SUBBOARD_GDB_SCRIPT}
+        -P ${SUBBOARD_DEMO_DIR}/generate_subboard_mm_consumer_gdb.cmake
+    COMMENT "Refreshing App_Card1_HumanDetection GDB script from current DSP bins"
 )
 
 add_s300_image(s300_card1_human_detection
     OUTPUT s300_card1_human_detection.bin
-    DSP_DIR ${HUMAN_MODEL_DIR}
+    DSP_DIR ${APP_CARD1_DSP_IMAGE_DIR}
 )
 
 add_custom_target(dbg_card1
     DEPENDS dbg_card1_human_detection
 )
+
+message(STATUS "App_Card1_HumanDetection: DSP image dir = ${APP_CARD1_DSP_IMAGE_DIR}")
+message(STATUS "App_Card1_HumanDetection: log level = ${CARD1_APP_LOG_LEVEL_NAME}")

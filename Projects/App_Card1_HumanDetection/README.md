@@ -1,27 +1,31 @@
 # App_Card1_HumanDetection
 
-Card1 子板应用：
+该目录提供 `gimbal_node` 板卡上的正式子板应用，实现来源沿用了 `Projects/Demo/Subboard_MM_Consumer_Demo` 的启动框架，但对外语义已经固定为 Human_Detection 子板：
 
-- 运行 DSP 人形检测模型（Human_Detection）
-- 不初始化 OV5640（由主板初始化后通过 CPLD 分发视频）
-- 通过 I2C1 从设备对外提供检测结果寄存器
+1. 等待主板完成共享视频资源授权。
+2. 初始化本地 MM consumer 路径并拉起 DSP。
+3. 通过子板启动协议对外发布人形检测结果。
 
-## I2C 协议
+## 模型加载
 
-- 从机地址: `0x10`
-- `0x00` (`STATUS`, 1B): `valid`
-- `0x10` (`RESULT`, 32B): `card1_detection_result_t`
+应用按独立 DSP bin 目录加载 Human_Detection 模型：
 
-`RESULT` 结构与主板 `i2c_cardbus` 兼容，可直接读取人形目标中心点、边界框、速度和置信度。
+1. 优先使用本目录 `model_bin/` 下的本地产物。
+2. 如果本地目录不完整，则回退到 `Algorithm_Models/Human_Detection`。
+3. `img_s300_card1_human_detection` 与 `dbg_card1_human_detection` 都会使用当前选中的 DSP bin 目录。
+
+## 协议说明
+
+对外寄存器布局保持与子板启动协议一致：
+
+1. 子板从机地址仍为 `0x10`。
+2. `REQUEST` / `REQUEST_ACK` 用于子板向主板申请视频与运行态资源。
+3. `CMD` / `CMD_ACK` / `CMD_RESULT` 用于主板驱动子板执行 `PREPARE_VIDEO` 与 `START_DSP`。
+4. `RESULT` 区域发布的是 `subboard_detection_result_t`，其中目标筛选逻辑改为优先输出 Human_Detection 的人体框。
+
+主板、子板和联合状态机说明见 `../App_GimbalMaster/docs/STATE_MACHINES.md`。
 
 ## 构建
 
-先切换子板编译配置（应用板）：
-
-- 任务: `S300: Switch to App Board (应用板)`
-
-然后构建：
-
-- 任务: `Build`
-
-产物目标：`s300_card1_human_detection`
+1. `cmake -B build -G Ninja -DBOARD=gimbal_node`
+2. `ninja -C build s300_card1_human_detection img_s300_card1_human_detection`
