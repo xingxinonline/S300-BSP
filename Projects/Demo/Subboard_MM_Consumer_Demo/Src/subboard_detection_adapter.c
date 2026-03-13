@@ -4,6 +4,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "subboard_log.h"
+
 static subboard_detection_result_t s_latest_result;
 static bool s_proto_warned = false;
 static bool s_v2_logged = false;
@@ -112,10 +114,10 @@ void subboard_detection_adapter_update_from_multi(const DetectionResult_t *resul
 
     if (!is_valid_detection_result_for_subboard(result)) {
         if ((result != NULL) && !s_proto_warned) {
-            printf("[SUB-DSP][WARN] drop result: magic=0x%08lX version=0x%04lX count=%lu\r\n",
-                   (unsigned long)result->magic,
-                   (unsigned long)result->version,
-                   (unsigned long)result->count);
+                SUB_LOG_WARN("[SUB-DSP] drop result: magic=0x%08lX version=0x%04lX count=%lu\r\n",
+                        (unsigned long)result->magic,
+                        (unsigned long)result->version,
+                        (unsigned long)result->count);
             s_proto_warned = true;
         }
         subboard_detection_adapter_clear();
@@ -123,8 +125,8 @@ void subboard_detection_adapter_update_from_multi(const DetectionResult_t *resul
     }
 
     if (((result->version >> 8) == 0x02u) && !s_v2_logged) {
-        printf("[SUB-DSP] compatible protocol mode: DSP version=0x%04lX\r\n",
-               (unsigned long)result->version);
+         SUB_LOG_DEBUG("[SUB-DSP] compatible protocol mode: DSP version=0x%04lX\r\n",
+                 (unsigned long)result->version);
         s_v2_logged = true;
     }
 

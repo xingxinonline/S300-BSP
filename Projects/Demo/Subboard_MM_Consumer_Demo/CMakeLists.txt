@@ -11,6 +11,18 @@ set(ROOT ${PROJECT_DIR}/../../..)
 set(DSP_BIN_DIR ${PROJECT_DIR}/model_bin)
 set(SUBBOARD_GDB_TEMPLATE ${CMAKE_CURRENT_SOURCE_DIR}/gdbinit.subboard_mm_consumer.gdb.in)
 set(SUBBOARD_GDB_SCRIPT ${CMAKE_CURRENT_BINARY_DIR}/gdbinit.subboard_mm_consumer.gdb)
+set(SUBBOARD_MM_CONSUMER_LOG_LEVEL "INFO" CACHE STRING "Subboard MM consumer log level: WARN, INFO, DEBUG")
+
+string(TOUPPER "${SUBBOARD_MM_CONSUMER_LOG_LEVEL}" SUBBOARD_MM_CONSUMER_LOG_LEVEL_NAME)
+if(SUBBOARD_MM_CONSUMER_LOG_LEVEL_NAME STREQUAL "WARN")
+    set(SUBBOARD_MM_CONSUMER_LOG_LEVEL_VALUE 1)
+elseif(SUBBOARD_MM_CONSUMER_LOG_LEVEL_NAME STREQUAL "INFO")
+    set(SUBBOARD_MM_CONSUMER_LOG_LEVEL_VALUE 2)
+elseif(SUBBOARD_MM_CONSUMER_LOG_LEVEL_NAME STREQUAL "DEBUG")
+    set(SUBBOARD_MM_CONSUMER_LOG_LEVEL_VALUE 3)
+else()
+    message(FATAL_ERROR "Subboard_MM_Consumer_Demo: invalid SUBBOARD_MM_CONSUMER_LOG_LEVEL=${SUBBOARD_MM_CONSUMER_LOG_LEVEL}")
+endif()
 
 s300_add_executable(
     TARGET s300_subboard_mm_consumer_demo
@@ -34,6 +46,7 @@ s300_add_executable(
 
 target_compile_definitions(s300_subboard_mm_consumer_demo PRIVATE
     BOARD_MM_ENABLE=1
+    SUBBOARD_LOG_LEVEL=${SUBBOARD_MM_CONSUMER_LOG_LEVEL_VALUE}
 )
 
 cmake_path(ABSOLUTE_PATH CMAKE_SOURCE_DIR NORMALIZE OUTPUT_VARIABLE ROOT_ABS)
@@ -60,3 +73,4 @@ add_s300_image(s300_subboard_mm_consumer_demo
 )
 
 message(STATUS "Subboard_MM_Consumer_Demo: DSP image dir = ${SUBBOARD_DSP_IMAGE_DIR}")
+message(STATUS "Subboard_MM_Consumer_Demo: log level = ${SUBBOARD_MM_CONSUMER_LOG_LEVEL_NAME}")

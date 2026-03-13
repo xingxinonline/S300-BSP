@@ -46,6 +46,16 @@ CMake 会为 s300_subboard_mm_consumer_demo 生成带 DSP 固件的 S300 镜像�
 1. cmake -B build -G Ninja -DBOARD=gimbal_node
 2. ninja -C build s300_subboard_mm_consumer_demo img_s300_subboard_mm_consumer_demo
 
+默认日志级别为 INFO，会输出关键状态迁移、命令处理和告警，不输出 DEBUG 级高频细节。如果需要打开完整联调日志，可以在配置时覆盖：
+
+1. cmake -B build -G Ninja -DBOARD=gimbal_node -DSUBBOARD_MM_CONSUMER_LOG_LEVEL=DEBUG
+
+可选值：
+
+1. WARN：只输出告警和失败
+2. INFO：默认值，输出关键流程和告警
+3. DEBUG：输出 mailbox、结果和控制面细节
+
 最终镜像输出到 build/s300_subboard_mm_consumer_demo_gimbal_node.bin。
 
 ## 调试加载说明

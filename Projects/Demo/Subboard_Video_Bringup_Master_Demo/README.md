@@ -19,3 +19,17 @@
 1. main 只保留板级启动和 app tick，不再承载具体业务状态机。
 2. 启动协商与叠框逻辑拆分，减少 I2C 状态处理和显示写显存之间的耦合。
 3. 新增主板侧功能时，优先放入 master_demo_app 或 master_detection_overlay，而不是重新回填 main。
+
+## 日志级别
+
+默认日志级别为 INFO，会输出关键状态变化、请求应答和告警，不输出 DEBUG 级高频轮询细节。
+
+如需打开完整联调日志，可在配置时覆盖：
+
+1. cmake -B build -G Ninja -DBOARD=gimbal_master -DMASTER_DEMO_LOG_LEVEL=DEBUG
+
+可选值：
+
+1. WARN：只输出告警和失败
+2. INFO：默认值，输出关键流程和告警
+3. DEBUG：输出心跳、结果变化和轮询细节

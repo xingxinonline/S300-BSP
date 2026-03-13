@@ -8,6 +8,7 @@
 #include "camera_ov5640.h"
 #include "gpio.h"
 #include "i2c_soft.h"
+#include "master_log.h"
 #include "master_detection_overlay.h"
 #include "psram.h"
 #include "rcc.h"
@@ -89,6 +90,19 @@ static const char *request_name(uint8_t request)
     }
 }
 
+static bool result_is_displayable(const subboard_detection_result_t *result)
+{
+    if (result == NULL) {
+        return false;
+    }
+
+    return (result->valid != 0u) &&
+           (result->count != 0u) &&
+           (result->confidence != 0u) &&
+           (result->x2 > result->x1) &&
+           (result->y2 > result->y1);
+}
+
 static int master_i2c_init(void)
 {
     i2c_soft_cfg_t cfg;
@@ -105,7 +119,7 @@ static int master_i2c_init(void)
 
     ret = i2c_soft_init(&s_i2c, &cfg, SystemCoreClock);
     if (ret != 0) {
-        printf("[MASTER] i2c init failed=%d\r\n", ret);
+        MASTER_LOG_WARN("[MASTER] i2c init failed=%d\r\n", ret);
         return -1;
     }
 
@@ -233,10 +247,10 @@ static void trigger_mm_runtime_enable(void)
     trigger_core_reg_update();
 
 #if defined(BOARD_LCD_SPI_ENABLE_ON_INIT) && (BOARD_LCD_SPI_ENABLE_ON_INIT == 0)
-    printf("[MASTER] applied MM runtime enable: core only, local LCD SPI path disabled\r\n");
+    MASTER_LOG_INFO("[MASTER] applied MM runtime enable: core only, local LCD SPI path disabled\r\n");
 #else
     trigger_spi_reg_update();
-    printf("[MASTER] applied MM runtime enable: core + lcd spi\r\n");
+    MASTER_LOG_INFO("[MASTER] applied MM runtime enable: core + lcd spi\r\n");
 #endif
 }
 
@@ -246,7 +260,7 @@ static int video_path_prepare(void)
 
     ret = rcc_init_mm_pll(8, 400, 0, 3, 2);
     if (ret != RCC_STATUS_OK) {
-        printf("[MASTER] rcc_init_mm_pll failed=%d\r\n", ret);
+        MASTER_LOG_WARN("[MASTER] rcc_init_mm_pll failed=%d\r\n", ret);
         return -1;
     }
 
@@ -254,13 +268,13 @@ static int video_path_prepare(void)
 
     ret = camera_ov5640_preinit();
     if (ret != 0) {
-        printf("[MASTER] camera_ov5640_preinit failed=%d\r\n", ret);
+        MASTER_LOG_WARN("[MASTER] camera_ov5640_preinit failed=%d\r\n", ret);
         return -1;
     }
 
     init_video(EM_DVP, APP_CAM_FMT, C1080X720P);
     master_detection_overlay_init(millis);
-    printf("[MASTER] video path ready\r\n");
+    MASTER_LOG_INFO("[MASTER] video path ready\r\n");
     return 0;
 }
 
@@ -290,32 +304,32 @@ static void log_snapshot(uint8_t state,
                          uint8_t cmd_result)
 {
     if (state != s_last_state) {
-        printf("[MASTER] subboard_state=%s\r\n", public_state_name(state));
+        MASTER_LOG_INFO("[MASTER] subboard_state=%s\r\n", public_state_name(state));
         s_last_state = state;
     }
 
     if (error != s_last_error) {
-        printf("[MASTER] subboard_error=0x%02X\r\n", error);
+        MASTER_LOG_WARN("[MASTER] subboard_error=0x%02X\r\n", error);
         s_last_error = error;
     }
 
     if (heartbeat != s_last_heartbeat) {
-        printf("[MASTER] subboard_heartbeat=%u\r\n", (unsigned)heartbeat);
+        MASTER_LOG_DEBUG("[MASTER] subboard_heartbeat=%u\r\n", (unsigned)heartbeat);
         s_last_heartbeat = heartbeat;
     }
 
     if ((request != s_last_request) || (request_ack != s_last_request_ack)) {
-        printf("[MASTER] request=%s ack=%s\r\n",
-               request_name(request),
-               request_name(request_ack));
+        MASTER_LOG_INFO("[MASTER] request=%s ack=%s\r\n",
+                        request_name(request),
+                        request_name(request_ack));
         s_last_request = request;
         s_last_request_ack = request_ack;
     }
 
     if ((cmd_ack != s_last_cmd_ack) || (cmd_result != s_last_cmd_result)) {
-        printf("[MASTER] cmd_ack=0x%02X result=%s\r\n",
-               cmd_ack,
-               result_name(cmd_result));
+        MASTER_LOG_INFO("[MASTER] cmd_ack=0x%02X result=%s\r\n",
+                        cmd_ack,
+                        result_name(cmd_result));
         s_last_cmd_ack = cmd_ack;
         s_last_cmd_result = cmd_result;
     }
@@ -330,23 +344,23 @@ static void handle_request(uint8_t request, uint8_t request_ack)
     if (request == SUBBOARD_STARTUP_REQ_MASTER_MM_ENABLE) {
         if (!s_video_prepared) {
             if (video_path_prepare() != 0) {
-                printf("[MASTER] video path prepare failed, waiting retry\r\n");
+                MASTER_LOG_WARN("[MASTER] video path prepare failed, waiting retry\r\n");
                 return;
             }
             s_video_prepared = true;
         }
     } else if (request == SUBBOARD_STARTUP_REQ_MASTER_MM_RUNTIME) {
         trigger_mm_runtime_enable();
-        printf("[MASTER] executed REQUEST_MASTER_MM_RUNTIME\r\n");
+        MASTER_LOG_INFO("[MASTER] executed REQUEST_MASTER_MM_RUNTIME\r\n");
     } else if (request == SUBBOARD_STARTUP_REQ_MASTER_SPI_SYNC) {
         trigger_mm_runtime_enable();
-        printf("[MASTER] executed legacy REQUEST_MASTER_SPI_SYNC as MM runtime enable\r\n");
+        MASTER_LOG_INFO("[MASTER] executed legacy REQUEST_MASTER_SPI_SYNC as MM runtime enable\r\n");
     }
 
     if (write_reg8(SUBBOARD_STARTUP_REG_REQUEST_ACK, request) == 0) {
-        printf("[MASTER] acknowledged %s\r\n", request_name(request));
+        MASTER_LOG_INFO("[MASTER] acknowledged %s\r\n", request_name(request));
     } else {
-        printf("[MASTER] failed to acknowledge %s\r\n", request_name(request));
+        MASTER_LOG_WARN("[MASTER] failed to acknowledge %s\r\n", request_name(request));
     }
 }
 
@@ -361,15 +375,11 @@ static void handle_commands(uint8_t state,
          (state == SUBBOARD_STARTUP_STATE_WAIT_VIDEO) ||
          (state == SUBBOARD_STARTUP_STATE_I2C_READY))) {
         if (send_prepare_video_cmd() == 0) {
-            printf("[MASTER] sent PREPARE_VIDEO_CONSUMER\r\n");
+            MASTER_LOG_INFO("[MASTER] sent PREPARE_VIDEO_CONSUMER\r\n");
             s_prepare_sent = true;
         } else {
-            printf("[MASTER] failed to send PREPARE_VIDEO_CONSUMER\r\n");
+            MASTER_LOG_WARN("[MASTER] failed to send PREPARE_VIDEO_CONSUMER\r\n");
         }
-    }
-
-    if (state == SUBBOARD_STARTUP_STATE_MM_READY) {
-        printf("[MASTER] bring-up success: subboard MM_READY\r\n");
     }
 
     if (!s_start_dsp_sent &&
@@ -377,10 +387,10 @@ static void handle_commands(uint8_t state,
         (cmd_ack == SUBBOARD_STARTUP_CMD_PREPARE_VIDEO) &&
         (cmd_result == SUBBOARD_STARTUP_RESULT_OK)) {
         if (send_start_dsp_cmd() == 0) {
-            printf("[MASTER] sent START_DSP\r\n");
+            MASTER_LOG_INFO("[MASTER] sent START_DSP\r\n");
             s_start_dsp_sent = true;
         } else {
-            printf("[MASTER] failed to send START_DSP\r\n");
+            MASTER_LOG_WARN("[MASTER] failed to send START_DSP\r\n");
         }
     }
 }
@@ -389,7 +399,6 @@ static void handle_running_state(void)
 {
     subboard_detection_result_t result;
 
-    printf("[MASTER] bring-up success: subboard RUNNING\r\n");
     master_detection_overlay_tick();
 
     if ((read_regs(SUBBOARD_STARTUP_REG_RESULT,
@@ -400,19 +409,19 @@ static void handle_running_state(void)
     }
 
     s_last_result = result;
-    if (result.valid != 0u) {
+    if (result_is_displayable(&result)) {
         master_detection_overlay_draw(&result);
-        printf("[MASTER] face result: count=%u conf=%u box=(%d,%d)-(%d,%d) face_id=%u\r\n",
-               (unsigned)result.count,
-               (unsigned)result.confidence,
-               (int)result.x1,
-               (int)result.y1,
-               (int)result.x2,
-               (int)result.y2,
-               (unsigned)result.face_id);
+        MASTER_LOG_DEBUG("[MASTER] face result: count=%u conf=%u box=(%d,%d)-(%d,%d) face_id=%u\r\n",
+                         (unsigned)result.count,
+                         (unsigned)result.confidence,
+                         (int)result.x1,
+                         (int)result.y1,
+                         (int)result.x2,
+                         (int)result.y2,
+                         (unsigned)result.face_id);
     } else {
         master_detection_overlay_clear();
-        printf("[MASTER] face result cleared\r\n");
+        MASTER_LOG_DEBUG("[MASTER] face result cleared\r\n");
     }
 }
 
@@ -420,9 +429,9 @@ int master_demo_app_init(uint32_t (*get_millis_fn)(void))
 {
     s_get_millis = get_millis_fn;
 
-    printf("\r\n=================================================\r\n");
-    printf("  S300 Subboard Video Bring-up Master Demo\r\n");
-    printf("=================================================\r\n");
+    MASTER_LOG_INFO("\r\n=================================================\r\n");
+    MASTER_LOG_INFO("  S300 Subboard Video Bring-up Master Demo\r\n");
+    MASTER_LOG_INFO("=================================================\r\n");
 
     reset_online_state();
     return master_i2c_init();
@@ -449,13 +458,13 @@ void master_demo_app_tick(void)
     s_last_poll_ms = now_ms;
 
     if (read_reg8(SUBBOARD_STARTUP_REG_PROTO_VER, &proto_ver) != 0) {
-        printf("[MASTER] waiting subboard at 0x%02X\r\n", SUBBOARD_STARTUP_SLAVE_ADDR_CARD1);
+        MASTER_LOG_DEBUG("[MASTER] waiting subboard at 0x%02X\r\n", SUBBOARD_STARTUP_SLAVE_ADDR_CARD1);
         reset_online_state();
         return;
     }
 
     if (proto_ver != s_last_proto_ver) {
-        printf("[MASTER] subboard online, proto=0x%02X\r\n", proto_ver);
+        MASTER_LOG_INFO("[MASTER] subboard online, proto=0x%02X\r\n", proto_ver);
         s_last_proto_ver = proto_ver;
     }
 

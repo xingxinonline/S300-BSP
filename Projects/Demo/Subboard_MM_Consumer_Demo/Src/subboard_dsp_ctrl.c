@@ -6,6 +6,7 @@
 #include "board.h"
 #include "rcc.h"
 #include "s300.h"
+#include "subboard_log.h"
 #include "subboard_dsp_control_plane.h"
 #include "subboard_detection_adapter.h"
 #include "subboard_dsp_mailbox.h"
@@ -52,7 +53,7 @@ static const char *state_name(SubboardDspState_t state)
 static void enter_state(SubboardDspState_t next_state)
 {
     if (s_state != next_state) {
-        printf("[SUB-DSP] STATE %s -> %s\r\n", state_name(s_state), state_name(next_state));
+        SUB_LOG_INFO("[SUB-DSP] STATE %s -> %s\r\n", state_name(s_state), state_name(next_state));
         s_state = next_state;
         s_state_since_ms = millis();
     }
@@ -110,7 +111,7 @@ static void queue_master_request(uint8_t request)
 
     if ((bit != 0u) && ((s_pending_master_requests & bit) == 0u)) {
         s_pending_master_requests |= bit;
-        printf("[SUB-DSP] queued master request=0x%02X\r\n", request);
+        SUB_LOG_DEBUG("[SUB-DSP] queued master request=0x%02X\r\n", request);
     }
 }
 
@@ -180,7 +181,7 @@ static void process_mailbox(void)
             } else if (MAILBOX_GET_MSG_TYPE(msg) == MAILBOX_MSG_TYPE_NO_RESULT) {
                 subboard_detection_adapter_clear();
             } else {
-                printf("[SUB-DSP] RX data/runtime msg=0x%08lX\r\n", (unsigned long)msg);
+                SUB_LOG_WARN("[SUB-DSP] RX data/runtime msg=0x%08lX\r\n", (unsigned long)msg);
             }
         }
     }
@@ -222,7 +223,7 @@ static void step_state_machine(void)
         (s_state != SUB_DSP_STATE_RUNNING) &&
         (s_state != SUB_DSP_STATE_ERROR) &&
         ((uint32_t)(now_ms - s_state_since_ms) >= SUB_DSP_RESPONSE_TIMEOUT_MS)) {
-        printf("[SUB-DSP] state timeout in %s\r\n", state_name(s_state));
+        SUB_LOG_WARN("[SUB-DSP] state timeout in %s\r\n", state_name(s_state));
         enter_state(SUB_DSP_STATE_ERROR);
     }
 }

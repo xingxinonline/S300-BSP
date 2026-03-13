@@ -5,6 +5,7 @@
 
 #include "control_proto.h"
 #include "mailbox.h"
+#include "subboard_log.h"
 
 #define SUB_DSP_STREAM_ID_MAIN 0x01u
 #define SUB_DSP_CONFIG_SLOT_ID 0x31u
@@ -15,9 +16,9 @@ static void send_control_msg(uint32_t msg, const char *label)
     int ret = write_mailbox(MAILBOX_BASE, msg);
 
     if (ret == 0) {
-        printf("[SUB-DSP] TX %-20s 0x%08lX\r\n", label, (unsigned long)msg);
+        SUB_LOG_DEBUG("[SUB-DSP] TX %-20s 0x%08lX\r\n", label, (unsigned long)msg);
     } else {
-        printf("[SUB-DSP] TX %-20s failed (%d)\r\n", label, ret);
+        SUB_LOG_WARN("[SUB-DSP] TX %-20s failed (%d)\r\n", label, ret);
     }
 }
 
@@ -56,11 +57,11 @@ void subboard_dsp_mailbox_send_resource_ready(uint8_t session_id, uint8_t resour
             SUB_DSP_CONFIG_SLOT_ID),
         "SYS.CM4_RESOURCE_READY");
 
-    printf("[SUB-DSP] TX RESOURCE_READY flags=0x%02X (camera=%u mm=%u lcd=%u)\r\n",
-           (unsigned)resource_flags,
-           (unsigned)((resource_flags & CONTROL_RESOURCE_CAMERA_READY) != 0u),
-           (unsigned)((resource_flags & CONTROL_RESOURCE_MM_READY) != 0u),
-           (unsigned)((resource_flags & CONTROL_RESOURCE_LCD_READY) != 0u));
+    SUB_LOG_DEBUG("[SUB-DSP] TX RESOURCE_READY flags=0x%02X (camera=%u mm=%u lcd=%u)\r\n",
+                  (unsigned)resource_flags,
+                  (unsigned)((resource_flags & CONTROL_RESOURCE_CAMERA_READY) != 0u),
+                  (unsigned)((resource_flags & CONTROL_RESOURCE_MM_READY) != 0u),
+                  (unsigned)((resource_flags & CONTROL_RESOURCE_LCD_READY) != 0u));
 }
 
 void subboard_dsp_mailbox_send_config_apply(uint8_t session_id)
@@ -88,7 +89,10 @@ void subboard_dsp_mailbox_send_start_stream(uint8_t session_id)
 
 void subboard_dsp_mailbox_send_heartbeat(uint8_t session_id, uint8_t heartbeat_seq)
 {
-    send_control_msg(
-        CONTROL_SYS_HEARTBEAT(session_id, heartbeat_seq, CONTROL_RUN_STATE_RUNNING),
-        "SYS.HEARTBEAT");
+    uint32_t msg = CONTROL_SYS_HEARTBEAT(session_id, heartbeat_seq, CONTROL_RUN_STATE_RUNNING);
+    int ret = write_mailbox(MAILBOX_BASE, msg);
+
+    if (ret != 0) {
+        SUB_LOG_WARN("[SUB-DSP] TX SYS.HEARTBEAT failed (%d)\r\n", ret);
+    }
 }

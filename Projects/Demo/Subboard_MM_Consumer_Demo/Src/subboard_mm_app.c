@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "subboard_log.h"
 #include "subboard_mm_app_internal.h"
 #include "subboard_dsp_ctrl.h"
 #include "subboard_startup_i2c.h"
@@ -29,17 +30,17 @@ int subboard_mm_app_init(uint32_t (*get_millis_fn)(void))
     s_ctx.active_request = SUBBOARD_STARTUP_REQ_NONE;
     s_ctx.last_logged_state = 0xFFu;
 
-    printf("\r\n===========================================\r\n");
-    printf("  S300 Subboard MM Consumer Demo\r\n");
-    printf("  MM consumer bring-up with optional DSP\r\n");
-    printf("===========================================\r\n");
+    SUB_LOG_INFO("\r\n===========================================\r\n");
+    SUB_LOG_INFO("  S300 Subboard MM Consumer Demo\r\n");
+    SUB_LOG_INFO("  MM consumer bring-up with optional DSP\r\n");
+    SUB_LOG_INFO("===========================================\r\n");
 
     subboard_dsp_ctrl_init(millis);
     subboard_mm_app_refresh_dsp_resource_flags(&s_ctx);
     subboard_startup_i2c_update_result(&s_ctx.last_published_result);
 
     if (subboard_startup_i2c_init(SUBBOARD_STARTUP_SLAVE_ADDR_CARD1) != 0) {
-        printf("[SUB-MM] i2c slave init failed\r\n");
+        SUB_LOG_WARN("[SUB-MM] i2c slave init failed\r\n");
         return -1;
     }
 
@@ -49,9 +50,9 @@ int subboard_mm_app_init(uint32_t (*get_millis_fn)(void))
     subboard_mm_app_enter_public_state(&s_ctx, SUBBOARD_STARTUP_STATE_I2C_READY);
     subboard_mm_app_enter_public_state(&s_ctx, SUBBOARD_STARTUP_STATE_WAIT_VIDEO);
 
-    printf("[SUB-MM] I2C slave ready: addr=0x%02X proto=0x%02X\r\n",
-           SUBBOARD_STARTUP_SLAVE_ADDR_CARD1,
-           SUBBOARD_STARTUP_PROTO_VER);
+    SUB_LOG_INFO("[SUB-MM] I2C slave ready: addr=0x%02X proto=0x%02X\r\n",
+                 SUBBOARD_STARTUP_SLAVE_ADDR_CARD1,
+                 SUBBOARD_STARTUP_PROTO_VER);
 
     s_ctx.last_heartbeat_ms = millis();
     s_ctx.last_logged_state = 0xFFu;
