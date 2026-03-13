@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "app_fill_light.h"
 #include "camera_ov5640.h"
 #include "detection_proto.h"
 #include "gpio.h"
@@ -282,6 +283,10 @@ static int video_path_prepare(void)
         return -1;
     }
 
+    if (app_fill_light_init() != 0) {
+        MASTER_LOG_WARN("[MASTER] fill light control init failed, continue without runtime light control\r\n");
+    }
+
     init_video(EM_DVP, APP_CAM_FMT, C1080X720P);
     master_detection_overlay_init(millis);
     MASTER_LOG_INFO("[MASTER] video path ready\r\n");
@@ -483,6 +488,11 @@ static void handle_running_state(void)
 bool master_demo_app_is_subboard_running(void)
 {
     return s_public_state == SUBBOARD_STARTUP_STATE_RUNNING;
+}
+
+uint8_t master_demo_app_get_subboard_state(void)
+{
+    return s_public_state;
 }
 
 int master_demo_app_init(uint32_t (*get_millis_fn)(void))

@@ -9,6 +9,7 @@ endif()
 set(PROJECT_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 set(ROOT ${PROJECT_DIR}/../..)
 include(${ROOT}/cmake/s300_model_metadata.cmake)
+add_subdirectory(${CMAKE_SOURCE_DIR}/Drivers/External/WS2812 ${CMAKE_CURRENT_BINARY_DIR}/WS2812)
 set(KWS_DEMO_DIR ${ROOT}/Projects/Demo/KWS_Control_Protocol_Demo)
 set(AUDIO_SHARED_DIR ${ROOT}/Projects/Demo/Audio_KWS_Demo/Src)
 set(SHARED_DETECTION_DIR ${ROOT}/Projects/Demo/Algorithm_Detection_Demo)
@@ -63,14 +64,17 @@ s300_add_executable(
     TARGET s300_gimbal_master
     SOURCES
         Src/main.c
+        Src/app_status_light.c
+        Src/app_fill_light.c
+        Src/camera_ov5640.c
+        Src/kws_control_stream.c
         Src/master_demo_app.c
         Src/master_detection_overlay.c
-        ${KWS_DEMO_DIR}/Src/kws_control_stream.c
         ${AUDIO_SHARED_DIR}/audio_app.c
         ${AUDIO_SHARED_DIR}/audio_codec.c
-        ${SHARED_DETECTION_DIR}/Src/camera_ov5640.c
     DRIVERS rcc gpio uart dma i2s i2c_soft mailbox mm psram ${AUDIO_CODEC_DRIVERS}
     INCLUDES . Inc ${KWS_DEMO_DIR}/Src ${AUDIO_SHARED_DIR} ${SHARED_DETECTION_DIR}/Inc ${CMAKE_SOURCE_DIR}/Projects/Demo/Subboard_Bringup_Common ${CMAKE_SOURCE_DIR}/Algorithm_Models/protocol
+    LIBRARIES ws2812
     DBG_NAME gimbal_master
     DBG_SCRIPT ${KWS_GDB_SCRIPT}
     NO_IMAGE

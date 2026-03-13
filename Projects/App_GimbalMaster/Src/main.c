@@ -2,6 +2,8 @@
 #include <stdint.h>
 #include <stdio.h>
 
+#include "app_status_light.h"
+#include "app_fill_light.h"
 #include "audio_app.h"
 #include "board.h"
 #include "control_proto.h"
@@ -11,6 +13,7 @@
 #include "master_demo_app.h"
 #include "rcc.h"
 #include "s300.h"
+#include "subboard_startup_proto.h"
 #include "uart.h"
 
 #ifndef APP_GIMBAL_MASTER_MODEL_ID
@@ -68,6 +71,38 @@ static uint32_t g_last_hello_ms = 0u;
 static uint32_t g_last_resource_ms = 0u;
 static uint32_t g_last_heartbeat_ms = 0u;
 static bool g_kws_started = false;
+
+static void handle_kws_keyword_report(uint8_t keyword_idx, uint8_t confidence, uint32_t chunk_idx)
+{
+    (void)confidence;
+    (void)chunk_idx;
+
+    if (keyword_idx == 6u) {
+        (void)app_fill_light_set_enabled(true);
+    } else if (keyword_idx == 7u) {
+        (void)app_fill_light_set_enabled(false);
+    }
+
+    app_status_light_notify_kws_hit(keyword_idx);
+}
+
+static void update_status_light(void)
+{
+    uint8_t subboard_state = master_demo_app_get_subboard_state();
+
+    if ((subboard_state == SUBBOARD_STARTUP_STATE_ERROR) ||
+        (g_state == CM4_KWS_STATE_ERROR)) {
+        app_status_light_set_mode(APP_STATUS_LIGHT_MODE_ERROR);
+    } else if (!master_demo_app_is_subboard_running()) {
+        app_status_light_set_mode(APP_STATUS_LIGHT_MODE_WAIT_SUBBOARD);
+    } else if ((g_kws_started == false) || (g_state != CM4_KWS_STATE_RUNNING)) {
+        app_status_light_set_mode(APP_STATUS_LIGHT_MODE_SUBBOARD_READY);
+    } else {
+        app_status_light_set_mode(APP_STATUS_LIGHT_MODE_KWS_RUNNING);
+    }
+
+    app_status_light_tick();
+}
 
 void SysTick_Handler(void)
 {
@@ -481,6 +516,7 @@ static int kws_runtime_init(void)
     dsp_uart_init();
     dsp_firmware_load_point();
     kws_control_stream_log_layout();
+    kws_control_stream_set_keyword_report_callback(handle_kws_keyword_report);
     g_state = CM4_KWS_STATE_RESET;
     g_pending = CM4_KWS_PENDING_NONE;
     g_state_since_ms = millis();
@@ -510,29 +546,42 @@ int main(void)
     printf("  KWS runtime + subboard coordination service\r\n");
     printf("======================================================\r\n");
     printf("[KWS-CTRL] SystemCoreClock = %lu Hz\r\n", (unsigned long)SystemCoreClock);
-        printf("[KWS-CTRL] Model id=%s version=%s date=%s\r\n",
-            APP_GIMBAL_MASTER_MODEL_ID,
-            APP_GIMBAL_MASTER_MODEL_VERSION,
-            APP_GIMBAL_MASTER_MODEL_DATE);
-        printf("[KWS-CTRL] Model dir=%s\r\n", APP_GIMBAL_MASTER_MODEL_DIR);
+    printf("[KWS-CTRL] Model id=%s version=%s date=%s\r\n",
+           APP_GIMBAL_MASTER_MODEL_ID,
+           APP_GIMBAL_MASTER_MODEL_VERSION,
+           APP_GIMBAL_MASTER_MODEL_DATE);
+    printf("[KWS-CTRL] Model dir=%s\r\n", APP_GIMBAL_MASTER_MODEL_DIR);
+
+    if (app_status_light_init(millis) != 0) {
+        printf("[MASTER] status light init failed, continue without LED\r\n");
+        app_status_light_set_mode(APP_STATUS_LIGHT_MODE_DISABLED);
+    } else {
+        app_status_light_set_mode(APP_STATUS_LIGHT_MODE_BOOT);
+    }
 
     if (master_demo_app_init(millis) != 0) {
         printf("[MASTER] subboard coordination service init failed\r\n");
+        app_status_light_set_mode(APP_STATUS_LIGHT_MODE_ERROR);
         while (1) {
+            app_status_light_tick();
             __WFI();
         }
     }
     printf("[MASTER] subboard coordination service ready\r\n");
     printf("[MASTER] waiting for subboard RUNNING before starting local KWS\r\n");
+    app_status_light_set_mode(APP_STATUS_LIGHT_MODE_WAIT_SUBBOARD);
 
     while (1) {
         master_demo_app_tick();
+        update_status_light();
 
         if (!g_kws_started) {
             if (master_demo_app_is_subboard_running()) {
                 if (kws_runtime_init() != 0) {
                     printf("[KWS-CTRL] KWS runtime init failed\r\n");
+                    app_status_light_set_mode(APP_STATUS_LIGHT_MODE_ERROR);
                     while (1) {
+                        app_status_light_tick();
                         __WFI();
                     }
                 }
