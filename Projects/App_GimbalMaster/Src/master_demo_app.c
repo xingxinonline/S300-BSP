@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "camera_ov5640.h"
+#include "detection_proto.h"
 #include "gpio.h"
 #include "i2c_soft.h"
 #include "master_detection_overlay.h"
@@ -92,6 +93,11 @@ static const char *request_name(uint8_t request)
     case SUBBOARD_STARTUP_REQ_MASTER_SPI_SYNC: return "REQUEST_MASTER_SPI_SYNC";
     default: return "UNKNOWN";
     }
+}
+
+static const char *detection_type_label(uint8_t raw_type)
+{
+    return detection_type_name(detection_type_from_raw(raw_type));
 }
 
 static bool result_is_displayable(const subboard_detection_result_t *result)
@@ -449,7 +455,8 @@ static void handle_running_state(void)
     if (displayable) {
         master_detection_overlay_draw(&result);
         if (!s_overlay_active) {
-            MASTER_LOG_INFO("[MASTER] overlay shown: count=%u conf=%u box=(%d,%d)-(%d,%d) id=%u\r\n",
+            MASTER_LOG_INFO("[MASTER] overlay shown: type=%s count=%u conf=%u box=(%d,%d)-(%d,%d) id=%u\r\n",
+                            detection_type_label(result.type),
                             (unsigned)result.count,
                             (unsigned)result.confidence,
                             (int)result.x1,
@@ -459,7 +466,8 @@ static void handle_running_state(void)
                             (unsigned)result.face_id);
             s_overlay_active = true;
         }
-        MASTER_LOG_DEBUG("[MASTER] detection result: count=%u conf=%u box=(%d,%d)-(%d,%d) id=%u\r\n",
+        MASTER_LOG_DEBUG("[MASTER] detection result: type=%s count=%u conf=%u box=(%d,%d)-(%d,%d) id=%u\r\n",
+                         detection_type_label(result.type),
                          (unsigned)result.count,
                          (unsigned)result.confidence,
                          (int)result.x1,
