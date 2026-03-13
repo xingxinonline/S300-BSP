@@ -120,6 +120,13 @@ static void apply_control_effect(const SubboardDspControlEffect_t *effect)
         return;
     }
 
+    if (effect->has_next_pending) {
+        s_pending = effect->next_pending;
+    }
+    if (effect->has_next_state) {
+        enter_state(effect->next_state);
+    }
+
     if (effect->request_resource_ready) {
         send_resource_ready();
     }
@@ -134,13 +141,6 @@ static void apply_control_effect(const SubboardDspControlEffect_t *effect)
     }
     if (effect->request_master_mm_runtime) {
         queue_master_request(SUBBOARD_STARTUP_REQ_MASTER_MM_RUNTIME);
-    }
-
-    if (effect->has_next_pending) {
-        s_pending = effect->next_pending;
-    }
-    if (effect->has_next_state) {
-        enter_state(effect->next_state);
     }
 }
 
