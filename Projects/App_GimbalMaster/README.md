@@ -44,3 +44,4 @@
 
 更完整的主板、子板和联合状态机说明见 `docs/STATE_MACHINES.md`。
 后续开发阶段建议见 `docs/DEVELOPMENT_ROADMAP.md`。
+v0.1 基线验证步骤见 `docs/V0_1_VALIDATION_CHECKLIST.md`。
