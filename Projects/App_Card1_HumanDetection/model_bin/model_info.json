@@ -1,0 +1,16 @@
+{
+    "name": "Human Detection Local Override",
+    "id": "human_detection_local_override",
+    "version": "0.0.0-local",
+    "date": "2026-03-13",
+    "description": "Local override DSP bins for App_Card1_HumanDetection. Update version, date and source whenever the local model files are replaced.",
+    "source": "Local override; upstream version not recorded",
+    "compatibility": {
+        "dsp_fw": "Unknown"
+    },
+    "notes": [
+        "These local bins are selected before Algorithm_Models/Human_Detection.",
+        "Hashes differ from the default Human_Detection model set.",
+        "Update this file together with the bin files to keep model version tracking accurate."
+    ]
+}

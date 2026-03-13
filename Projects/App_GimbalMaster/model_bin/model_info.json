@@ -1,0 +1,16 @@
+{
+    "name": "Keyword Spotting Local Override",
+    "id": "keyword_spotting_local_override",
+    "version": "0.0.0-local",
+    "date": "2026-03-13",
+    "description": "Local override DSP bins for App_GimbalMaster. Update version, date and source whenever the local model files are replaced.",
+    "source": "Local override; upstream version not recorded",
+    "compatibility": {
+        "dsp_fw": "Unknown"
+    },
+    "notes": [
+        "These local bins are selected before Algorithm_Models/Keyword_Spotting.",
+        "Hashes differ from the default Keyword_Spotting model set.",
+        "Update this file together with the bin files to keep model version tracking accurate."
+    ]
+}

@@ -16,6 +16,7 @@
 # 但是保留算法模型目录和 demo 自带 model_bin 下的 bin 文件
 !Algorithm_Models/**/*.bin
 !Projects/Demo/*/model_bin/*.bin
+!Projects/App_*/model_bin/*.bin
 
 # 构建目录
 build/

@@ -1,0 +1,3 @@
+Projects/App_*/model_bin/*.bin binary -text -diff
+Algorithm_Models/**/*.bin binary -text -diff
+Projects/Demo/*/model_bin/*.bin binary -text -diff
