@@ -1,16 +1,16 @@
 {
-    "name": "Human Detection Local Override",
-    "id": "human_detection_local_override",
+    "name": "Face Detection Validation Override",
+    "id": "face_detection_validation_override",
     "version": "0.0.0-local",
     "date": "2026-03-13",
-    "description": "Local override DSP bins for App_Card1_HumanDetection. Update version, date and source whenever the local model files are replaced.",
-    "source": "Local override; upstream version not recorded",
+    "description": "Local override DSP bins for App_Card1_HumanDetection. The app semantics remain Card1 human-detection, but the current local override bin set is a face-detection demo image used for board-to-board validation.",
+    "source": "Local override face-detection validation bins; upstream version not recorded",
     "compatibility": {
         "dsp_fw": "Unknown"
     },
     "notes": [
         "These local bins are selected before Algorithm_Models/Human_Detection.",
-        "Hashes differ from the default Human_Detection model set.",
-        "Update this file together with the bin files to keep model version tracking accurate."
+        "Current validation uses face-detection demo DSP bins to verify App_Card1 startup, protocol and result publishing.",
+        "Replace this metadata together with the bin files when switching back to the formal Human_Detection model set."
     ]
 }

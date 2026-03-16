@@ -12,6 +12,7 @@
 #include "subboard_startup_i2c.h"
 #include "subboard_startup_proto.h"
 #include "video.h"
+#include "video_config.h"
 
 #ifndef REG32
 #define REG32(addr) (*(volatile uint32_t *)(uintptr_t)(addr))
@@ -56,7 +57,11 @@ int subboard_mm_app_start_mm_consumer(SubboardMmAppContext *ctx)
     }
 
     SUB_LOG_INFO("[CARD1] starting MM consumer path\r\n");
+#if defined(BOARD_LCD_SPI_ENABLE_ON_INIT) && (BOARD_LCD_SPI_ENABLE_ON_INIT == 0)
     SUB_LOG_INFO("[CARD1] OV5640 init skipped; MM/SPI config mirrored from master, LCD SPI output disabled\r\n");
+#else
+    SUB_LOG_INFO("[CARD1] OV5640 init skipped; MM/SPI config mirrored from master, LCD SPI output enabled\r\n");
+#endif
 
     ret = rcc_init_mm_pll(8, 400, 0, 3, 2);
     if (ret != RCC_STATUS_OK) {

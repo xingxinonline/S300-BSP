@@ -11,6 +11,7 @@
 #include "subboard_log.h"
 #include "subboard_startup_i2c.h"
 #include "subboard_startup_proto.h"
+#include "video_config.h"
 
 #ifndef REG32
 #define REG32(addr) (*(volatile uint32_t *)(uintptr_t)(addr))
