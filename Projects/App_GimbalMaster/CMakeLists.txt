@@ -18,6 +18,18 @@ set(KWS_GDB_TEMPLATE ${KWS_DEMO_DIR}/gdbinit.kws_control_protocol.gdb.in)
 set(KWS_GDB_SCRIPT ${CMAKE_CURRENT_BINARY_DIR}/gdbinit.gimbal_master_kws.gdb)
 set(MODEL_MANIFEST ${CMAKE_CURRENT_BINARY_DIR}/gimbal_master_model_manifest.txt)
 set(MASTER_APP_LOG_LEVEL "INFO" CACHE STRING "Master app log level: WARN, INFO, DEBUG")
+set(MASTER_SUBBOARD_WAIT_TIMEOUT_MS "3000" CACHE STRING "Milliseconds to wait for subboard RUNNING before local-KWS fallback")
+set(MASTER_KWS_STATUS_LOG_STRIDE "0" CACHE STRING "Print every Nth KWS STATUS report; 0 disables periodic STATUS logs")
+set(MASTER_KWS_HEARTBEAT_LOG_STRIDE "0" CACHE STRING "Print every Nth KWS heartbeat TX/RX; 0 disables periodic heartbeat logs")
+set(MASTER_KWS_STREAM_STATS_LOG_INTERVAL "1024" CACHE STRING "Print KWS stream chunk/result statistics every N chunks; 0 disables periodic stream stats")
+
+if(MASTER_KWS_STATUS_LOG_STRIDE STREQUAL "8" OR MASTER_KWS_STATUS_LOG_STRIDE STREQUAL "32")
+    set(MASTER_KWS_STATUS_LOG_STRIDE "0" CACHE STRING "Print every Nth KWS STATUS report; 0 disables periodic STATUS logs" FORCE)
+endif()
+
+if(MASTER_KWS_HEARTBEAT_LOG_STRIDE STREQUAL "4" OR MASTER_KWS_HEARTBEAT_LOG_STRIDE STREQUAL "8")
+    set(MASTER_KWS_HEARTBEAT_LOG_STRIDE "0" CACHE STRING "Print every Nth KWS heartbeat TX/RX; 0 disables periodic heartbeat logs" FORCE)
+endif()
 
 string(TOUPPER "${MASTER_APP_LOG_LEVEL}" MASTER_APP_LOG_LEVEL_NAME)
 if(MASTER_APP_LOG_LEVEL_NAME STREQUAL "WARN")
@@ -64,6 +76,11 @@ s300_add_executable(
     TARGET s300_gimbal_master
     SOURCES
         Src/main.c
+        Src/app_action_dispatch.c
+        Src/app_action_executor.c
+        Src/app_gimbal_control.c
+        Src/app_media_control.c
+        Src/app_runtime_state.c
         Src/app_status_light.c
         Src/app_fill_light.c
         Src/camera_ov5640.c
@@ -95,6 +112,10 @@ endif()
 
 target_compile_definitions(s300_gimbal_master PRIVATE
     MASTER_LOG_LEVEL=${MASTER_APP_LOG_LEVEL_VALUE}
+    MASTER_SUBBOARD_WAIT_TIMEOUT_MS=${MASTER_SUBBOARD_WAIT_TIMEOUT_MS}
+    MASTER_KWS_STATUS_LOG_STRIDE=${MASTER_KWS_STATUS_LOG_STRIDE}
+    MASTER_KWS_HEARTBEAT_LOG_STRIDE=${MASTER_KWS_HEARTBEAT_LOG_STRIDE}
+    MASTER_KWS_STREAM_STATS_LOG_INTERVAL=${MASTER_KWS_STREAM_STATS_LOG_INTERVAL}
     APP_GIMBAL_MASTER_MODEL_ID=\"${APP_GIMBAL_MASTER_MODEL_ID}\"
     APP_GIMBAL_MASTER_MODEL_VERSION=\"${APP_GIMBAL_MASTER_MODEL_VERSION}\"
     APP_GIMBAL_MASTER_MODEL_DATE=\"${APP_GIMBAL_MASTER_MODEL_DATE}\"
@@ -119,3 +140,7 @@ message(STATUS "App_GimbalMaster: DSP image dir = ${APP_GIMBAL_MASTER_DSP_IMAGE_
 message(STATUS "App_GimbalMaster: model = ${APP_GIMBAL_MASTER_MODEL_ID} ${APP_GIMBAL_MASTER_MODEL_VERSION} (${APP_GIMBAL_MASTER_MODEL_DATE})")
 message(STATUS "App_GimbalMaster: model manifest = ${MODEL_MANIFEST}")
 message(STATUS "App_GimbalMaster: log level = ${MASTER_APP_LOG_LEVEL_NAME}")
+message(STATUS "App_GimbalMaster: subboard wait timeout = ${MASTER_SUBBOARD_WAIT_TIMEOUT_MS} ms")
+message(STATUS "App_GimbalMaster: KWS status log stride = ${MASTER_KWS_STATUS_LOG_STRIDE}")
+message(STATUS "App_GimbalMaster: KWS heartbeat log stride = ${MASTER_KWS_HEARTBEAT_LOG_STRIDE}")
+message(STATUS "App_GimbalMaster: KWS stream stats interval = ${MASTER_KWS_STREAM_STATS_LOG_INTERVAL}")

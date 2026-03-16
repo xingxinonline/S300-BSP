@@ -33,7 +33,9 @@
 2. 主板等待子板上线并响应 `REQUEST_MASTER_MM_ENABLE`。
 3. 主板完成本地视频准备并下发 `PREPARE_VIDEO`、`START_DSP`。
 4. 子板进入 `RUNNING` 后，主板再初始化音频、mailbox、DSP PLL 和 KWS 控制面。
-5. 之后主板持续并行执行本板 KWS 与子板结果轮询。
+5. 如果子板在等待窗口内未进入 `RUNNING`，主板会按超时降级路径直接启动本地 KWS，避免调试阶段无限等待。默认等待 3 秒，可通过构建配置覆盖。
+6. KWS 运行期的 `STATUS`、heartbeat 和 `chunks/results/backpressure` 统计日志都支持通过构建配置调节频率，默认已经按联调场景做了降噪。
+7. 之后主板持续并行执行本板 KWS 与子板结果轮询。
 
 ## 运行结构
 

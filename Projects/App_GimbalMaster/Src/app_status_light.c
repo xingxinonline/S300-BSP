@@ -290,31 +290,35 @@ void app_status_light_set_mode(app_status_light_mode_t mode)
     s_mode = mode;
 }
 
+void app_status_light_set_recording(bool enabled)
+{
+    if (enabled) {
+        s_runtime_flags |= STATUS_LIGHT_FLAG_RECORDING;
+    } else {
+        s_runtime_flags &= (uint8_t)(~STATUS_LIGHT_FLAG_RECORDING);
+    }
+}
+
+void app_status_light_set_tracking(bool enabled)
+{
+    if (enabled) {
+        s_runtime_flags |= STATUS_LIGHT_FLAG_TRACKING;
+    } else {
+        s_runtime_flags &= (uint8_t)(~STATUS_LIGHT_FLAG_TRACKING);
+    }
+}
+
+void app_status_light_set_fill_light(bool enabled)
+{
+    if (enabled) {
+        s_runtime_flags |= STATUS_LIGHT_FLAG_FILL_LIGHT;
+    } else {
+        s_runtime_flags &= (uint8_t)(~STATUS_LIGHT_FLAG_FILL_LIGHT);
+    }
+}
+
 void app_status_light_notify_kws_hit(uint8_t keyword_idx)
 {
-    switch (keyword_idx) {
-    case KWS_KEYWORD_RECORD_START:
-        s_runtime_flags |= STATUS_LIGHT_FLAG_RECORDING;
-        break;
-    case KWS_KEYWORD_RECORD_STOP:
-        s_runtime_flags &= (uint8_t)(~STATUS_LIGHT_FLAG_RECORDING);
-        break;
-    case KWS_KEYWORD_TRACK_START:
-        s_runtime_flags |= STATUS_LIGHT_FLAG_TRACKING;
-        break;
-    case KWS_KEYWORD_TRACK_STOP:
-        s_runtime_flags &= (uint8_t)(~STATUS_LIGHT_FLAG_TRACKING);
-        break;
-    case KWS_KEYWORD_FILL_LIGHT_ON:
-        s_runtime_flags |= STATUS_LIGHT_FLAG_FILL_LIGHT;
-        break;
-    case KWS_KEYWORD_FILL_LIGHT_OFF:
-        s_runtime_flags &= (uint8_t)(~STATUS_LIGHT_FLAG_FILL_LIGHT);
-        break;
-    default:
-        break;
-    }
-
     s_pulse_started_ms = millis();
     s_pulse_until_ms = s_pulse_started_ms + STATUS_LIGHT_PULSE_MS;
     s_pulse_keyword_idx = keyword_idx;

@@ -2,6 +2,10 @@
 #include <stdint.h>
 #include <stdio.h>
 
+#include "app_action_dispatch.h"
+#include "app_gimbal_control.h"
+#include "app_media_control.h"
+#include "app_runtime_state.h"
 #include "app_status_light.h"
 #include "app_fill_light.h"
 #include "audio_app.h"
@@ -32,11 +36,22 @@
 #define APP_GIMBAL_MASTER_MODEL_DIR "unknown"
 #endif
 
+#ifndef MASTER_SUBBOARD_WAIT_TIMEOUT_MS
+#define MASTER_SUBBOARD_WAIT_TIMEOUT_MS 3000u
+#endif
+
+#ifndef MASTER_KWS_STATUS_LOG_STRIDE
+#define MASTER_KWS_STATUS_LOG_STRIDE 0u
+#endif
+
+#ifndef MASTER_KWS_HEARTBEAT_LOG_STRIDE
+#define MASTER_KWS_HEARTBEAT_LOG_STRIDE 0u
+#endif
+
 #define CTRL_HELLO_RETRY_MS         200u
 #define CTRL_RESOURCE_RETRY_MS      300u
 #define CTRL_HEARTBEAT_INTERVAL_MS  1000u
 #define CTRL_RESPONSE_TIMEOUT_MS    2000u
-
 #define CTRL_KWS_CONFIG_SLOT_ID     0x21u
 #define CTRL_KWS_BUFFER_SLOT_ID     0x31u
 #define CTRL_KWS_STREAM_ID          0x01u
@@ -71,29 +86,37 @@ static uint32_t g_last_hello_ms = 0u;
 static uint32_t g_last_resource_ms = 0u;
 static uint32_t g_last_heartbeat_ms = 0u;
 static bool g_kws_started = false;
+static uint32_t g_subboard_wait_since_ms = 0u;
+static bool g_subboard_wait_timed_out = false;
+static uint8_t g_last_status_run_state = 0xFFu;
+static uint8_t g_last_status_brief = 0xFFu;
+static uint32_t g_status_log_count = 0u;
+static uint32_t g_tx_heartbeat_log_count = 0u;
+static uint32_t g_rx_heartbeat_log_count = 0u;
+
+static bool log_stride_hit(uint32_t count, uint32_t stride)
+{
+    if (stride == 0u) {
+        return false;
+    }
+
+    return (count % stride) == 0u;
+}
 
 static void handle_kws_keyword_report(uint8_t keyword_idx, uint8_t confidence, uint32_t chunk_idx)
 {
-    (void)confidence;
-    (void)chunk_idx;
-
-    if (keyword_idx == 6u) {
-        (void)app_fill_light_set_enabled(true);
-    } else if (keyword_idx == 7u) {
-        (void)app_fill_light_set_enabled(false);
-    }
-
-    app_status_light_notify_kws_hit(keyword_idx);
+    app_action_dispatch_kws_keyword(keyword_idx, confidence, chunk_idx);
 }
 
 static void update_status_light(void)
 {
     uint8_t subboard_state = master_demo_app_get_subboard_state();
+    bool ignore_subboard_fault = g_subboard_wait_timed_out && !master_demo_app_is_subboard_running();
 
-    if ((subboard_state == SUBBOARD_STARTUP_STATE_ERROR) ||
+    if (((subboard_state == SUBBOARD_STARTUP_STATE_ERROR) && !ignore_subboard_fault) ||
         (g_state == CM4_KWS_STATE_ERROR)) {
         app_status_light_set_mode(APP_STATUS_LIGHT_MODE_ERROR);
-    } else if (!master_demo_app_is_subboard_running()) {
+    } else if (!master_demo_app_is_subboard_running() && !g_subboard_wait_timed_out) {
         app_status_light_set_mode(APP_STATUS_LIGHT_MODE_WAIT_SUBBOARD);
     } else if ((g_kws_started == false) || (g_state != CM4_KWS_STATE_RUNNING)) {
         app_status_light_set_mode(APP_STATUS_LIGHT_MODE_SUBBOARD_READY);
@@ -285,9 +308,22 @@ static void send_start_stream(void)
 
 static void send_heartbeat(void)
 {
-    send_control_msg(
-        CONTROL_SYS_HEARTBEAT(g_session_id, g_heartbeat_seq, CONTROL_RUN_STATE_RUNNING),
-        "SYS.HEARTBEAT");
+    uint32_t msg = CONTROL_SYS_HEARTBEAT(g_session_id, g_heartbeat_seq, CONTROL_RUN_STATE_RUNNING);
+    int ret = write_mailbox(MAILBOX_BASE, msg);
+
+    if (ret == 0) {
+        bool should_log = false;
+
+        g_tx_heartbeat_log_count++;
+        should_log = log_stride_hit(g_tx_heartbeat_log_count, MASTER_KWS_HEARTBEAT_LOG_STRIDE);
+
+        if (should_log) {
+            printf("[KWS-CTRL] TX %-20s 0x%08lX\r\n", "SYS.HEARTBEAT", (unsigned long)msg);
+        }
+    } else {
+        printf("[KWS-CTRL] TX %-20s failed (%d)\r\n", "SYS.HEARTBEAT", ret);
+    }
+
     g_heartbeat_seq++;
     g_last_heartbeat_ms = millis();
 }
@@ -347,9 +383,25 @@ static void handle_nack(uint32_t msg)
 static void handle_status(uint32_t msg)
 {
     uint16_t arg = CONTROL_GET_ARG(msg);
-    printf("[KWS-CTRL] RX STATUS run_state=%u brief=%u\r\n",
-           (unsigned)CONTROL_STATUS_GET_RUN_STATE(arg),
-           (unsigned)CONTROL_STATUS_GET_BRIEF(arg));
+    uint8_t run_state = (uint8_t)CONTROL_STATUS_GET_RUN_STATE(arg);
+    uint8_t brief = (uint8_t)CONTROL_STATUS_GET_BRIEF(arg);
+    bool should_log = false;
+
+    g_status_log_count++;
+    if (run_state != g_last_status_run_state) {
+        should_log = true;
+    } else if (log_stride_hit(g_status_log_count, MASTER_KWS_STATUS_LOG_STRIDE)) {
+        should_log = true;
+    }
+
+    if (should_log) {
+        printf("[KWS-CTRL] RX STATUS run_state=%u brief=%u\r\n",
+               (unsigned)run_state,
+               (unsigned)brief);
+    }
+
+    g_last_status_run_state = run_state;
+    g_last_status_brief = brief;
 }
 
 static void handle_sys_message(uint32_t msg)
@@ -388,9 +440,16 @@ static void handle_sys_message(uint32_t msg)
     }
 
     if (subtype == CONTROL_SYS_SUBTYPE_HEARTBEAT) {
-        printf("[KWS-CTRL] RX DSP HEARTBEAT seq=%u status=%u\r\n",
-               (unsigned)CONTROL_HEARTBEAT_GET_SEQ(arg),
-               (unsigned)CONTROL_HEARTBEAT_GET_STATUS(arg));
+        bool should_log = false;
+
+        g_rx_heartbeat_log_count++;
+        should_log = log_stride_hit(g_rx_heartbeat_log_count, MASTER_KWS_HEARTBEAT_LOG_STRIDE);
+
+        if (should_log) {
+            printf("[KWS-CTRL] RX DSP HEARTBEAT seq=%u status=%u\r\n",
+                   (unsigned)CONTROL_HEARTBEAT_GET_SEQ(arg),
+                   (unsigned)CONTROL_HEARTBEAT_GET_STATUS(arg));
+        }
         return;
     }
 
@@ -492,7 +551,7 @@ static void step_state_machine(void)
     }
 }
 
-static int kws_runtime_init(void)
+static int kws_runtime_init(const char *startup_reason)
 {
     int ret;
 
@@ -524,8 +583,14 @@ static int kws_runtime_init(void)
     g_last_resource_ms = 0u;
     g_last_heartbeat_ms = 0u;
     g_heartbeat_seq = 0u;
+    g_last_status_run_state = 0xFFu;
+    g_last_status_brief = 0xFFu;
+    g_status_log_count = 0u;
+    g_tx_heartbeat_log_count = 0u;
+    g_rx_heartbeat_log_count = 0u;
     g_kws_started = true;
-    printf("[KWS-CTRL] KWS runtime started after subboard reached RUNNING\r\n");
+    printf("[KWS-CTRL] KWS runtime started (%s)\r\n",
+           startup_reason != NULL ? startup_reason : "unspecified");
     return 0;
 }
 
@@ -552,6 +617,10 @@ int main(void)
            APP_GIMBAL_MASTER_MODEL_DATE);
     printf("[KWS-CTRL] Model dir=%s\r\n", APP_GIMBAL_MASTER_MODEL_DIR);
 
+    app_gimbal_control_init();
+        app_media_control_init();
+    app_runtime_state_reset();
+
     if (app_status_light_init(millis) != 0) {
         printf("[MASTER] status light init failed, continue without LED\r\n");
         app_status_light_set_mode(APP_STATUS_LIGHT_MODE_DISABLED);
@@ -569,7 +638,10 @@ int main(void)
     }
     printf("[MASTER] subboard coordination service ready\r\n");
     printf("[MASTER] waiting for subboard RUNNING before starting local KWS\r\n");
+    printf("[MASTER] subboard wait timeout = %lu ms\r\n", (unsigned long)MASTER_SUBBOARD_WAIT_TIMEOUT_MS);
     app_status_light_set_mode(APP_STATUS_LIGHT_MODE_WAIT_SUBBOARD);
+    g_subboard_wait_since_ms = millis();
+    g_subboard_wait_timed_out = false;
 
     while (1) {
         master_demo_app_tick();
@@ -577,7 +649,20 @@ int main(void)
 
         if (!g_kws_started) {
             if (master_demo_app_is_subboard_running()) {
-                if (kws_runtime_init() != 0) {
+                if (kws_runtime_init("subboard reached RUNNING") != 0) {
+                    printf("[KWS-CTRL] KWS runtime init failed\r\n");
+                    app_status_light_set_mode(APP_STATUS_LIGHT_MODE_ERROR);
+                    while (1) {
+                        app_status_light_tick();
+                        __WFI();
+                    }
+                }
+            } else if (!g_subboard_wait_timed_out &&
+                      ((millis() - g_subboard_wait_since_ms) >= MASTER_SUBBOARD_WAIT_TIMEOUT_MS)) {
+                g_subboard_wait_timed_out = true;
+                printf("[MASTER] subboard wait timeout after %lu ms, start local KWS without subboard\r\n",
+                      (unsigned long)MASTER_SUBBOARD_WAIT_TIMEOUT_MS);
+                if (kws_runtime_init("subboard wait timeout fallback") != 0) {
                     printf("[KWS-CTRL] KWS runtime init failed\r\n");
                     app_status_light_set_mode(APP_STATUS_LIGHT_MODE_ERROR);
                     while (1) {

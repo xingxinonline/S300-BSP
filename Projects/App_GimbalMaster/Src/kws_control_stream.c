@@ -21,7 +21,11 @@
 
 #define AUDIO_BLOCK_LEN               (AUDIO_DMA_BUFFER_LEN / 2)
 #define KWS_DSP_NOT_READY_LOG_DIV     2048u
-#define KWS_STATS_LOG_INTERVAL        256u
+
+#ifndef MASTER_KWS_STREAM_STATS_LOG_INTERVAL
+#define MASTER_KWS_STREAM_STATS_LOG_INTERVAL 1024u
+#endif
+
 #define KWS_REPORT_CONFIRM_FRAMES     2u
 
 static volatile int16_t *g_dsp_in_block = (volatile int16_t *)DSP_AUDIO_IN_ADDR;
@@ -309,7 +313,8 @@ void kws_control_stream_step(void)
     __DSB();
     g_audio_chunk_count++;
 
-    if ((g_audio_chunk_count % KWS_STATS_LOG_INTERVAL) == 0u) {
+    if ((MASTER_KWS_STREAM_STATS_LOG_INTERVAL != 0u) &&
+        ((g_audio_chunk_count % MASTER_KWS_STREAM_STATS_LOG_INTERVAL) == 0u)) {
         printf("[KWS-CTRL] chunks=%lu results=%lu backpressure=%lu out_of=%lu\r\n",
                (unsigned long)g_audio_chunk_count,
                (unsigned long)g_result_count,
