@@ -245,6 +245,8 @@ static DrawnBox_t s_prev_boxes[MAX_DETECTION_COUNT];
 static uint32_t   s_prev_count = 0;
 static uint32_t   s_last_valid_ts = 0;
 static bool       s_had_target = false;   /* 用于 NO_RESULT 打印控制 */
+static DetectionType_t s_last_primary_type = DETECTION_TYPE_UNKNOWN;
+static bool       s_seen_valid_result = false;
 
 #define FACE_TIMEOUT_MS 500  /* 无检测超时 (v3 容忍更长因为 coast 帧) */
 
@@ -259,11 +261,18 @@ void face_tracker_init(uint32_t (*get_millis_fn)(void))
     s_prev_count = 0;
     s_last_valid_ts = 0;
     s_had_target = false;
+    s_last_primary_type = DETECTION_TYPE_UNKNOWN;
+    s_seen_valid_result = false;
     s_next_slot = 0;
     for (uint32_t i = 0; i < NUM_COLOR_SLOTS; i++) s_color_slot_ids[i] = 0;
     FT_LOG(1, "[FT] face_tracker_init (proto v%u.%u, multi-target)\r\n",
            (DETECTION_PROTOCOL_VERSION >> 8) & 0xFF,
            DETECTION_PROTOCOL_VERSION & 0xFF);
+}
+
+bool face_tracker_has_seen_result(void)
+{
+    return s_seen_valid_result;
 }
 
 static inline uint32_t millis(void)
@@ -558,6 +567,7 @@ static void process_multi_result(const DetectionResult_t *result)
     s_last_valid_ts = millis();
     uint32_t drawn = 0;
     uint32_t filtered_low_score = 0;
+    DetectionType_t primary_type = DETECTION_TYPE_UNKNOWN;
 
     FT_LOG(2, "[FT] f#%lu: %lu targets (ver=0x%04lX)\r\n",
            (unsigned long)result->frame_id,
@@ -611,6 +621,10 @@ static void process_multi_result(const DetectionResult_t *result)
         /* 绘制带颜色的边框 */
         draw_rect_border(x1, y1, x2, y2, color, alpha);
 
+        if (primary_type == DETECTION_TYPE_UNKNOWN) {
+            primary_type = detection_type_from_raw(box->type);
+        }
+
         /* 绘制分数文字（框上方，镜像格式参考 Tracking_Demo） */
         int text_x = 0, text_y = 0;
         int label_len = draw_score_label(x1, y1, y2, box->type, score_pct, color, ALPHA_SOLID,
@@ -642,6 +656,16 @@ static void process_multi_result(const DetectionResult_t *result)
     }
 
     s_prev_count = drawn;
+    if (drawn > 0u) {
+        s_seen_valid_result = true;
+    }
+
+    if ((drawn > 0u) &&
+        (primary_type != DETECTION_TYPE_UNKNOWN) &&
+        (primary_type != s_last_primary_type)) {
+        FT_LOG(1, "[FT] primary type -> %s\r\n", get_display_type_name((uint8_t)primary_type));
+    }
+    s_last_primary_type = (drawn > 0u) ? primary_type : DETECTION_TYPE_UNKNOWN;
 
     FT_LOG(2, "[FT]  drawn %lu boxes, filtered %lu (score<%u%%)\r\n",
            (unsigned long)drawn,
@@ -718,6 +742,14 @@ void face_tracker_poll(void)
                 score_pct >= FACE_SCORE_FILTER_PCT) {
                 draw_rect_border(x1, y1, x2, y2, COLOR_GREEN, ALPHA_SOLID);
 
+                DetectionType_t primary_type = detection_type_from_raw(box->type);
+                if ((primary_type != DETECTION_TYPE_UNKNOWN) &&
+                    (primary_type != s_last_primary_type)) {
+                    FT_LOG(1, "[FT] primary type -> %s\r\n",
+                           get_display_type_name((uint8_t)primary_type));
+                }
+                s_last_primary_type = primary_type;
+
                 int text_x = 0, text_y = 0;
                 int label_len = draw_score_label(x1, y1, y2, box->type, score_pct,
                                                  COLOR_GREEN, ALPHA_SOLID,
@@ -732,10 +764,12 @@ void face_tracker_poll(void)
                 s_prev_boxes[0].text_len = label_len;
                 s_prev_count = 1;
                 s_last_valid_ts = millis();
+                s_seen_valid_result = true;
             } else if (score_pct < FACE_SCORE_FILTER_PCT) {
                 FT_LOG(2, "[FT] SINGLE filtered: score=%u%% < %u%%\r\n",
                        (unsigned)score_pct,
                        (unsigned)FACE_SCORE_FILTER_PCT);
+                s_last_primary_type = DETECTION_TYPE_UNKNOWN;
             }
 
             FT_LOG(2, "[FT] SINGLE: (%ld,%ld)-(%ld,%ld) score=%.2f\r\n",
@@ -749,6 +783,7 @@ void face_tracker_poll(void)
                 FT_LOG(2, "[FT] No detection\r\n");
                 s_had_target = false;
             }
+            s_last_primary_type = DETECTION_TYPE_UNKNOWN;
             break;
         }
 
@@ -764,5 +799,6 @@ void face_tracker_poll(void)
         FT_LOG(1, "[FT] Timeout (%ums), clearing %lu boxes\r\n",
                FACE_TIMEOUT_MS, (unsigned long)s_prev_count);
         clear_all_prev_boxes();
+        s_last_primary_type = DETECTION_TYPE_UNKNOWN;
     }
 }

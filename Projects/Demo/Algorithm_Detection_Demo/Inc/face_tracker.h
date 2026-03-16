@@ -19,6 +19,9 @@ void face_tracker_init(uint32_t (*get_millis_fn)(void));
 /* 轮询：读取邮箱、为所有 track 绘制彩色边框。 */
 void face_tracker_poll(void);
 
+/* 查询是否已经收到过至少一个有效检测结果。 */
+bool face_tracker_has_seen_result(void);
+
 #ifdef __cplusplus
 }
 #endif

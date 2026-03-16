@@ -32,6 +32,8 @@
 static uint32_t (*s_get_millis)(void) = 0;
 static uint32_t s_start_track_deadline_ms = 0;
 static bool s_start_track_pending = false;
+static bool s_legacy_handshake_missing = false;
+static bool s_result_ready_logged = false;
 
 #ifndef DSP_START_TRACK_DELAY_MS
 #define DSP_START_TRACK_DELAY_MS 300u
@@ -100,8 +102,8 @@ static bool wait_for_dsp_handshake_ack(void)
         }
     }
 
-    printf("[S300][DisplayDemo][WARN] DSP handshake ACK timeout (%ums).\r\n",
-           (unsigned)DSP_HANDSHAKE_TIMEOUT_MS);
+        printf("[S300][DisplayDemo][INFO] Legacy DSP handshake ACK timeout (%ums); continue in passive result mode.\r\n",
+            (unsigned)DSP_HANDSHAKE_TIMEOUT_MS);
     return false;
 }
 
@@ -157,6 +159,8 @@ void display_demo_app_init(uint32_t (*get_millis)(void))
     /* 给 DSP 留出启动窗口，再发送握手令牌 */
     for (volatile uint32_t i = 0; i < 100000u; i++) { }
     s_handshake_done = wait_for_dsp_handshake_ack();
+    s_legacy_handshake_missing = !s_handshake_done;
+    s_result_ready_logged = false;
 
     /* 延后下发 START_TRACK，避免与 DSP 初始化握手抢同一邮箱消息。 */
     s_start_track_pending = s_handshake_done;
@@ -167,7 +171,7 @@ void display_demo_app_init(uint32_t (*get_millis)(void))
     } else {
         s_start_track_deadline_ms = 0;
         if (!s_handshake_done) {
-            printf("[S300][DisplayDemo][WARN] Skip START_TRACK because handshake is not complete.\r\n");
+            printf("[S300][DisplayDemo][INFO] Skip START_TRACK because legacy handshake is not complete.\r\n");
         }
     }
 
@@ -179,6 +183,12 @@ void display_demo_app_init(uint32_t (*get_millis)(void))
 
 void display_demo_app_tick(void)
 {
+    if (!s_result_ready_logged && s_legacy_handshake_missing && face_tracker_has_seen_result()) {
+        s_handshake_done = true;
+        s_result_ready_logged = true;
+        printf("[S300][DisplayDemo] DSP result stream detected; treating DSP as ready without legacy ACK.\r\n");
+    }
+
     if (s_start_track_pending) {
         uint32_t now_ms = (s_get_millis != 0) ? s_get_millis() : 0;
         if (s_get_millis == 0 || (int32_t)(now_ms - s_start_track_deadline_ms) >= 0) {
