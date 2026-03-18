@@ -33,7 +33,7 @@ make_restore_cmd("${DSP_BIN_DIR}/model_dtcm_boot.bin" "0x44800000" GDB_RESTORE_D
 make_restore_cmd("${DSP_BIN_DIR}/model_ptcm_boot.bin" "0x44A00000" GDB_RESTORE_PTCM)
 make_restore_cmd("${DSP_BIN_DIR}/model_sram0_boot.bin" "0x44000000" GDB_RESTORE_SRAM0)
 make_restore_cmd("${DSP_BIN_DIR}/model_sram1_boot.bin" "0x44040000" GDB_RESTORE_SRAM1)
-make_restore_cmd("${DSP_BIN_DIR}/model_psram_boot.bin" "0x60000000" GDB_RESTORE_PSRAM)
+make_restore_cmd("${DSP_BIN_DIR}/model_psram_boot.bin" "0x80000000" GDB_RESTORE_PSRAM)
 
 file(READ "${TEMPLATE_FILE}" GDB_TEMPLATE_CONTENT)
 string(REPLACE "@GDB_RESTORE_DTCM@" "${GDB_RESTORE_DTCM}" GDB_TEMPLATE_CONTENT "${GDB_TEMPLATE_CONTENT}")
