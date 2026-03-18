@@ -21,7 +21,6 @@ echo \n>>> Loading DSP binary files for KWS_Control_Protocol_Demo...\n
 @GDB_RESTORE_PTCM@
 @GDB_RESTORE_SRAM0@
 @GDB_RESTORE_SRAM1@
-@GDB_RESTORE_PSRAM@
 
 echo \n>>> Loading CM4 program...\n
 load
@@ -29,6 +28,13 @@ load
 set $sp = *(unsigned int*)0x20000000
 set $pc = *(unsigned int*)0x20000004
 set {unsigned int}0xE000ED08 = 0x20000000
+
+tbreak dsp_firmware_load_point
+commands
+	echo \n>>> PSRAM initialized. Loading PSRAM image for KWS_Control_Protocol_Demo...\n
+	@GDB_RESTORE_PSRAM@
+	continue
+end
 
 echo \n>>> Releasing DSP domain reset...\n
 set {unsigned int}0x4000a018 = 1
