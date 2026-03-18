@@ -28,6 +28,11 @@ static uint32_t millis(void)
     return g_tick_ms;
 }
 
+__attribute__((used, noinline)) void hg_state_machine_dsp_image_load_point(void)
+{
+    __asm volatile("nop");
+}
+
 int main(void)
 {
     board_init();
@@ -45,6 +50,7 @@ int main(void)
     rcc_init_dsp_pll(6, 800, 0, 2, 2);
 
     init_psram(4, 1);
+    hg_state_machine_dsp_image_load_point();
     hand_gesture_app_init(millis);
 
     while (1) {
