@@ -83,6 +83,8 @@ s300_add_executable(
         Src/app_action_executor.c
         Src/app_card1_result_handler.c
         Src/app_card1_subboard.c
+        Src/app_card2_result_handler.c
+        Src/app_card2_subboard.c
         Src/app_card3_result_handler.c
         Src/app_card3_subboard.c
         Src/app_gimbal_control.c

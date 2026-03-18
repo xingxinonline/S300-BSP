@@ -41,8 +41,8 @@
 ## 运行结构
 
 1. `Src/main.c` 负责先调度子板协调服务，再在子板进入 `RUNNING` 后启动主板 KWS 状态机。
-2. `Src/master_demo_app.c` 负责 I2C 启动协调，以及对 Card1/Card3 子板模块的统一装配与调度。
-3. `Src/app_card1_result_handler.c` 与 `Src/app_card3_result_handler.c` 分别负责 Card1 检测结果呈现和 Card3 手势结果动作映射。
+2. `Src/master_demo_app.c` 负责 I2C 启动协调，以及对 Card1/Card2/Card3 子板模块的统一装配与调度。
+3. `Src/app_card1_result_handler.c`、`Src/app_card2_result_handler.c` 与 `Src/app_card3_result_handler.c` 分别负责 Card1/2 检测结果呈现和 Card3 手势结果动作映射。
 4. `Src/app_gimbal_control.c` 负责云台底层执行接口，当前已支持 parking/tracking pose、绝对角度移动、preset 和姿态读回。
 5. `Src/app_gimbal_debug.c` 提供可选的主板开机云台调试序列，用于无相机挂载场景下的动作联调。
 6. `Projects/Demo/KWS_Control_Protocol_Demo/Src/kws_control_stream.c` 负责 KWS 数据面缓冲与流控制。

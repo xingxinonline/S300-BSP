@@ -4,6 +4,7 @@
 #include <stdio.h>
 
 #include "app_card1_subboard.h"
+#include "app_card2_subboard.h"
 #include "app_card3_subboard.h"
 #include "app_fill_light.h"
 #include "camera_ov5640.h"
@@ -206,9 +207,10 @@ bool master_demo_app_get_subboard_snapshot(master_demo_subboard_snapshot_t *snap
     }
 
     snapshot->card1 = make_subboard_state(app_card1_subboard_get_public_state());
+    snapshot->card2 = make_subboard_state(app_card2_subboard_get_public_state());
     snapshot->card3 = make_subboard_state(app_card3_subboard_get_public_state());
-    snapshot->any_running = snapshot->card1.running || snapshot->card3.running;
-    snapshot->any_error = snapshot->card1.faulted || snapshot->card3.faulted;
+    snapshot->any_running = snapshot->card1.running || snapshot->card2.running || snapshot->card3.running;
+    snapshot->any_error = snapshot->card1.faulted || snapshot->card2.faulted || snapshot->card3.faulted;
 
     return true;
 }
@@ -216,6 +218,7 @@ bool master_demo_app_get_subboard_snapshot(master_demo_subboard_snapshot_t *snap
 int master_demo_app_init(uint32_t (*get_millis_fn)(void))
 {
     app_card1_subboard_ops_t card1_ops;
+    app_card2_subboard_ops_t card2_ops;
     app_card3_subboard_ops_t card3_ops;
 
     s_get_millis = get_millis_fn;
@@ -240,6 +243,17 @@ int master_demo_app_init(uint32_t (*get_millis_fn)(void))
     card1_ops.overlay_clear = master_detection_overlay_clear;
     card1_ops.overlay_draw = master_detection_overlay_draw;
 
+    card2_ops.millis_fn = millis;
+    card2_ops.read_reg8_at = read_reg8_at;
+    card2_ops.read_regs_at = read_regs_at;
+    card2_ops.write_reg8_at = write_reg8_at;
+    card2_ops.prepare_video_path = video_path_prepare;
+    card2_ops.trigger_mm_runtime_enable = trigger_mm_runtime_enable;
+    card2_ops.overlay_tick = master_detection_overlay_tick;
+    card2_ops.overlay_is_active = master_detection_overlay_is_active;
+    card2_ops.overlay_clear = master_detection_overlay_clear;
+    card2_ops.overlay_draw = master_detection_overlay_draw;
+
     card3_ops.millis_fn = millis;
     card3_ops.read_regs_at = read_regs_at;
     card3_ops.write_reg8_at = write_reg8_at;
@@ -247,6 +261,9 @@ int master_demo_app_init(uint32_t (*get_millis_fn)(void))
     card3_ops.trigger_mm_runtime_enable = trigger_mm_runtime_enable;
 
     if (app_card1_subboard_init(&card1_ops) != 0) {
+        return -1;
+    }
+    if (app_card2_subboard_init(&card2_ops) != 0) {
         return -1;
     }
     if (app_card3_subboard_init(&card3_ops) != 0) {
@@ -259,5 +276,6 @@ int master_demo_app_init(uint32_t (*get_millis_fn)(void))
 void master_demo_app_tick(void)
 {
     app_card1_subboard_tick();
+    app_card2_subboard_tick();
     app_card3_subboard_tick();
 }

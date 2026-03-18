@@ -17,6 +17,7 @@ typedef struct {
 
 typedef struct {
 	master_demo_subboard_state_t card1;
+	master_demo_subboard_state_t card2;
 	master_demo_subboard_state_t card3;
 	bool any_running;
 	bool any_error;
