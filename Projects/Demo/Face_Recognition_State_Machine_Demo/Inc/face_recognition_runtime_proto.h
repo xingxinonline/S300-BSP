@@ -1,0 +1,50 @@
+#ifndef FACE_RECOGNITION_RUNTIME_PROTO_H
+#define FACE_RECOGNITION_RUNTIME_PROTO_H
+
+#include <stdint.h>
+
+#include "mailbox_proto.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#define FR_RT_MSG_TYPE_MM_ENABLE_REQ      0x40000000u
+
+#define FR_RT_MM_ENABLE_REQ               0x00000001u
+
+#define FR_RT_MAKE_MM_ENABLE_REQ() \
+    MAILBOX_MAKE_MSG(FR_RT_MSG_TYPE_MM_ENABLE_REQ, FR_RT_MM_ENABLE_REQ)
+
+static inline int fr_runtime_msg_is_mm_enable_req(uint32_t msg)
+{
+    return MAILBOX_GET_MSG_TYPE(msg) == FR_RT_MSG_TYPE_MM_ENABLE_REQ;
+}
+
+static inline uint32_t fr_runtime_msg_get_mm_enable_req(uint32_t msg)
+{
+    return MAILBOX_GET_PAYLOAD(msg);
+}
+
+#define FR_RT_MSG_TYPE_MM_SYNC_REQ        FR_RT_MSG_TYPE_MM_ENABLE_REQ
+#define FR_RT_SYNC_REQ_CORE_REG_UPDATE    FR_RT_MM_ENABLE_REQ
+#define FR_RT_SYNC_REQ_SPI_REG_UPDATE     0x00000002u
+
+#define FR_RT_MAKE_MM_SYNC_REQ(req) \
+    MAILBOX_MAKE_MSG(FR_RT_MSG_TYPE_MM_ENABLE_REQ, (req))
+
+static inline int fr_runtime_msg_is_mm_sync_req(uint32_t msg)
+{
+    return fr_runtime_msg_is_mm_enable_req(msg);
+}
+
+static inline uint32_t fr_runtime_msg_get_mm_sync_req(uint32_t msg)
+{
+    return fr_runtime_msg_get_mm_enable_req(msg);
+}
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif
