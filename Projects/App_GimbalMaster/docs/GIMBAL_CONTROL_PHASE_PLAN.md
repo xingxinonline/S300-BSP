@@ -1,0 +1,74 @@
+# App_GimbalMaster 云台控制阶段说明
+
+本文档用于约束当前阶段的主板开发顺序。当前不把目标放在“完整视觉闭环”，而是先把云台通信、姿态动作和主板内调试路径做稳，再接入更多上游输入模块。
+
+## 1. 当前阶段目标
+
+1. 把 UART3 半双工总线舵机链路稳定在正式 App 内，而不是继续停留在 Demo 中。
+2. 在不挂载相机到云台的前提下，提供可重复的固定姿态调试路径。
+3. 为后续 Card2、Card3、UWB、IMU 等输入模块保留统一的云台执行出口。
+
+这样做的原因很直接：如果执行层还不稳，后面接入更多输入源只会把问题混在一起，联调成本会快速上升。
+
+## 2. 已落地基线
+
+截至当前版本，主板 App 已经具备：
+
+1. `app_gimbal_control` 直接使用 S300 原生 `BusServo` 驱动初始化云台。
+2. 主板启动后自动落到 parking pose。
+3. `TRACK_START` / `TRACK_STOP` 已经映射为真实的 tracking pose / parking pose 切换。
+4. 已经支持绝对角度命令 `app_gimbal_control_move_to_angles(...)`。
+5. 已经支持位置读回 `app_gimbal_control_read_status(...)`，读失败时保留最近一次命令姿态。
+
+这意味着主板侧已经有了“执行底座”，下一步不该直接跳到复杂跟踪，而应先建立 App 内的调试和验证闭环。
+
+## 3. 本阶段新增能力
+
+本阶段新增两个直接可复用的能力：
+
+1. 云台控制层内置 preset 抽象，统一定义 parking、tracking、center-preview、left-preview、right-preview、up-preview 等固定姿态。
+2. 主板 App 内置的开机调试序列默认关闭，不影响当前业务流。
+3. 打开后，主板启动时会按 preset 序列自动运行一次：居中预览、左看、右看、抬头、回中、回 parking。
+4. 如果运行期进入 tracking 模式，调试序列立即停止，避免和正式动作流冲突。
+
+推荐用途：
+
+1. 单独验证 UART3 半双工链路和总线舵机动作。
+2. 验证主板 App 的角度映射、姿态日志和读回逻辑。
+3. 在相机未安装到云台上之前，完成舵机侧的基础联调。
+
+## 4. 构建开关
+
+在 `Projects/App_GimbalMaster/CMakeLists.txt` 中提供以下构建参数：
+
+1. `MASTER_GIMBAL_DEBUG_BOOT_DEMO`
+   含义：是否启用主板开机云台调试序列。
+   默认值：`OFF`
+2. `MASTER_GIMBAL_DEBUG_STEP_INTERVAL_MS`
+   含义：相邻两个固定姿态之间的等待时间。
+   默认值：`2500`
+
+典型配置示例：
+
+```bash
+cmake -B build -G Ninja -DBOARD=gimbal_master -DMASTER_GIMBAL_DEBUG_BOOT_DEMO=ON
+ninja -C build s300_gimbal_master img_s300_gimbal_master
+```
+
+## 5. 近期顺序
+
+当前建议的近期顺序固定为：
+
+1. 先把云台执行层和 App 内调试路径稳定下来。
+2. 优先接入 Card3 这类离散输入源，把手势结果统一桥接到主板动作层。
+3. 再接入 Card2、UWB、IMU 等上游输入模块。
+4. 最后再做真正依赖相机安装方式的 tracking 联调。
+
+## 6. 下一步实现边界
+
+本阶段之后，建议优先追加以下能力，而不是直接做完整闭环：
+
+1. 继续扩展 preset，补上扫描、回中、单轴微调等标准动作。
+2. 在已接入的 Card3 桥接基础上，为更多手势类型或组合动作预留映射表。
+3. 为 UWB 方位输出提供统一动作入口。
+4. 等云台动作层稳定后，再把 Aiming Demo 的绝对角度映射思路迁入正式 App。

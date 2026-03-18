@@ -1,6 +1,7 @@
 #ifndef MASTER_DEMO_APP_H
 #define MASTER_DEMO_APP_H
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #ifdef __cplusplus

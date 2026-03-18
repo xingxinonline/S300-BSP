@@ -10,6 +10,7 @@ set(PROJECT_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 set(ROOT ${PROJECT_DIR}/../..)
 include(${ROOT}/cmake/s300_model_metadata.cmake)
 add_subdirectory(${CMAKE_SOURCE_DIR}/Drivers/External/WS2812 ${CMAKE_CURRENT_BINARY_DIR}/WS2812)
+add_subdirectory(${CMAKE_SOURCE_DIR}/Drivers/External/BusServo ${CMAKE_CURRENT_BINARY_DIR}/BusServo)
 set(KWS_DEMO_DIR ${ROOT}/Projects/Demo/KWS_Control_Protocol_Demo)
 set(AUDIO_SHARED_DIR ${ROOT}/Projects/Demo/Audio_KWS_Demo/Src)
 set(SHARED_DETECTION_DIR ${ROOT}/Projects/Demo/Algorithm_Detection_Demo)
@@ -22,6 +23,8 @@ set(MASTER_SUBBOARD_WAIT_TIMEOUT_MS "3000" CACHE STRING "Milliseconds to wait fo
 set(MASTER_KWS_STATUS_LOG_STRIDE "0" CACHE STRING "Print every Nth KWS STATUS report; 0 disables periodic STATUS logs")
 set(MASTER_KWS_HEARTBEAT_LOG_STRIDE "0" CACHE STRING "Print every Nth KWS heartbeat TX/RX; 0 disables periodic heartbeat logs")
 set(MASTER_KWS_STREAM_STATS_LOG_INTERVAL "1024" CACHE STRING "Print KWS stream chunk/result statistics every N chunks; 0 disables periodic stream stats")
+set(MASTER_GIMBAL_DEBUG_BOOT_DEMO "OFF" CACHE STRING "Enable gimbal boot demo inside App_GimbalMaster: ON or OFF")
+set(MASTER_GIMBAL_DEBUG_STEP_INTERVAL_MS "2500" CACHE STRING "Milliseconds between App_GimbalMaster gimbal boot demo steps")
 
 if(MASTER_KWS_STATUS_LOG_STRIDE STREQUAL "8" OR MASTER_KWS_STATUS_LOG_STRIDE STREQUAL "32")
     set(MASTER_KWS_STATUS_LOG_STRIDE "0" CACHE STRING "Print every Nth KWS STATUS report; 0 disables periodic STATUS logs" FORCE)
@@ -78,7 +81,12 @@ s300_add_executable(
         Src/main.c
         Src/app_action_dispatch.c
         Src/app_action_executor.c
+        Src/app_card1_result_handler.c
+        Src/app_card1_subboard.c
+        Src/app_card3_result_handler.c
+        Src/app_card3_subboard.c
         Src/app_gimbal_control.c
+        Src/app_gimbal_debug.c
         Src/app_media_control.c
         Src/app_runtime_state.c
         Src/app_status_light.c
@@ -90,8 +98,8 @@ s300_add_executable(
         ${AUDIO_SHARED_DIR}/audio_app.c
         ${AUDIO_SHARED_DIR}/audio_codec.c
     DRIVERS rcc gpio uart dma i2s i2c_soft mailbox mm psram ${AUDIO_CODEC_DRIVERS}
-    INCLUDES . Inc ${KWS_DEMO_DIR}/Src ${AUDIO_SHARED_DIR} ${SHARED_DETECTION_DIR}/Inc ${CMAKE_SOURCE_DIR}/Projects/Demo/Subboard_Bringup_Common ${CMAKE_SOURCE_DIR}/Algorithm_Models/protocol
-    LIBRARIES ws2812
+    INCLUDES . Inc ${KWS_DEMO_DIR}/Src ${AUDIO_SHARED_DIR} ${SHARED_DETECTION_DIR}/Inc ${CMAKE_SOURCE_DIR}/Projects/Common/Subboard_Protocol ${CMAKE_SOURCE_DIR}/Algorithm_Models/protocol
+    LIBRARIES ws2812 bus_servo
     DBG_NAME gimbal_master
     DBG_SCRIPT ${KWS_GDB_SCRIPT}
     NO_IMAGE
@@ -116,6 +124,8 @@ target_compile_definitions(s300_gimbal_master PRIVATE
     MASTER_KWS_STATUS_LOG_STRIDE=${MASTER_KWS_STATUS_LOG_STRIDE}
     MASTER_KWS_HEARTBEAT_LOG_STRIDE=${MASTER_KWS_HEARTBEAT_LOG_STRIDE}
     MASTER_KWS_STREAM_STATS_LOG_INTERVAL=${MASTER_KWS_STREAM_STATS_LOG_INTERVAL}
+    $<$<STREQUAL:${MASTER_GIMBAL_DEBUG_BOOT_DEMO},ON>:MASTER_GIMBAL_DEBUG_BOOT_DEMO=1>
+    MASTER_GIMBAL_DEBUG_STEP_INTERVAL_MS=${MASTER_GIMBAL_DEBUG_STEP_INTERVAL_MS}
     APP_GIMBAL_MASTER_MODEL_ID=\"${APP_GIMBAL_MASTER_MODEL_ID}\"
     APP_GIMBAL_MASTER_MODEL_VERSION=\"${APP_GIMBAL_MASTER_MODEL_VERSION}\"
     APP_GIMBAL_MASTER_MODEL_DATE=\"${APP_GIMBAL_MASTER_MODEL_DATE}\"
@@ -144,3 +154,5 @@ message(STATUS "App_GimbalMaster: subboard wait timeout = ${MASTER_SUBBOARD_WAIT
 message(STATUS "App_GimbalMaster: KWS status log stride = ${MASTER_KWS_STATUS_LOG_STRIDE}")
 message(STATUS "App_GimbalMaster: KWS heartbeat log stride = ${MASTER_KWS_HEARTBEAT_LOG_STRIDE}")
 message(STATUS "App_GimbalMaster: KWS stream stats interval = ${MASTER_KWS_STREAM_STATS_LOG_INTERVAL}")
+message(STATUS "App_GimbalMaster: gimbal boot demo = ${MASTER_GIMBAL_DEBUG_BOOT_DEMO}")
+message(STATUS "App_GimbalMaster: gimbal boot demo interval = ${MASTER_GIMBAL_DEBUG_STEP_INTERVAL_MS} ms")

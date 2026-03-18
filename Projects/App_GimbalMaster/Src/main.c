@@ -3,6 +3,7 @@
 #include <stdio.h>
 
 #include "app_action_dispatch.h"
+#include "app_gimbal_debug.h"
 #include "app_gimbal_control.h"
 #include "app_media_control.h"
 #include "app_runtime_state.h"
@@ -618,7 +619,8 @@ int main(void)
     printf("[KWS-CTRL] Model dir=%s\r\n", APP_GIMBAL_MASTER_MODEL_DIR);
 
     app_gimbal_control_init();
-        app_media_control_init();
+    app_gimbal_debug_init(millis);
+    app_media_control_init();
     app_runtime_state_reset();
 
     if (app_status_light_init(millis) != 0) {
@@ -645,6 +647,7 @@ int main(void)
 
     while (1) {
         master_demo_app_tick();
+        app_gimbal_debug_tick();
         update_status_light();
 
         if (!g_kws_started) {

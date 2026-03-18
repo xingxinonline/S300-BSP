@@ -4,7 +4,7 @@
 > **日期**: 2026-03-04  
 > **状态**: 设计稿  
 > **适用硬件**: Gimbal Master (NE005 智能云台主控板)
-> **实现状态说明**: 本文档描述的是最终目标架构，不等同于当前仓库已全部落地的实现。当前已落地的主板初始能力与近期实施顺序，请同步参考 `Projects/App_GimbalMaster/docs/DEVELOPMENT_ROADMAP.md`。
+> **实现状态说明**: 本文档描述的是最终目标架构，不等同于当前仓库已全部落地的实现。当前已落地的主板初始能力与近期实施顺序，请同步参考 `Projects/App_GimbalMaster/docs/DEVELOPMENT_ROADMAP.md` 与 `Projects/App_GimbalMaster/docs/GIMBAL_CONTROL_PHASE_PLAN.md`。
 
 ---
 

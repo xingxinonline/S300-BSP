@@ -26,6 +26,7 @@
 
 1. `cmake -B build -G Ninja -DBOARD=gimbal_master`
 2. `ninja -C build s300_gimbal_master img_s300_gimbal_master`
+3. 如需在不挂相机的情况下验证云台动作，可额外打开 `-DMASTER_GIMBAL_DEBUG_BOOT_DEMO=ON`，主板 App 会在启动后自动执行一次固定姿态调试序列。
 
 ## 启动顺序
 
@@ -40,10 +41,14 @@
 ## 运行结构
 
 1. `Src/main.c` 负责先调度子板协调服务，再在子板进入 `RUNNING` 后启动主板 KWS 状态机。
-2. `Src/master_demo_app.c` 负责 I2C 启动协调、命令下发、运行态轮询和叠框更新。
-3. `Projects/Demo/KWS_Control_Protocol_Demo/Src/kws_control_stream.c` 负责 KWS 数据面缓冲与流控制。
-4. `Projects/Demo/Audio_KWS_Demo/Src/audio_app.c` 与 `audio_codec.c` 负责音频采集路径。
+2. `Src/master_demo_app.c` 负责 I2C 启动协调，以及对 Card1/Card3 子板模块的统一装配与调度。
+3. `Src/app_card1_result_handler.c` 与 `Src/app_card3_result_handler.c` 分别负责 Card1 检测结果呈现和 Card3 手势结果动作映射。
+4. `Src/app_gimbal_control.c` 负责云台底层执行接口，当前已支持 parking/tracking pose、绝对角度移动、preset 和姿态读回。
+5. `Src/app_gimbal_debug.c` 提供可选的主板开机云台调试序列，用于无相机挂载场景下的动作联调。
+6. `Projects/Demo/KWS_Control_Protocol_Demo/Src/kws_control_stream.c` 负责 KWS 数据面缓冲与流控制。
+7. `Projects/Demo/Audio_KWS_Demo/Src/audio_app.c` 与 `audio_codec.c` 负责音频采集路径。
 
 更完整的主板、子板和联合状态机说明见 `docs/STATE_MACHINES.md`。
 后续开发阶段建议见 `docs/DEVELOPMENT_ROADMAP.md`。
+当前阶段的云台控制优先级与调试方式见 `docs/GIMBAL_CONTROL_PHASE_PLAN.md`。
 v0.1 基线验证步骤见 `docs/V0_1_VALIDATION_CHECKLIST.md`。
