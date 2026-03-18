@@ -28,7 +28,7 @@ s300_add_executable(
         Src/master_detection_overlay.c
         ${SHARED_DETECTION_DIR}/Src/camera_ov5640.c
     DRIVERS rcc gpio uart mm i2c_soft psram
-    INCLUDES . Inc ${SHARED_DETECTION_DIR}/Inc ${CMAKE_SOURCE_DIR}/Projects/Demo/Subboard_Bringup_Common
+    INCLUDES . Inc ${SHARED_DETECTION_DIR}/Inc ${CMAKE_SOURCE_DIR}/Projects/Common/Subboard_Protocol
     DBG_NAME subboard_video_bringup_master
     MM_ENABLE
 )

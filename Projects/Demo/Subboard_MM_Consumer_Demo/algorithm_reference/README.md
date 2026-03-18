@@ -61,7 +61,7 @@ DSP 上电后，至少要完成以下顺序：
 
 1. 检测结果结构：Algorithm_Models/protocol/detection_proto.h。
 2. 控制面协议：Algorithm_Models/protocol/control_proto.h。
-3. 子板运行态同步协议：Projects/Demo/Subboard_Bringup_Common/subboard_runtime_proto.h。
+3. 子板运行态同步协议：Projects/Common/Subboard_Protocol/subboard_runtime_proto.h。
 
 DSP 侧不要私自改这些结构的字段布局；如果确实需要改，必须同步更新 CM4 侧解析逻辑和本 Demo 文档。
 

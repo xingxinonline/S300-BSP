@@ -37,7 +37,7 @@ s300_add_executable(
         Src/subboard_dsp_mailbox.c
         Src/subboard_startup_i2c.c
     DRIVERS rcc gpio uart mm psram i2c mailbox
-    INCLUDES . Inc ${CMAKE_SOURCE_DIR}/Projects/Demo/Subboard_Bringup_Common ${CMAKE_SOURCE_DIR}/Algorithm_Models/protocol
+    INCLUDES . Inc ${CMAKE_SOURCE_DIR}/Projects/Common/Subboard_Protocol ${CMAKE_SOURCE_DIR}/Algorithm_Models/protocol
     DBG_NAME subboard_mm_consumer
     DBG_SCRIPT ${SUBBOARD_GDB_SCRIPT}
     MM_ENABLE
