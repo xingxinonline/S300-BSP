@@ -123,10 +123,12 @@ static void trigger_core_reg_update(void)
     REG32(DSP_VIDEO_SS_BASE + 0x70u) = 1u;
 }
 
+#if !defined(BOARD_LCD_SPI_ENABLE_ON_INIT) || (BOARD_LCD_SPI_ENABLE_ON_INIT != 0)
 static void trigger_spi_reg_update(void)
 {
     REG32(DSP_VIDEO_SS_BASE + 0x1E0u) = 1u;
 }
+#endif
 
 static void trigger_mm_runtime_enable(void)
 {
