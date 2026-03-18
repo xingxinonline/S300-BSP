@@ -4,6 +4,7 @@
 add_subdirectory(App_HelloWorld)
 add_subdirectory(App_GimbalMaster)
 add_subdirectory(App_Card1_HumanDetection)
+add_subdirectory(App_Card2_FaceDetection)
 add_subdirectory(App_Card3_Gesture)
 
 # Demo 项目
