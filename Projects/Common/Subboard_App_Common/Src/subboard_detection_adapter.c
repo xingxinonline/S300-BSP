@@ -3,11 +3,24 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "subboard_app_identity.h"
 #include "subboard_log.h"
 
 static subboard_detection_result_t s_latest_result;
 static bool s_proto_warned = false;
 static bool s_compat_logged = false;
+
+static uint8_t gesture_type_from_detection_type(DetectionType_t type)
+{
+    switch (type) {
+    case DETECTION_TYPE_PALM:
+        return 1u;
+    case DETECTION_TYPE_PEACE:
+        return 2u;
+    default:
+        return 0u;
+    }
+}
 
 static int16_t to_i16_clamped(int32_t value)
 {
@@ -62,8 +75,14 @@ static bool is_valid_detection_result_for_subboard(const DetectionResult_t *resu
 
 static bool is_publishable_detection_type(uint8_t raw_type)
 {
-    (void)raw_type;
+    DetectionType_t type = detection_type_from_raw(raw_type);
+
+#if SUBBOARD_PUBLISH_GESTURE_ONLY
+    return detection_type_is_gesture(type);
+#else
+    (void)type;
     return true;
+#endif
 }
 
 static int find_best_publishable_box(const DetectionResult_t *result)
@@ -107,6 +126,7 @@ static void update_from_box(const DetectionBox_t *box, uint8_t count, uint8_t se
     next.valid = 1u;
     next.count = count;
     next.type = box->type;
+    next.gesture_type = gesture_type_from_detection_type(detection_type_from_raw(box->type));
     next.selected_idx = selected_idx;
     next.x1 = to_i16_clamped(box->x1);
     next.y1 = to_i16_clamped(box->y1);

@@ -1,6 +1,6 @@
 # App_Card1_HumanDetection
 
-该目录提供 `gimbal_node` 板卡上的正式子板应用。当前实现已经把子板入口、状态机、DSP 控制流和 I2C 启动从 `Projects/Demo/Subboard_MM_Consumer_Demo` 收口到本目录私有代码，对外语义固定为 Human_Detection 子板：
+该目录提供 `gimbal_node` 板卡上的正式子板应用，对外语义固定为 Human_Detection 子板：
 
 1. 等待主板完成共享视频资源授权。
 2. 初始化本地 MM consumer 路径并拉起 DSP。
@@ -25,9 +25,9 @@
 
 ## 当前实现边界
 
-1. `Src/main.c`、`Src/subboard_mm_app*.c`、`Src/subboard_dsp_*.c`、`Src/subboard_startup_i2c.c` 均为 App 私有实现。
-2. `Src/subboard_detection_adapter.c` 负责把 DSP 输出结果转换为对主板统一发布的结果格式。
-3. 公共协议结构仍复用 `Projects/Demo/Subboard_Bringup_Common`，以保持主板/子板寄存器协议一致。
+1. App 私有部分只保留本地入口和身份配置，例如 `Src/main.c` 与 `Inc/subboard_app_identity.h`。
+2. 子板入口、状态机、DSP 控制流和 I2C 启动骨架已收口到 `Projects/Common/Subboard_App_Common`。
+3. 公共协议头的正式位置已收口到 `Projects/Common/Subboard_Protocol`；`Projects/Demo/Subboard_Bringup_Common` 仅保留兼容转发层。
 
 主板、子板和联合状态机说明见 `../App_GimbalMaster/docs/STATE_MACHINES.md`。
 

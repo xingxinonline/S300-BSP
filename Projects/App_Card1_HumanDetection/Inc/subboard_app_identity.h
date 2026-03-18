@@ -1,0 +1,38 @@
+#ifndef SUBBOARD_APP_IDENTITY_H
+#define SUBBOARD_APP_IDENTITY_H
+
+#include "subboard_startup_proto.h"
+
+#ifndef SUBBOARD_APP_TAG
+#define SUBBOARD_APP_TAG "[CARD1]"
+#endif
+
+#ifndef SUBBOARD_APP_DSP_TAG
+#define SUBBOARD_APP_DSP_TAG "[CARD1-DSP]"
+#endif
+
+#ifndef SUBBOARD_APP_TITLE
+#define SUBBOARD_APP_TITLE "App_Card1_HumanDetection"
+#endif
+
+#ifndef SUBBOARD_APP_DESCRIPTION
+#define SUBBOARD_APP_DESCRIPTION "Card1 human-detection subboard app"
+#endif
+
+#ifndef SUBBOARD_SLAVE_ADDR
+#define SUBBOARD_SLAVE_ADDR SUBBOARD_STARTUP_SLAVE_ADDR_CARD1
+#endif
+
+#ifndef SUBBOARD_CONFIG_SLOT_ID
+#define SUBBOARD_CONFIG_SLOT_ID 0x31u
+#endif
+
+#ifndef SUBBOARD_BUFFER_SLOT_ID
+#define SUBBOARD_BUFFER_SLOT_ID 0x41u
+#endif
+
+#ifndef SUBBOARD_PUBLISH_GESTURE_ONLY
+#define SUBBOARD_PUBLISH_GESTURE_ONLY 0
+#endif
+
+#endif

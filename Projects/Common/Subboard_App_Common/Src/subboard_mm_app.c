@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "s300.h"
+#include "subboard_app_identity.h"
 #include "subboard_dsp_ctrl.h"
 #include "subboard_log.h"
 #include "subboard_mm_app_internal.h"
@@ -31,16 +32,16 @@ int subboard_mm_app_init(uint32_t (*get_millis_fn)(void))
     s_ctx.last_logged_state = 0xFFu;
 
     SUB_LOG_INFO("\r\n===========================================\r\n");
-    SUB_LOG_INFO("  App_Card1_HumanDetection\r\n");
-    SUB_LOG_INFO("  Card1 human-detection subboard app\r\n");
+    SUB_LOG_INFO("  " SUBBOARD_APP_TITLE "\r\n");
+    SUB_LOG_INFO("  " SUBBOARD_APP_DESCRIPTION "\r\n");
     SUB_LOG_INFO("===========================================\r\n");
 
     subboard_dsp_ctrl_init(millis);
     subboard_mm_app_refresh_dsp_resource_flags(&s_ctx);
     subboard_startup_i2c_update_result(&s_ctx.last_published_result);
 
-    if (subboard_startup_i2c_init(SUBBOARD_STARTUP_SLAVE_ADDR_CARD1) != 0) {
-        SUB_LOG_WARN("[CARD1] i2c slave init failed\r\n");
+    if (subboard_startup_i2c_init(SUBBOARD_SLAVE_ADDR) != 0) {
+        SUB_LOG_WARN(SUBBOARD_APP_TAG " i2c slave init failed\r\n");
         return -1;
     }
 
@@ -50,8 +51,8 @@ int subboard_mm_app_init(uint32_t (*get_millis_fn)(void))
     subboard_mm_app_enter_public_state(&s_ctx, SUBBOARD_STARTUP_STATE_I2C_READY);
     subboard_mm_app_enter_public_state(&s_ctx, SUBBOARD_STARTUP_STATE_WAIT_VIDEO);
 
-    SUB_LOG_INFO("[CARD1] I2C slave ready: addr=0x%02X proto=0x%02X\r\n",
-                 SUBBOARD_STARTUP_SLAVE_ADDR_CARD1,
+    SUB_LOG_INFO(SUBBOARD_APP_TAG " I2C slave ready: addr=0x%02X proto=0x%02X\r\n",
+                 SUBBOARD_SLAVE_ADDR,
                  SUBBOARD_STARTUP_PROTO_VER);
 
     s_ctx.last_heartbeat_ms = millis();

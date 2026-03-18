@@ -8,6 +8,7 @@ endif()
 
 set(PROJECT_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 set(ROOT ${PROJECT_DIR}/../..)
+set(SUBBOARD_COMMON_DIR ${ROOT}/Projects/Common/Subboard_App_Common)
 include(${ROOT}/cmake/s300_model_metadata.cmake)
 set(DSP_BIN_DIR ${PROJECT_DIR}/model_bin)
 set(SUBBOARD_GDB_TEMPLATE ${PROJECT_DIR}/gdbinit.card1_human_detection.gdb.in)
@@ -52,16 +53,16 @@ s300_add_executable(
     TARGET s300_card1_human_detection
     SOURCES
         Src/main.c
-        Src/subboard_mm_app.c
-        Src/subboard_mm_app_runtime.c
-        Src/subboard_mm_app_commands.c
-        Src/subboard_dsp_ctrl.c
-        Src/subboard_dsp_control_plane.c
-        Src/subboard_dsp_mailbox.c
-        Src/subboard_startup_i2c.c
-        Src/subboard_detection_adapter.c
+        ${SUBBOARD_COMMON_DIR}/Src/subboard_mm_app.c
+        ${SUBBOARD_COMMON_DIR}/Src/subboard_mm_app_runtime.c
+        ${SUBBOARD_COMMON_DIR}/Src/subboard_mm_app_commands.c
+        ${SUBBOARD_COMMON_DIR}/Src/subboard_dsp_ctrl.c
+        ${SUBBOARD_COMMON_DIR}/Src/subboard_dsp_control_plane.c
+        ${SUBBOARD_COMMON_DIR}/Src/subboard_dsp_mailbox.c
+        ${SUBBOARD_COMMON_DIR}/Src/subboard_startup_i2c.c
+        ${SUBBOARD_COMMON_DIR}/Src/subboard_detection_adapter.c
     DRIVERS rcc gpio uart mm mailbox psram i2c
-    INCLUDES . Inc ${CMAKE_SOURCE_DIR}/Projects/Demo/Subboard_Bringup_Common ${CMAKE_SOURCE_DIR}/Algorithm_Models/protocol
+    INCLUDES . Inc ${SUBBOARD_COMMON_DIR}/Inc ${CMAKE_SOURCE_DIR}/Projects/Common/Subboard_Protocol ${CMAKE_SOURCE_DIR}/Algorithm_Models/protocol
     DBG_SCRIPT ${SUBBOARD_GDB_SCRIPT}
     NO_IMAGE
     MM_ENABLE

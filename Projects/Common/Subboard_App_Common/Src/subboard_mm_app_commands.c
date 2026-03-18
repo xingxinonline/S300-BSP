@@ -7,6 +7,7 @@
 #include "psram.h"
 #include "rcc.h"
 #include "s300.h"
+#include "subboard_app_identity.h"
 #include "subboard_dsp_ctrl.h"
 #include "subboard_log.h"
 #include "subboard_startup_i2c.h"
@@ -30,7 +31,7 @@ static void dump_mm_video_regs(const char *tag)
     uint32_t reg_20 = REG32(DSP_VIDEO_SS_BASE + 0x20u);
     uint32_t reg_28 = REG32(DSP_VIDEO_SS_BASE + 0x28u);
 
-    SUB_LOG_DEBUG("[CARD1] %s disp=%ux%u snap=%ux%u reg20=0x%08lX reg28=0x%08lX\r\n",
+    SUB_LOG_DEBUG(SUBBOARD_APP_TAG " %s disp=%ux%u snap=%ux%u reg20=0x%08lX reg28=0x%08lX\r\n",
                   tag,
                   (unsigned)DISP_IMAGE_WIDTH,
                   (unsigned)DISP_IMAGE_HEIGHT,
@@ -56,16 +57,16 @@ int subboard_mm_app_start_mm_consumer(SubboardMmAppContext *ctx)
         return 0;
     }
 
-    SUB_LOG_INFO("[CARD1] starting MM consumer path\r\n");
+    SUB_LOG_INFO(SUBBOARD_APP_TAG " starting MM consumer path\r\n");
 #if defined(BOARD_LCD_SPI_ENABLE_ON_INIT) && (BOARD_LCD_SPI_ENABLE_ON_INIT == 0)
-    SUB_LOG_INFO("[CARD1] OV5640 init skipped; MM/SPI config mirrored from master, LCD SPI output disabled\r\n");
+    SUB_LOG_INFO(SUBBOARD_APP_TAG " OV5640 init skipped; MM/SPI config mirrored from master, LCD SPI output disabled\r\n");
 #else
-    SUB_LOG_INFO("[CARD1] OV5640 init skipped; MM/SPI config mirrored from master, LCD SPI output enabled\r\n");
+    SUB_LOG_INFO(SUBBOARD_APP_TAG " OV5640 init skipped; MM/SPI config mirrored from master, LCD SPI output enabled\r\n");
 #endif
 
     ret = rcc_init_mm_pll(8, 400, 0, 3, 2);
     if (ret != RCC_STATUS_OK) {
-        SUB_LOG_WARN("[CARD1] rcc_init_mm_pll failed=%d\r\n", ret);
+        SUB_LOG_WARN(SUBBOARD_APP_TAG " rcc_init_mm_pll failed=%d\r\n", ret);
         return -1;
     }
 
@@ -90,12 +91,12 @@ int subboard_mm_app_ensure_dsp_pll_started(SubboardMmAppContext *ctx)
 
     ret = rcc_init_dsp_pll(6, 800, 0, 2, 2);
     if (ret != RCC_STATUS_OK) {
-        SUB_LOG_WARN("[CARD1] rcc_init_dsp_pll failed=%d\r\n", ret);
+        SUB_LOG_WARN(SUBBOARD_APP_TAG " rcc_init_dsp_pll failed=%d\r\n", ret);
         return -1;
     }
 
     ctx->dsp_pll_started = true;
-    SUB_LOG_INFO("[CARD1] DSP PLL ready\r\n");
+    SUB_LOG_INFO(SUBBOARD_APP_TAG " DSP PLL ready\r\n");
     return 0;
 }
 
@@ -107,17 +108,17 @@ static void finish_command(uint8_t cmd, uint8_t result)
 
 static void handle_ping_cmd(uint8_t cmd)
 {
-    SUB_LOG_DEBUG("[CARD1] CMD PING\r\n");
+    SUB_LOG_DEBUG(SUBBOARD_APP_TAG " CMD PING\r\n");
     finish_command(cmd, SUBBOARD_STARTUP_RESULT_OK);
 }
 
 static void handle_prepare_video_cmd(SubboardMmAppContext *ctx, uint8_t cmd)
 {
-    SUB_LOG_INFO("[CARD1] CMD PREPARE_VIDEO_CONSUMER arg=0x%02X\r\n",
+    SUB_LOG_INFO(SUBBOARD_APP_TAG " CMD PREPARE_VIDEO_CONSUMER arg=0x%02X\r\n",
                  subboard_startup_i2c_get_command_arg());
 
     if (!ctx->master_mm_granted) {
-        SUB_LOG_WARN("[CARD1] reject PREPARE_VIDEO: waiting master MM grant\r\n");
+        SUB_LOG_WARN(SUBBOARD_APP_TAG " reject PREPARE_VIDEO: waiting master MM grant\r\n");
         finish_command(cmd, SUBBOARD_STARTUP_RESULT_BUSY);
         return;
     }
@@ -143,17 +144,17 @@ static void handle_prepare_video_cmd(SubboardMmAppContext *ctx, uint8_t cmd)
 
 static void handle_start_dsp_cmd(SubboardMmAppContext *ctx, uint8_t cmd)
 {
-    SUB_LOG_INFO("[CARD1] CMD START_DSP arg=0x%02X\r\n",
+    SUB_LOG_INFO(SUBBOARD_APP_TAG " CMD START_DSP arg=0x%02X\r\n",
                  subboard_startup_i2c_get_command_arg());
 
     if (!ctx->mm_started || !ctx->master_mm_granted) {
-        SUB_LOG_WARN("[CARD1] reject START_DSP: MM path not ready\r\n");
+        SUB_LOG_WARN(SUBBOARD_APP_TAG " reject START_DSP: MM path not ready\r\n");
         finish_command(cmd, SUBBOARD_STARTUP_RESULT_BUSY);
         return;
     }
 
     if (subboard_dsp_ctrl_is_active()) {
-        SUB_LOG_WARN("[CARD1] reject START_DSP: DSP control already active\r\n");
+        SUB_LOG_WARN(SUBBOARD_APP_TAG " reject START_DSP: DSP control already active\r\n");
         finish_command(cmd, SUBBOARD_STARTUP_RESULT_BUSY);
         return;
     }
@@ -179,7 +180,7 @@ static void handle_start_dsp_cmd(SubboardMmAppContext *ctx, uint8_t cmd)
 
 static void handle_clear_error_cmd(SubboardMmAppContext *ctx, uint8_t cmd)
 {
-    SUB_LOG_INFO("[CARD1] CMD CLEAR_ERROR\r\n");
+    SUB_LOG_INFO(SUBBOARD_APP_TAG " CMD CLEAR_ERROR\r\n");
     subboard_startup_i2c_set_error_code(SUBBOARD_STARTUP_ERR_NONE);
     subboard_dsp_ctrl_reset();
     subboard_dsp_ctrl_set_mm_ready(ctx->mm_started);
@@ -199,7 +200,7 @@ static void handle_clear_error_cmd(SubboardMmAppContext *ctx, uint8_t cmd)
 
 static void handle_unsupported_cmd(uint8_t cmd)
 {
-    SUB_LOG_WARN("[CARD1] CMD 0x%02X not supported\r\n", cmd);
+    SUB_LOG_WARN(SUBBOARD_APP_TAG " CMD 0x%02X not supported\r\n", cmd);
     subboard_startup_i2c_set_error_code(SUBBOARD_STARTUP_ERR_UNSUPPORTED_CMD);
     finish_command(cmd, SUBBOARD_STARTUP_RESULT_NOT_SUPPORTED);
 }

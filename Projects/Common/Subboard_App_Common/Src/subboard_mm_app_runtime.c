@@ -7,6 +7,7 @@
 
 #include "control_proto.h"
 #include "s300.h"
+#include "subboard_app_identity.h"
 #include "subboard_dsp_ctrl.h"
 #include "subboard_log.h"
 #include "subboard_startup_i2c.h"
@@ -66,17 +67,17 @@ static void trigger_spi_reg_update(void)
 static void trigger_local_mm_runtime_enable(const SubboardMmAppContext *ctx)
 {
     if ((ctx == NULL) || !ctx->mm_started) {
-        SUB_LOG_WARN("[CARD1] skip local MM runtime enable: MM consumer not started\r\n");
+        SUB_LOG_WARN(SUBBOARD_APP_TAG " skip local MM runtime enable: MM consumer not started\r\n");
         return;
     }
 
     trigger_core_reg_update();
 
 #if defined(BOARD_LCD_SPI_ENABLE_ON_INIT) && (BOARD_LCD_SPI_ENABLE_ON_INIT == 0)
-    SUB_LOG_INFO("[CARD1] applied local MM runtime enable: core only, local LCD SPI path disabled\r\n");
+    SUB_LOG_INFO(SUBBOARD_APP_TAG " applied local MM runtime enable: core only, local LCD SPI path disabled\r\n");
 #else
     trigger_spi_reg_update();
-    SUB_LOG_INFO("[CARD1] applied local MM runtime enable: core + lcd spi\r\n");
+    SUB_LOG_INFO(SUBBOARD_APP_TAG " applied local MM runtime enable: core + lcd spi\r\n");
 #endif
 }
 
@@ -106,7 +107,7 @@ void subboard_mm_app_enter_public_state(SubboardMmAppContext *ctx, uint8_t next_
         return;
     }
 
-    SUB_LOG_INFO("[CARD1] STATE %s -> %s\r\n",
+    SUB_LOG_INFO(SUBBOARD_APP_TAG " STATE %s -> %s\r\n",
                  subboard_mm_app_public_state_name(ctx->public_state),
                  subboard_mm_app_public_state_name(next_state));
     ctx->public_state = next_state;
@@ -140,7 +141,7 @@ void subboard_mm_app_post_next_master_request(SubboardMmAppContext *ctx)
         subboard_mm_app_enter_public_state(ctx, SUBBOARD_STARTUP_STATE_WAIT_MASTER_MM);
         ctx->master_mm_requested = true;
         ctx->active_request = request;
-        SUB_LOG_INFO("[CARD1] REQUEST %s posted\r\n", request_name(request));
+        SUB_LOG_INFO(SUBBOARD_APP_TAG " REQUEST %s posted\r\n", request_name(request));
         return;
     }
 
@@ -155,7 +156,7 @@ void subboard_mm_app_post_next_master_request(SubboardMmAppContext *ctx)
 
     subboard_startup_i2c_set_request(request, 0u);
     ctx->active_request = request;
-    SUB_LOG_INFO("[CARD1] REQUEST %s posted from DSP runtime notify\r\n",
+    SUB_LOG_INFO(SUBBOARD_APP_TAG " REQUEST %s posted from DSP runtime notify\r\n",
                  request_name(request));
 }
 
@@ -174,7 +175,7 @@ void subboard_mm_app_consume_request_ack(SubboardMmAppContext *ctx, uint8_t requ
         subboard_dsp_ctrl_complete_master_request(ctx->active_request);
     }
 
-    SUB_LOG_INFO("[CARD1] REQUEST %s acknowledged by master\r\n",
+    SUB_LOG_INFO(SUBBOARD_APP_TAG " REQUEST %s acknowledged by master\r\n",
                  request_name(ctx->active_request));
     subboard_startup_i2c_clear_request();
     ctx->active_request = SUBBOARD_STARTUP_REQ_NONE;
@@ -246,7 +247,7 @@ void subboard_mm_app_publish_latest_result(SubboardMmAppContext *ctx)
     ctx->last_published_result = latest_result;
 
     if (result_active && !ctx->result_active) {
-        SUB_LOG_INFO("[CARD1] result active: count=%u conf=%u box=(%d,%d)-(%d,%d)\r\n",
+        SUB_LOG_INFO(SUBBOARD_APP_TAG " result active: count=%u conf=%u box=(%d,%d)-(%d,%d)\r\n",
                      (unsigned)latest_result.count,
                      (unsigned)latest_result.confidence,
                      (int)latest_result.x1,
@@ -255,13 +256,13 @@ void subboard_mm_app_publish_latest_result(SubboardMmAppContext *ctx)
                      (int)latest_result.y2);
         ctx->result_active = true;
     } else if (!result_active && ctx->result_active) {
-        SUB_LOG_INFO("[CARD1] result idle\r\n");
+        SUB_LOG_INFO(SUBBOARD_APP_TAG " result idle\r\n");
         ctx->result_active = false;
         ctx->result_invalid_since_ms = 0u;
     }
 
     if (result_active) {
-        SUB_LOG_DEBUG("[CARD1] result: count=%u conf=%u box=(%d,%d)-(%d,%d)\r\n",
+        SUB_LOG_DEBUG(SUBBOARD_APP_TAG " result: count=%u conf=%u box=(%d,%d)-(%d,%d)\r\n",
                       (unsigned)latest_result.count,
                       (unsigned)latest_result.confidence,
                       (int)latest_result.x1,
@@ -282,7 +283,7 @@ void subboard_mm_app_bump_heartbeat_if_needed(SubboardMmAppContext *ctx)
 void subboard_mm_app_log_public_state_if_needed(SubboardMmAppContext *ctx)
 {
     if ((ctx != NULL) && (ctx->last_logged_state != ctx->public_state)) {
-        SUB_LOG_DEBUG("[CARD1] public_state=%s\r\n",
+        SUB_LOG_DEBUG(SUBBOARD_APP_TAG " public_state=%s\r\n",
                       subboard_mm_app_public_state_name(ctx->public_state));
         ctx->last_logged_state = ctx->public_state;
     }
