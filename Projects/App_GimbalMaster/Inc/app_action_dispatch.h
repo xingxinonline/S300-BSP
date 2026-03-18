@@ -9,7 +9,6 @@ extern "C" {
 
 typedef enum {
     APP_ACTION_NONE = 0,
-    APP_ACTION_KWS_HIT,
     APP_ACTION_PHOTO,
     APP_ACTION_RECORD_START,
     APP_ACTION_RECORD_STOP,
@@ -19,9 +18,16 @@ typedef enum {
     APP_ACTION_FILL_LIGHT_OFF,
 } app_action_type_t;
 
+typedef enum {
+    APP_ACTION_SOURCE_UNKNOWN = 0,
+    APP_ACTION_SOURCE_KWS,
+    APP_ACTION_SOURCE_GESTURE,
+} app_action_source_t;
+
 typedef struct {
     app_action_type_t type;
-    uint8_t keyword_idx;
+    app_action_source_t source;
+    uint8_t source_id;
     uint8_t confidence;
     uint32_t chunk_idx;
 } app_action_t;

@@ -2,6 +2,7 @@
 
 #include <stddef.h>
 
+#include "app_fill_light.h"
 #include "app_gimbal_control.h"
 #include "app_media_control.h"
 #include "master_log.h"
@@ -69,10 +70,13 @@ app_action_execute_result_t app_action_execute(const app_action_t *action)
             APP_ACTION_EXECUTE_DONE : APP_ACTION_EXECUTE_IGNORED;
 
     case APP_ACTION_FILL_LIGHT_ON:
-    case APP_ACTION_FILL_LIGHT_OFF:
-        return APP_ACTION_EXECUTE_DONE;
+        return (app_fill_light_set_enabled(true) == 0) ?
+            APP_ACTION_EXECUTE_DONE : APP_ACTION_EXECUTE_FAILED;
 
-    case APP_ACTION_KWS_HIT:
+    case APP_ACTION_FILL_LIGHT_OFF:
+        return (app_fill_light_set_enabled(false) == 0) ?
+            APP_ACTION_EXECUTE_DONE : APP_ACTION_EXECUTE_FAILED;
+
     case APP_ACTION_NONE:
     default:
         return APP_ACTION_EXECUTE_IGNORED;

@@ -79,7 +79,8 @@ static void card3_dispatch_gesture_action(DetectionType_t gesture_type, uint8_t 
 {
     app_action_t action = {
         .type = APP_ACTION_NONE,
-        .keyword_idx = (uint8_t)gesture_type,
+        .source = APP_ACTION_SOURCE_GESTURE,
+        .source_id = (uint8_t)gesture_type,
         .confidence = confidence,
         .chunk_idx = 0u,
     };

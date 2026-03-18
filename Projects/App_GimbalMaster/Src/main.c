@@ -111,13 +111,16 @@ static void handle_kws_keyword_report(uint8_t keyword_idx, uint8_t confidence, u
 
 static void update_status_light(void)
 {
-    uint8_t subboard_state = master_demo_app_get_subboard_state();
-    bool ignore_subboard_fault = g_subboard_wait_timed_out && !master_demo_app_is_subboard_running();
+    master_demo_subboard_snapshot_t subboard_snapshot;
+    bool has_snapshot = master_demo_app_get_subboard_snapshot(&subboard_snapshot);
+    bool any_running = has_snapshot && subboard_snapshot.any_running;
+    bool blocking_subboard_fault = has_snapshot && subboard_snapshot.any_error && !subboard_snapshot.any_running;
+    bool ignore_subboard_fault = g_subboard_wait_timed_out && !any_running;
 
-    if (((subboard_state == SUBBOARD_STARTUP_STATE_ERROR) && !ignore_subboard_fault) ||
+    if ((blocking_subboard_fault && !ignore_subboard_fault) ||
         (g_state == CM4_KWS_STATE_ERROR)) {
         app_status_light_set_mode(APP_STATUS_LIGHT_MODE_ERROR);
-    } else if (!master_demo_app_is_subboard_running() && !g_subboard_wait_timed_out) {
+    } else if (!any_running && !g_subboard_wait_timed_out) {
         app_status_light_set_mode(APP_STATUS_LIGHT_MODE_WAIT_SUBBOARD);
     } else if ((g_kws_started == false) || (g_state != CM4_KWS_STATE_RUNNING)) {
         app_status_light_set_mode(APP_STATUS_LIGHT_MODE_SUBBOARD_READY);
@@ -646,12 +649,16 @@ int main(void)
     g_subboard_wait_timed_out = false;
 
     while (1) {
+        master_demo_subboard_snapshot_t subboard_snapshot;
+        bool have_subboard_snapshot;
+
         master_demo_app_tick();
         app_gimbal_debug_tick();
         update_status_light();
+        have_subboard_snapshot = master_demo_app_get_subboard_snapshot(&subboard_snapshot);
 
         if (!g_kws_started) {
-            if (master_demo_app_is_subboard_running()) {
+            if (have_subboard_snapshot && subboard_snapshot.any_running) {
                 if (kws_runtime_init("subboard reached RUNNING") != 0) {
                     printf("[KWS-CTRL] KWS runtime init failed\r\n");
                     app_status_light_set_mode(APP_STATUS_LIGHT_MODE_ERROR);

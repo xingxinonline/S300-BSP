@@ -30,6 +30,17 @@ static uint32_t (*s_get_millis)(void) = 0;
 static i2c_soft_t s_i2c;
 static bool s_i2c_ready = false;
 
+static master_demo_subboard_state_t make_subboard_state(uint8_t public_state)
+{
+    master_demo_subboard_state_t state;
+
+    state.public_state = public_state;
+    state.online = (public_state != 0xFFu);
+    state.running = (public_state == SUBBOARD_STARTUP_STATE_RUNNING);
+    state.faulted = (public_state == SUBBOARD_STARTUP_STATE_ERROR);
+    return state;
+}
+
 static uint32_t millis(void)
 {
     return (s_get_millis != 0) ? s_get_millis() : 0u;
@@ -188,25 +199,18 @@ static int video_path_prepare(void)
     return 0;
 }
 
-bool master_demo_app_is_subboard_running(void)
+bool master_demo_app_get_subboard_snapshot(master_demo_subboard_snapshot_t *snapshot)
 {
-    return app_card1_subboard_is_running() || app_card3_subboard_is_running();
-}
-
-uint8_t master_demo_app_get_subboard_state(void)
-{
-    uint8_t card1_state = app_card1_subboard_get_public_state();
-    uint8_t card3_state = app_card3_subboard_get_public_state();
-
-    if (card1_state == SUBBOARD_STARTUP_STATE_RUNNING || card3_state == SUBBOARD_STARTUP_STATE_RUNNING) {
-        return SUBBOARD_STARTUP_STATE_RUNNING;
+    if (snapshot == NULL) {
+        return false;
     }
 
-    if (card1_state != 0xFFu) {
-        return card1_state;
-    }
+    snapshot->card1 = make_subboard_state(app_card1_subboard_get_public_state());
+    snapshot->card3 = make_subboard_state(app_card3_subboard_get_public_state());
+    snapshot->any_running = snapshot->card1.running || snapshot->card3.running;
+    snapshot->any_error = snapshot->card1.faulted || snapshot->card3.faulted;
 
-    return card3_state;
+    return true;
 }
 
 int master_demo_app_init(uint32_t (*get_millis_fn)(void))

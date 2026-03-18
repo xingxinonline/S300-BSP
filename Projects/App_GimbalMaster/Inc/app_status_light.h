@@ -17,12 +17,23 @@ typedef enum {
     APP_STATUS_LIGHT_MODE_ERROR,
 } app_status_light_mode_t;
 
+typedef enum {
+    APP_STATUS_LIGHT_FEEDBACK_NONE = 0,
+    APP_STATUS_LIGHT_FEEDBACK_PHOTO,
+    APP_STATUS_LIGHT_FEEDBACK_RECORD_START,
+    APP_STATUS_LIGHT_FEEDBACK_RECORD_STOP,
+    APP_STATUS_LIGHT_FEEDBACK_TRACK_START,
+    APP_STATUS_LIGHT_FEEDBACK_TRACK_STOP,
+    APP_STATUS_LIGHT_FEEDBACK_FILL_LIGHT_ON,
+    APP_STATUS_LIGHT_FEEDBACK_FILL_LIGHT_OFF,
+} app_status_light_feedback_t;
+
 int app_status_light_init(uint32_t (*get_millis_fn)(void));
 void app_status_light_set_mode(app_status_light_mode_t mode);
 void app_status_light_set_recording(bool enabled);
 void app_status_light_set_tracking(bool enabled);
 void app_status_light_set_fill_light(bool enabled);
-void app_status_light_notify_kws_hit(uint8_t keyword_idx);
+void app_status_light_notify_feedback(app_status_light_feedback_t feedback);
 void app_status_light_tick(void);
 
 #ifdef __cplusplus

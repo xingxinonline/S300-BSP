@@ -25,7 +25,6 @@ typedef enum {
 
 typedef struct {
     bool ready;
-    bool tracking;
     bool yaw_position_valid;
     bool pitch_position_valid;
     int16_t yaw_position;
@@ -41,7 +40,6 @@ app_gimbal_control_result_t app_gimbal_control_move_to_angles(float yaw_angle_de
                                                               float pitch_angle_deg,
                                                               uint16_t time_ms);
 bool app_gimbal_control_read_status(app_gimbal_control_status_t *status);
-bool app_gimbal_control_is_tracking(void);
 const char *app_gimbal_control_preset_name(app_gimbal_preset_t preset);
 
 #ifdef __cplusplus

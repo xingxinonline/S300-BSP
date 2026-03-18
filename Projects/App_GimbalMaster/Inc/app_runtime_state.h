@@ -30,9 +30,19 @@ typedef enum {
     APP_RUNTIME_EVENT_APPLIED,
 } app_runtime_event_result_t;
 
+typedef struct {
+    app_runtime_state_t state;
+    bool recording;
+    bool tracking;
+    bool fill_light_enabled;
+} app_runtime_snapshot_t;
+
 void app_runtime_state_reset(void);
+app_runtime_event_result_t app_runtime_state_preview_event(app_runtime_event_t event,
+                                                           app_runtime_snapshot_t *next_snapshot);
 app_runtime_event_result_t app_runtime_state_apply_event(app_runtime_event_t event);
 app_runtime_state_t app_runtime_state_get(void);
+void app_runtime_state_get_snapshot(app_runtime_snapshot_t *snapshot);
 bool app_runtime_state_is_recording(void);
 bool app_runtime_state_is_tracking(void);
 bool app_runtime_state_is_fill_light_enabled(void);

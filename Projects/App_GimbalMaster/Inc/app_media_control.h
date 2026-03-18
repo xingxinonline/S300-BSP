@@ -17,7 +17,6 @@ typedef enum {
 void app_media_control_init(void);
 app_media_control_result_t app_media_control_trigger_photo(void);
 app_media_control_result_t app_media_control_set_recording(bool enabled);
-bool app_media_control_is_recording(void);
 uint32_t app_media_control_get_photo_count(void);
 
 #ifdef __cplusplus

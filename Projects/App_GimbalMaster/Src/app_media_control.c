@@ -22,7 +22,6 @@
 
 static bool s_xm04_ready = false;
 
-static bool s_recording = false;
 static uint32_t s_photo_count = 0u;
 
 static void media_log_tx_packet(const uint8_t *packet)
@@ -95,7 +94,6 @@ static bool xm04_init_transport(void)
 
 void app_media_control_init(void)
 {
-    s_recording = false;
     s_photo_count = 0u;
     s_xm04_ready = xm04_init_transport();
 }
@@ -120,11 +118,6 @@ app_media_control_result_t app_media_control_trigger_photo(void)
 
 app_media_control_result_t app_media_control_set_recording(bool enabled)
 {
-    if (s_recording == enabled) {
-        MASTER_LOG_DEBUG("[MASTER][MEDIA] recording already %u\r\n", enabled ? 1u : 0u);
-        return APP_MEDIA_CONTROL_NO_CHANGE;
-    }
-
     if (!s_xm04_ready) {
         MASTER_LOG_WARN("[MASTER][MEDIA][XM04] recording trigger rejected, transport unavailable\r\n");
         return APP_MEDIA_CONTROL_FAILED;
@@ -136,15 +129,9 @@ app_media_control_result_t app_media_control_set_recording(bool enabled)
         return APP_MEDIA_CONTROL_FAILED;
     }
 
-    s_recording = enabled;
     MASTER_LOG_INFO("[MASTER][MEDIA] recording %s via XM04 volume-up toggle\r\n",
                     enabled ? "START" : "STOP");
     return APP_MEDIA_CONTROL_ACCEPTED;
-}
-
-bool app_media_control_is_recording(void)
-{
-    return s_recording;
 }
 
 uint32_t app_media_control_get_photo_count(void)

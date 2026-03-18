@@ -9,7 +9,6 @@ extern "C" {
 
 int app_fill_light_init(void);
 int app_fill_light_set_enabled(bool enabled);
-bool app_fill_light_is_enabled(void);
 
 #ifdef __cplusplus
 }

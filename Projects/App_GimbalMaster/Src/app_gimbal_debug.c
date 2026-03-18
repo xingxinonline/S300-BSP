@@ -4,6 +4,7 @@
 #include <stddef.h>
 
 #include "app_gimbal_control.h"
+#include "app_runtime_state.h"
 #include "master_log.h"
 
 #ifndef MASTER_GIMBAL_DEBUG_BOOT_DEMO
@@ -72,7 +73,7 @@ void app_gimbal_debug_tick(void)
         return;
     }
 
-    if (app_gimbal_control_is_tracking()) {
+    if (app_runtime_state_is_tracking()) {
         s_demo_finished = true;
         MASTER_LOG_INFO("[MASTER][GIMBAL][DEBUG] boot demo stopped because tracking mode is active\r\n");
         return;

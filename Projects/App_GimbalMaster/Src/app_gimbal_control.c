@@ -43,7 +43,6 @@ static const app_gimbal_preset_desc_t s_gimbal_presets[] = {
     { APP_GIMBAL_PRESET_UP_PREVIEW,     0.0f,  -20.0f, GIMBAL_PREVIEW_MOVE_TIME_MS,  "up-preview" },
 };
 
-static bool s_tracking = false;
 static bool s_ready = false;
 static bus_servo_t s_servo;
 static float s_last_yaw_angle_deg = 0.0f;
@@ -162,13 +161,12 @@ static void gimbal_log_status(const char *reason)
         return;
     }
 
-    MASTER_LOG_INFO("[MASTER][GIMBAL] status(%s) yaw=%d(%.1fdeg) pitch=%d(%.1fdeg) tracking=%u\r\n",
+    MASTER_LOG_INFO("[MASTER][GIMBAL] status(%s) yaw=%d(%.1fdeg) pitch=%d(%.1fdeg)\r\n",
                     reason != NULL ? reason : "unknown",
                     (int)yaw_position,
                     yaw_pulse_to_angle_deg(yaw_position),
                     (int)pitch_position,
-                    pitch_pulse_to_angle_deg(pitch_position),
-                    s_tracking ? 1u : 0u);
+                    pitch_pulse_to_angle_deg(pitch_position));
 }
 
 static int gimbal_move_raw(uint16_t yaw_pulse, uint16_t pitch_pulse, uint16_t time_ms)
@@ -228,8 +226,6 @@ void app_gimbal_control_init(void)
 {
     int ret;
 
-    s_tracking = false;
-
     ret = board_servo_init(&s_servo);
     if (ret != 0) {
         s_ready = false;
@@ -255,11 +251,6 @@ void app_gimbal_control_init(void)
 
 app_gimbal_control_result_t app_gimbal_control_set_tracking(bool enabled)
 {
-    if (s_tracking == enabled) {
-        MASTER_LOG_DEBUG("[MASTER][GIMBAL] tracking already %u\r\n", enabled ? 1u : 0u);
-        return APP_GIMBAL_CONTROL_NO_CHANGE;
-    }
-
     if (!s_ready) {
         MASTER_LOG_WARN("[MASTER][GIMBAL] tracking request ignored, servo backend unavailable\r\n");
         return APP_GIMBAL_CONTROL_NO_CHANGE;
@@ -275,7 +266,6 @@ app_gimbal_control_result_t app_gimbal_control_set_tracking(bool enabled)
         }
     }
 
-    s_tracking = enabled;
     MASTER_LOG_INFO("[MASTER][GIMBAL] tracking %s, pose=%s\r\n",
                     enabled ? "START" : "STOP",
                     app_gimbal_control_preset_name(enabled ? APP_GIMBAL_PRESET_TRACKING : APP_GIMBAL_PRESET_PARKING));
@@ -326,7 +316,6 @@ bool app_gimbal_control_read_status(app_gimbal_control_status_t *status)
     positions_valid = gimbal_read_positions(&yaw_position, &pitch_position);
 
     status->ready = s_ready;
-    status->tracking = s_tracking;
     status->yaw_position_valid = positions_valid;
     status->pitch_position_valid = positions_valid;
     status->yaw_position = yaw_position;
@@ -334,9 +323,4 @@ bool app_gimbal_control_read_status(app_gimbal_control_status_t *status)
     status->yaw_angle_deg = positions_valid ? yaw_pulse_to_angle_deg(yaw_position) : s_last_yaw_angle_deg;
     status->pitch_angle_deg = positions_valid ? pitch_pulse_to_angle_deg(pitch_position) : s_last_pitch_angle_deg;
     return positions_valid;
-}
-
-bool app_gimbal_control_is_tracking(void)
-{
-    return s_tracking;
 }

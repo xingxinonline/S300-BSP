@@ -19,14 +19,6 @@
 #define STATUS_LIGHT_IDLE_STEP_MS         140u
 #define STATUS_LIGHT_IDLE_DWELL_STEPS     3u
 
-#define KWS_KEYWORD_PHOTO             1u
-#define KWS_KEYWORD_RECORD_START      2u
-#define KWS_KEYWORD_RECORD_STOP       3u
-#define KWS_KEYWORD_TRACK_START       4u
-#define KWS_KEYWORD_TRACK_STOP        5u
-#define KWS_KEYWORD_FILL_LIGHT_ON     6u
-#define KWS_KEYWORD_FILL_LIGHT_OFF    7u
-
 #define STATUS_LIGHT_FLAG_RECORDING   0x01u
 #define STATUS_LIGHT_FLAG_TRACKING    0x02u
 #define STATUS_LIGHT_FLAG_FILL_LIGHT  0x04u
@@ -40,7 +32,7 @@ static app_status_light_mode_t s_mode = APP_STATUS_LIGHT_MODE_DISABLED;
 static uint32_t s_last_tick_ms = 0u;
 static uint32_t s_pulse_started_ms = 0u;
 static uint32_t s_pulse_until_ms = 0u;
-static uint8_t s_pulse_keyword_idx = 0u;
+static app_status_light_feedback_t s_pulse_feedback = APP_STATUS_LIGHT_FEEDBACK_NONE;
 static uint8_t s_runtime_flags = 0u;
 
 static uint32_t millis(void)
@@ -189,14 +181,14 @@ static void draw_keyword_pulse(uint32_t now_ms)
     uint8_t blink = (uint8_t)((elapsed_ms / 60u) & 1u);
 
     clear_all();
-    switch (s_pulse_keyword_idx) {
-    case KWS_KEYWORD_PHOTO:
+    switch (s_pulse_feedback) {
+    case APP_STATUS_LIGHT_FEEDBACK_PHOTO:
         if (blink == 0u) {
             fill_all(ws2812_rgb(255u, 255u, 255u));
         }
         ws2812_set_brightness(&s_led_handle, STATUS_LIGHT_BRIGHTNESS_HIGH);
         break;
-    case KWS_KEYWORD_RECORD_START:
+    case APP_STATUS_LIGHT_FEEDBACK_RECORD_START:
         fill_all(color_dim(ws2812_rgb(255u, 0u, 0u), 48u));
         for (uint8_t index = 0u; index <= phase; ++index) {
             (void)ws2812_set_pixel(&s_led_handle, 0, index, ws2812_rgb(255u, 0u, 0u));
@@ -204,7 +196,7 @@ static void draw_keyword_pulse(uint32_t now_ms)
         }
         ws2812_set_brightness(&s_led_handle, STATUS_LIGHT_BRIGHTNESS_HIGH);
         break;
-    case KWS_KEYWORD_RECORD_STOP:
+    case APP_STATUS_LIGHT_FEEDBACK_RECORD_STOP:
         fill_all(color_dim(ws2812_rgb(255u, 100u, 0u), 36u));
         for (uint8_t index = 0u; index <= phase; ++index) {
             uint8_t reverse_index = STATUS_LIGHT_LED_COUNT - 1u - index;
@@ -213,24 +205,24 @@ static void draw_keyword_pulse(uint32_t now_ms)
         }
         ws2812_set_brightness(&s_led_handle, STATUS_LIGHT_BRIGHTNESS_HIGH);
         break;
-    case KWS_KEYWORD_TRACK_START:
+    case APP_STATUS_LIGHT_FEEDBACK_TRACK_START:
         fill_all(color_dim(ws2812_rgb(0u, 120u, 255u), 40u));
         (void)ws2812_set_pixel(&s_led_handle, 0, phase, ws2812_rgb(0u, 120u, 255u));
         (void)ws2812_set_pixel(&s_led_handle, 1, STATUS_LIGHT_LED_COUNT - 1u - phase, ws2812_rgb(0u, 120u, 255u));
         ws2812_set_brightness(&s_led_handle, STATUS_LIGHT_BRIGHTNESS_HIGH);
         break;
-    case KWS_KEYWORD_TRACK_STOP:
+    case APP_STATUS_LIGHT_FEEDBACK_TRACK_STOP:
         fill_all(ws2812_rgb(255u, 220u, 0u));
         if (blink != 0u) {
             clear_all();
         }
         ws2812_set_brightness(&s_led_handle, STATUS_LIGHT_BRIGHTNESS_HIGH);
         break;
-    case KWS_KEYWORD_FILL_LIGHT_ON:
+    case APP_STATUS_LIGHT_FEEDBACK_FILL_LIGHT_ON:
         fill_all(ws2812_rgb(255u, 210u, 120u));
         ws2812_set_brightness(&s_led_handle, STATUS_LIGHT_BRIGHTNESS_HIGH);
         break;
-    case KWS_KEYWORD_FILL_LIGHT_OFF:
+    case APP_STATUS_LIGHT_FEEDBACK_FILL_LIGHT_OFF:
         (void)ws2812_set_pixel(&s_led_handle, 0, 0u, ws2812_rgb(0u, 160u, 255u));
         (void)ws2812_set_pixel(&s_led_handle, 0, STATUS_LIGHT_LED_COUNT - 1u, ws2812_rgb(0u, 160u, 255u));
         (void)ws2812_set_pixel(&s_led_handle, 1, 0u, ws2812_rgb(0u, 160u, 255u));
@@ -280,7 +272,7 @@ int app_status_light_init(uint32_t (*get_millis_fn)(void))
     s_last_tick_ms = 0u;
     s_pulse_started_ms = 0u;
     s_pulse_until_ms = 0u;
-    s_pulse_keyword_idx = 0u;
+    s_pulse_feedback = APP_STATUS_LIGHT_FEEDBACK_NONE;
     s_runtime_flags = 0u;
     return 0;
 }
@@ -317,11 +309,11 @@ void app_status_light_set_fill_light(bool enabled)
     }
 }
 
-void app_status_light_notify_kws_hit(uint8_t keyword_idx)
+void app_status_light_notify_feedback(app_status_light_feedback_t feedback)
 {
     s_pulse_started_ms = millis();
     s_pulse_until_ms = s_pulse_started_ms + STATUS_LIGHT_PULSE_MS;
-    s_pulse_keyword_idx = keyword_idx;
+    s_pulse_feedback = feedback;
 }
 
 void app_status_light_tick(void)
@@ -344,7 +336,7 @@ void app_status_light_tick(void)
         return;
     }
     s_pulse_until_ms = 0u;
-    s_pulse_keyword_idx = 0u;
+    s_pulse_feedback = APP_STATUS_LIGHT_FEEDBACK_NONE;
 
     switch (s_mode) {
     case APP_STATUS_LIGHT_MODE_BOOT:

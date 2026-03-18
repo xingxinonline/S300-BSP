@@ -1,37 +1,60 @@
 #include "app_runtime_state.h"
 
+#include <string.h>
+
 #include "master_log.h"
 
-static bool s_recording = false;
-static bool s_tracking = false;
-static bool s_fill_light = false;
-static app_runtime_state_t s_state = APP_RUNTIME_STATE_IDLE;
+static app_runtime_snapshot_t s_snapshot = {
+    .state = APP_RUNTIME_STATE_IDLE,
+    .recording = false,
+    .tracking = false,
+    .fill_light_enabled = false,
+};
 
-static app_runtime_state_t compose_state(void);
+static app_runtime_state_t compose_state(const app_runtime_snapshot_t *snapshot);
+static app_runtime_event_result_t apply_event_to_snapshot(app_runtime_event_t event,
+                                                          app_runtime_snapshot_t *snapshot);
 
-static void refresh_state(void)
+static void refresh_state(const app_runtime_snapshot_t *previous_snapshot)
 {
-    app_runtime_state_t next_state = compose_state();
+    app_runtime_state_t next_state;
 
-    if (next_state != s_state) {
+    if (previous_snapshot == NULL) {
+        return;
+    }
+
+    next_state = compose_state(&s_snapshot);
+
+    if (next_state != s_snapshot.state) {
         MASTER_LOG_INFO("[MASTER][APP] runtime_state %s -> %s\r\n",
-                        app_runtime_state_name(s_state),
+                        app_runtime_state_name(s_snapshot.state),
                         app_runtime_state_name(next_state));
-        s_state = next_state;
+    }
+
+    s_snapshot.state = next_state;
+
+    if (previous_snapshot->fill_light_enabled != s_snapshot.fill_light_enabled) {
+        MASTER_LOG_INFO("[MASTER][APP] fill_light %u -> %u\r\n",
+                        previous_snapshot->fill_light_enabled ? 1u : 0u,
+                        s_snapshot.fill_light_enabled ? 1u : 0u);
     }
 }
 
-static app_runtime_state_t compose_state(void)
+static app_runtime_state_t compose_state(const app_runtime_snapshot_t *snapshot)
 {
-    if (s_recording && s_tracking) {
+    if (snapshot == NULL) {
+        return APP_RUNTIME_STATE_IDLE;
+    }
+
+    if (snapshot->recording && snapshot->tracking) {
         return APP_RUNTIME_STATE_TRACKING_RECORDING;
     }
 
-    if (s_recording) {
+    if (snapshot->recording) {
         return APP_RUNTIME_STATE_RECORDING;
     }
 
-    if (s_tracking) {
+    if (snapshot->tracking) {
         return APP_RUNTIME_STATE_TRACKING;
     }
 
@@ -76,107 +99,190 @@ const char *app_runtime_event_result_name(app_runtime_event_result_t result)
     }
 }
 
-static app_runtime_event_result_t set_recording(bool enabled, app_runtime_event_t event)
+static app_runtime_event_result_t set_recording(bool enabled)
 {
-    (void)event;
-
-    if (s_recording == enabled) {
-        MASTER_LOG_DEBUG("[MASTER][APP] event %s ignored: recording=%u\r\n",
-                         app_runtime_event_name(event),
+    if (s_snapshot.recording == enabled) {
+        MASTER_LOG_DEBUG("[MASTER][APP] recording already %u\r\n",
                          enabled ? 1u : 0u);
         return APP_RUNTIME_EVENT_NO_CHANGE;
     }
 
-    s_recording = enabled;
-    refresh_state();
+    s_snapshot.recording = enabled;
     return APP_RUNTIME_EVENT_APPLIED;
 }
 
-static app_runtime_event_result_t set_tracking(bool enabled, app_runtime_event_t event)
+static app_runtime_event_result_t set_tracking(bool enabled)
 {
-    (void)event;
-
-    if (s_tracking == enabled) {
-        MASTER_LOG_DEBUG("[MASTER][APP] event %s ignored: tracking=%u\r\n",
-                         app_runtime_event_name(event),
+    if (s_snapshot.tracking == enabled) {
+        MASTER_LOG_DEBUG("[MASTER][APP] tracking already %u\r\n",
                          enabled ? 1u : 0u);
         return APP_RUNTIME_EVENT_NO_CHANGE;
     }
 
-    s_tracking = enabled;
-    refresh_state();
+    s_snapshot.tracking = enabled;
     return APP_RUNTIME_EVENT_APPLIED;
 }
 
-static app_runtime_event_result_t set_fill_light(bool enabled, app_runtime_event_t event)
+static app_runtime_event_result_t set_fill_light(bool enabled)
 {
-    (void)event;
-
-    if (s_fill_light == enabled) {
-        MASTER_LOG_DEBUG("[MASTER][APP] event %s ignored: fill_light=%u\r\n",
-                         app_runtime_event_name(event),
+    if (s_snapshot.fill_light_enabled == enabled) {
+        MASTER_LOG_DEBUG("[MASTER][APP] fill_light already %u\r\n",
                          enabled ? 1u : 0u);
         return APP_RUNTIME_EVENT_NO_CHANGE;
     }
 
-    s_fill_light = enabled;
+    s_snapshot.fill_light_enabled = enabled;
     return APP_RUNTIME_EVENT_APPLIED;
 }
 
-void app_runtime_state_reset(void)
+static app_runtime_event_result_t apply_event_to_snapshot(app_runtime_event_t event,
+                                                          app_runtime_snapshot_t *snapshot)
 {
-    s_recording = false;
-    s_tracking = false;
-    s_fill_light = false;
-    s_state = APP_RUNTIME_STATE_IDLE;
-}
+    if (snapshot == NULL) {
+        return APP_RUNTIME_EVENT_NO_CHANGE;
+    }
 
-app_runtime_event_result_t app_runtime_state_apply_event(app_runtime_event_t event)
-{
     switch (event) {
     case APP_RUNTIME_EVENT_PHOTO:
         return APP_RUNTIME_EVENT_NO_CHANGE;
 
     case APP_RUNTIME_EVENT_RECORD_START:
-        return set_recording(true, event);
+        if (snapshot->recording) {
+            return APP_RUNTIME_EVENT_NO_CHANGE;
+        }
+        snapshot->recording = true;
+        break;
 
     case APP_RUNTIME_EVENT_RECORD_STOP:
-        return set_recording(false, event);
+        if (!snapshot->recording) {
+            return APP_RUNTIME_EVENT_NO_CHANGE;
+        }
+        snapshot->recording = false;
+        break;
 
     case APP_RUNTIME_EVENT_TRACK_START:
-        return set_tracking(true, event);
+        if (snapshot->tracking) {
+            return APP_RUNTIME_EVENT_NO_CHANGE;
+        }
+        snapshot->tracking = true;
+        break;
 
     case APP_RUNTIME_EVENT_TRACK_STOP:
-        return set_tracking(false, event);
+        if (!snapshot->tracking) {
+            return APP_RUNTIME_EVENT_NO_CHANGE;
+        }
+        snapshot->tracking = false;
+        break;
 
     case APP_RUNTIME_EVENT_FILL_LIGHT_ON:
-        return set_fill_light(true, event);
+        if (snapshot->fill_light_enabled) {
+            return APP_RUNTIME_EVENT_NO_CHANGE;
+        }
+        snapshot->fill_light_enabled = true;
+        break;
 
     case APP_RUNTIME_EVENT_FILL_LIGHT_OFF:
-        return set_fill_light(false, event);
+        if (!snapshot->fill_light_enabled) {
+            return APP_RUNTIME_EVENT_NO_CHANGE;
+        }
+        snapshot->fill_light_enabled = false;
+        break;
 
     case APP_RUNTIME_EVENT_NONE:
     default:
         return APP_RUNTIME_EVENT_NO_CHANGE;
     }
+
+    snapshot->state = compose_state(snapshot);
+    return APP_RUNTIME_EVENT_APPLIED;
+}
+
+void app_runtime_state_reset(void)
+{
+    s_snapshot.state = APP_RUNTIME_STATE_IDLE;
+    s_snapshot.recording = false;
+    s_snapshot.tracking = false;
+    s_snapshot.fill_light_enabled = false;
+}
+
+app_runtime_event_result_t app_runtime_state_preview_event(app_runtime_event_t event,
+                                                           app_runtime_snapshot_t *next_snapshot)
+{
+    app_runtime_snapshot_t preview = s_snapshot;
+    app_runtime_event_result_t result = apply_event_to_snapshot(event, &preview);
+
+    if (next_snapshot != NULL) {
+        *next_snapshot = preview;
+    }
+
+    return result;
+}
+
+app_runtime_event_result_t app_runtime_state_apply_event(app_runtime_event_t event)
+{
+    app_runtime_snapshot_t previous_snapshot = s_snapshot;
+    app_runtime_event_result_t result;
+
+    switch (event) {
+    case APP_RUNTIME_EVENT_PHOTO:
+        return APP_RUNTIME_EVENT_NO_CHANGE;
+
+    case APP_RUNTIME_EVENT_RECORD_START:
+        return set_recording(true);
+
+    case APP_RUNTIME_EVENT_RECORD_STOP:
+        return set_recording(false);
+
+    case APP_RUNTIME_EVENT_TRACK_START:
+        return set_tracking(true);
+
+    case APP_RUNTIME_EVENT_TRACK_STOP:
+        return set_tracking(false);
+
+    case APP_RUNTIME_EVENT_FILL_LIGHT_ON:
+        return set_fill_light(true);
+
+    case APP_RUNTIME_EVENT_FILL_LIGHT_OFF:
+        result = set_fill_light(false);
+        break;
+
+    case APP_RUNTIME_EVENT_NONE:
+    default:
+        return APP_RUNTIME_EVENT_NO_CHANGE;
+    }
+
+    if (result == APP_RUNTIME_EVENT_APPLIED) {
+        refresh_state(&previous_snapshot);
+    }
+
+    return result;
 }
 
 app_runtime_state_t app_runtime_state_get(void)
 {
-    return s_state;
+    return s_snapshot.state;
+}
+
+void app_runtime_state_get_snapshot(app_runtime_snapshot_t *snapshot)
+{
+    if (snapshot == NULL) {
+        return;
+    }
+
+    *snapshot = s_snapshot;
 }
 
 bool app_runtime_state_is_recording(void)
 {
-    return s_recording;
+    return s_snapshot.recording;
 }
 
 bool app_runtime_state_is_tracking(void)
 {
-    return s_tracking;
+    return s_snapshot.tracking;
 }
 
 bool app_runtime_state_is_fill_light_enabled(void)
 {
-    return s_fill_light;
+    return s_snapshot.fill_light_enabled;
 }
