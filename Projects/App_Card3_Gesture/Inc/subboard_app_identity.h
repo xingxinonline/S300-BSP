@@ -1,0 +1,15 @@
+#ifndef SUBBOARD_APP_IDENTITY_H
+#define SUBBOARD_APP_IDENTITY_H
+
+#include "subboard_startup_proto.h"
+
+#define SUBBOARD_APP_TAG "[CARD3]"
+#define SUBBOARD_APP_DSP_TAG "[CARD3-DSP]"
+#define SUBBOARD_APP_TITLE "App_Card3_Gesture"
+#define SUBBOARD_APP_DESCRIPTION "Card3 hand-gesture subboard app"
+#define SUBBOARD_SLAVE_ADDR SUBBOARD_STARTUP_SLAVE_ADDR_CARD3
+#define SUBBOARD_CONFIG_SLOT_ID 0x32u
+#define SUBBOARD_BUFFER_SLOT_ID 0x42u
+#define SUBBOARD_PUBLISH_GESTURE_ONLY 1
+
+#endif

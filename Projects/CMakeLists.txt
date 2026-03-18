@@ -4,6 +4,7 @@
 add_subdirectory(App_HelloWorld)
 add_subdirectory(App_GimbalMaster)
 add_subdirectory(App_Card1_HumanDetection)
+add_subdirectory(App_Card3_Gesture)
 
 # Demo 项目
 add_subdirectory(Demo/Display_Demo)
@@ -42,6 +43,7 @@ add_subdirectory(Demo/WS2812_LED_Demo)
 add_subdirectory(Demo/Handshake_Heartbeat_Demo)
 add_subdirectory(Demo/Control_Protocol_Demo)
 add_subdirectory(Demo/Face_Detection_State_Machine_Demo)
+add_subdirectory(Demo/Face_Recognition_State_Machine_Demo)
 add_subdirectory(Demo/Hand_Gesture_State_Machine_Demo)
 add_subdirectory(Demo/Subboard_MM_Consumer_Demo)
 add_subdirectory(Demo/Subboard_Video_Bringup_Master_Demo)
