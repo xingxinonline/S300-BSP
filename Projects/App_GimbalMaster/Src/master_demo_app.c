@@ -190,12 +190,23 @@ static int video_path_prepare(void)
 
 bool master_demo_app_is_subboard_running(void)
 {
-    return app_card1_subboard_is_running();
+    return app_card1_subboard_is_running() || app_card3_subboard_is_running();
 }
 
 uint8_t master_demo_app_get_subboard_state(void)
 {
-    return app_card1_subboard_get_public_state();
+    uint8_t card1_state = app_card1_subboard_get_public_state();
+    uint8_t card3_state = app_card3_subboard_get_public_state();
+
+    if (card1_state == SUBBOARD_STARTUP_STATE_RUNNING || card3_state == SUBBOARD_STARTUP_STATE_RUNNING) {
+        return SUBBOARD_STARTUP_STATE_RUNNING;
+    }
+
+    if (card1_state != 0xFFu) {
+        return card1_state;
+    }
+
+    return card3_state;
 }
 
 int master_demo_app_init(uint32_t (*get_millis_fn)(void))
@@ -227,6 +238,9 @@ int master_demo_app_init(uint32_t (*get_millis_fn)(void))
 
     card3_ops.millis_fn = millis;
     card3_ops.read_regs_at = read_regs_at;
+    card3_ops.write_reg8_at = write_reg8_at;
+    card3_ops.prepare_video_path = video_path_prepare;
+    card3_ops.trigger_mm_runtime_enable = trigger_mm_runtime_enable;
 
     if (app_card1_subboard_init(&card1_ops) != 0) {
         return -1;
