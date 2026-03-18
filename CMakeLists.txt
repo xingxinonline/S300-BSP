@@ -152,7 +152,7 @@ set(S300_IMAGE_TARGETS "" CACHE INTERNAL "List of all image targets")
 # IMG_TARGET: 自定义镜像目标名称（用于同一个 TARGET 生成多个不同模型的镜像）
 function(add_s300_image TARGET)
     set(options)
-    set(oneValueArgs M0_BIN DSP_DIR OUTPUT DSP_PRO IMG_TARGET)
+    set(oneValueArgs M0_BIN DSP_DIR DSP_DIR_FALLBACK OUTPUT DSP_PRO IMG_TARGET)
     set(multiValueArgs)
     cmake_parse_arguments(ARG "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
 
@@ -191,12 +191,28 @@ function(add_s300_image TARGET)
         list(APPEND CMD_ARGS --dsp-pro ${ARG_DSP_PRO})
     endif()
 
-    add_custom_target(${IMG_TARGET_NAME}
-        COMMAND python s300_image.py ${CMD_ARGS}
-        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/tools
-        DEPENDS ${TARGET}
-        COMMENT "Generating S300 image: ${ARG_OUTPUT}"
-    )
+    if(ARG_DSP_DIR_FALLBACK)
+        add_custom_target(${IMG_TARGET_NAME}
+            COMMAND ${CMAKE_COMMAND}
+                -DTOOLS_DIR=${CMAKE_SOURCE_DIR}/tools
+                -DOUTPUT_FILE=${CMAKE_BINARY_DIR}/${ARG_OUTPUT}
+                -DM4_BIN_FILE=${M4_BIN_FILE}
+                -DDSP_DIR=${ARG_DSP_DIR}
+                -DDSP_DIR_FALLBACK=${ARG_DSP_DIR_FALLBACK}
+                -DM0_BIN=${ARG_M0_BIN}
+                -DDSP_PRO=${ARG_DSP_PRO}
+                -P ${CMAKE_SOURCE_DIR}/cmake/generate_s300_image.cmake
+            DEPENDS ${TARGET}
+            COMMENT "Generating S300 image: ${ARG_OUTPUT}"
+        )
+    else()
+        add_custom_target(${IMG_TARGET_NAME}
+            COMMAND python s300_image.py ${CMD_ARGS}
+            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/tools
+            DEPENDS ${TARGET}
+            COMMENT "Generating S300 image: ${ARG_OUTPUT}"
+        )
+    endif()
 
     # 注册到全局镜像目标列表
     set(S300_IMAGE_TARGETS ${S300_IMAGE_TARGETS} ${IMG_TARGET_NAME} CACHE INTERNAL "List of all image targets")
