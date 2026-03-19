@@ -13,11 +13,29 @@
 #define CARD3_GESTURE_TYPE_PEACE  2u
 
 #define CARD3_GESTURE_MIN_CONFIDENCE  60u
+#define CARD3_GESTURE_HOLD_MS        1000u
+#define CARD3_GESTURE_LOSS_RESET_MS   300u
 #define CARD3_GESTURE_REARM_MS        800u
 
 static app_card3_result_handler_millis_fn_t s_millis_fn = NULL;
+static DetectionType_t s_pending_gesture = DETECTION_TYPE_UNKNOWN;
+static uint32_t s_pending_since_ms = 0u;
+static uint32_t s_last_valid_ms = 0u;
 static DetectionType_t s_latched_gesture = DETECTION_TYPE_UNKNOWN;
 static uint32_t s_last_dispatch_ms = 0u;
+
+static void card3_reset_pending_gesture(void)
+{
+    s_pending_gesture = DETECTION_TYPE_UNKNOWN;
+    s_pending_since_ms = 0u;
+    s_last_valid_ms = 0u;
+}
+
+static void card3_reset_gesture_state(void)
+{
+    card3_reset_pending_gesture();
+    s_latched_gesture = DETECTION_TYPE_UNKNOWN;
+}
 
 static uint32_t card3_now_ms(void)
 {
@@ -108,25 +126,39 @@ static void card3_dispatch_gesture_action(DetectionType_t gesture_type, uint8_t 
 void app_card3_result_handler_init(app_card3_result_handler_millis_fn_t millis_fn)
 {
     s_millis_fn = millis_fn;
-    s_latched_gesture = DETECTION_TYPE_UNKNOWN;
+    card3_reset_gesture_state();
     s_last_dispatch_ms = 0u;
 }
 
 void app_card3_result_handler_handle_result(const subboard_detection_result_t *result)
 {
     DetectionType_t gesture_type = DETECTION_TYPE_UNKNOWN;
-    uint32_t now_ms;
+    uint32_t now_ms = card3_now_ms();
 
     if (!card3_result_has_valid_gesture(result, &gesture_type)) {
-        s_latched_gesture = DETECTION_TYPE_UNKNOWN;
+        if (((s_pending_gesture != DETECTION_TYPE_UNKNOWN) ||
+             (s_latched_gesture != DETECTION_TYPE_UNKNOWN)) &&
+            ((uint32_t)(now_ms - s_last_valid_ms) >= CARD3_GESTURE_LOSS_RESET_MS)) {
+            card3_reset_gesture_state();
+        }
         return;
     }
+
+    if (gesture_type != s_pending_gesture) {
+        s_pending_gesture = gesture_type;
+        s_pending_since_ms = now_ms;
+    }
+
+    s_last_valid_ms = now_ms;
 
     if (gesture_type == s_latched_gesture) {
         return;
     }
 
-    now_ms = card3_now_ms();
+    if ((uint32_t)(now_ms - s_pending_since_ms) < CARD3_GESTURE_HOLD_MS) {
+        return;
+    }
+
     if (((uint32_t)(now_ms - s_last_dispatch_ms) < CARD3_GESTURE_REARM_MS) &&
         (s_latched_gesture != DETECTION_TYPE_UNKNOWN)) {
         s_latched_gesture = gesture_type;
@@ -140,5 +172,5 @@ void app_card3_result_handler_handle_result(const subboard_detection_result_t *r
 
 void app_card3_result_handler_notify_offline(void)
 {
-    s_latched_gesture = DETECTION_TYPE_UNKNOWN;
+    card3_reset_gesture_state();
 }
