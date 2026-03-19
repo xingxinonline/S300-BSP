@@ -39,6 +39,7 @@ int subboard_mm_app_init(uint32_t (*get_millis_fn)(void))
     subboard_dsp_ctrl_init(millis);
     subboard_mm_app_refresh_dsp_resource_flags(&s_ctx);
     subboard_startup_i2c_update_result(&s_ctx.last_published_result);
+    subboard_startup_i2c_update_tracking(&s_ctx.last_published_tracking);
 
     if (subboard_startup_i2c_init(SUBBOARD_SLAVE_ADDR) != 0) {
         SUB_LOG_WARN(SUBBOARD_APP_TAG " i2c slave init failed\r\n");
@@ -67,6 +68,7 @@ void subboard_mm_app_tick(void)
 
     subboard_dsp_ctrl_tick();
     subboard_mm_app_publish_latest_result(&s_ctx);
+    subboard_mm_app_publish_tracking_summary(&s_ctx);
     subboard_mm_app_bump_heartbeat_if_needed(&s_ctx);
     subboard_mm_app_consume_request_ack(&s_ctx, request_ack);
     subboard_mm_app_sync_public_state_from_dsp(&s_ctx);

@@ -95,3 +95,11 @@ void subboard_dsp_mailbox_send_heartbeat(uint8_t session_id, uint8_t heartbeat_s
         SUB_LOG_WARN(SUBBOARD_APP_DSP_TAG " TX SYS.HEARTBEAT failed (%d)\r\n", ret);
     }
 }
+
+void subboard_dsp_mailbox_send_track_command(uint8_t session_id, uint8_t opcode)
+{
+    char label[24];
+
+    (void)snprintf(label, sizeof(label), "CMD.TRACK.0x%02X", (unsigned)opcode);
+    send_control_msg(CONTROL_CMD_TRACK(session_id, opcode, 0u), label);
+}

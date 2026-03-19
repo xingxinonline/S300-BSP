@@ -4,6 +4,7 @@
 #include <stdio.h>
 
 #include "board.h"
+#include "control_proto.h"
 #include "rcc.h"
 #include "s300.h"
 #include "subboard_app_identity.h"
@@ -32,6 +33,7 @@ static uint32_t s_state_since_ms = 0u;
 static uint32_t s_last_hello_ms = 0u;
 static uint32_t s_last_resource_ms = 0u;
 static uint32_t s_last_heartbeat_ms = 0u;
+static subboard_dsp_tracking_state_t s_tracking_state = SUBBOARD_DSP_TRACKING_IDLE;
 
 static uint32_t millis(void)
 {
@@ -151,10 +153,13 @@ static void process_mailbox(void)
     while (1) {
         SubboardDspControlEffect_t effect;
         uint32_t msg;
+        uint32_t type;
 
         if (subboard_dsp_mailbox_read(&msg) != 0) {
             break;
         }
+
+        type = CONTROL_GET_TYPE(msg);
 
         if (subboard_dsp_control_plane_handle_runtime_message(msg, s_state, &effect)) {
             apply_control_effect(&effect);
@@ -168,6 +173,43 @@ static void process_mailbox(void)
                                                           s_pending,
                                                           &effect);
         if (effect.consumed) {
+            uint16_t arg = CONTROL_GET_ARG(msg);
+            uint8_t code = (uint8_t)CONTROL_ACK_GET_CODE(arg);
+            uint8_t status = (uint8_t)CONTROL_ACK_GET_STATUS(arg);
+            uint8_t kind = (uint8_t)CONTROL_GET_SUBTYPE(msg);
+
+            if ((type == CONTROL_MSG_TYPE_ACK) &&
+                (kind == CONTROL_RSP_KIND_CMD) &&
+                (status == CONTROL_ACK_OK)) {
+                if ((s_pending == SUB_DSP_PENDING_TRACK_START_ACK) &&
+                    (code == CONTROL_CMD_TRACK_START)) {
+                    s_pending = SUB_DSP_PENDING_NONE;
+                    s_tracking_state = SUBBOARD_DSP_TRACKING_FOLLOWING;
+                    SUB_LOG_INFO(SUBBOARD_APP_DSP_TAG " tracking start ACK\r\n");
+                } else if (((s_pending == SUB_DSP_PENDING_TRACK_STOP_ACK) &&
+                            (code == CONTROL_CMD_TRACK_STOP)) ||
+                           ((s_pending == SUB_DSP_PENDING_TRACK_RESET_ACK) &&
+                            (code == CONTROL_CMD_TRACK_RESET))) {
+                    s_pending = SUB_DSP_PENDING_NONE;
+                    s_tracking_state = SUBBOARD_DSP_TRACKING_IDLE;
+                    SUB_LOG_INFO(SUBBOARD_APP_DSP_TAG " tracking %s ACK\r\n",
+                                 (code == CONTROL_CMD_TRACK_STOP) ? "stop" : "reset");
+                }
+            } else if ((type == CONTROL_MSG_TYPE_NACK) &&
+                       (kind == CONTROL_RSP_KIND_CMD)) {
+                if (((s_pending == SUB_DSP_PENDING_TRACK_START_ACK) &&
+                     (code == CONTROL_CMD_TRACK_START)) ||
+                    ((s_pending == SUB_DSP_PENDING_TRACK_STOP_ACK) &&
+                     (code == CONTROL_CMD_TRACK_STOP)) ||
+                    ((s_pending == SUB_DSP_PENDING_TRACK_RESET_ACK) &&
+                     (code == CONTROL_CMD_TRACK_RESET))) {
+                    SUB_LOG_WARN(SUBBOARD_APP_DSP_TAG " tracking cmd nack code=0x%02X status=%u\r\n",
+                                 (unsigned)code,
+                                 (unsigned)status);
+                    s_pending = SUB_DSP_PENDING_NONE;
+                }
+            }
+
             apply_control_effect(&effect);
             continue;
         }
@@ -245,6 +287,7 @@ void subboard_dsp_ctrl_reset(void)
     s_last_hello_ms = 0u;
     s_last_resource_ms = 0u;
     s_last_heartbeat_ms = 0u;
+    s_tracking_state = SUBBOARD_DSP_TRACKING_IDLE;
 }
 
 void subboard_dsp_ctrl_set_mm_ready(bool ready)
@@ -349,4 +392,52 @@ void subboard_dsp_ctrl_complete_master_request(uint8_t request)
 bool subboard_dsp_ctrl_get_latest_result(subboard_detection_result_t *out_result)
 {
     return subboard_detection_adapter_get_latest(out_result);
+}
+
+bool subboard_dsp_ctrl_get_latest_tracking_summary(subboard_tracking_summary_t *out_summary)
+{
+    return subboard_detection_adapter_get_latest_tracking(out_summary);
+}
+
+uint8_t subboard_dsp_ctrl_send_tracking_command(uint8_t track_opcode)
+{
+    if (s_state != SUB_DSP_STATE_RUNNING) {
+        return SUBBOARD_STARTUP_RESULT_INVALID_STATE;
+    }
+
+    if (s_pending != SUB_DSP_PENDING_NONE) {
+        return SUBBOARD_STARTUP_RESULT_BUSY;
+    }
+
+    switch (track_opcode) {
+    case CONTROL_CMD_TRACK_START:
+        subboard_dsp_mailbox_send_track_command(s_session_id, track_opcode);
+        s_pending = SUB_DSP_PENDING_TRACK_START_ACK;
+        return SUBBOARD_STARTUP_RESULT_OK;
+
+    case CONTROL_CMD_TRACK_STOP:
+        subboard_dsp_mailbox_send_track_command(s_session_id, track_opcode);
+        s_pending = SUB_DSP_PENDING_TRACK_STOP_ACK;
+        return SUBBOARD_STARTUP_RESULT_OK;
+
+    case CONTROL_CMD_TRACK_RESET:
+        subboard_dsp_mailbox_send_track_command(s_session_id, track_opcode);
+        s_pending = SUB_DSP_PENDING_TRACK_RESET_ACK;
+        return SUBBOARD_STARTUP_RESULT_OK;
+
+    default:
+        return SUBBOARD_STARTUP_RESULT_NOT_SUPPORTED;
+    }
+}
+
+subboard_dsp_tracking_state_t subboard_dsp_ctrl_get_tracking_state(void)
+{
+    return s_tracking_state;
+}
+
+bool subboard_dsp_ctrl_is_tracking_command_pending(void)
+{
+    return (s_pending == SUB_DSP_PENDING_TRACK_START_ACK) ||
+           (s_pending == SUB_DSP_PENDING_TRACK_STOP_ACK) ||
+           (s_pending == SUB_DSP_PENDING_TRACK_RESET_ACK);
 }

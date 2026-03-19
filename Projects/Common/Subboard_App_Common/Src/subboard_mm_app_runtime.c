@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "subboard_tracking_summary.h"
 #include "control_proto.h"
 #include "s300.h"
 #include "subboard_app_identity.h"
@@ -214,6 +215,17 @@ static bool result_is_publishable(const subboard_detection_result_t *result)
            (result->y2 > result->y1);
 }
 
+static uint8_t tracking_summary_state_value(bool result_active)
+{
+    if (subboard_dsp_ctrl_get_tracking_state() == SUBBOARD_DSP_TRACKING_FOLLOWING) {
+        return result_active ?
+            SUBBOARD_TRACKING_STATE_FOLLOWING :
+            SUBBOARD_TRACKING_STATE_FOLLOWING_LOST;
+    }
+
+    return SUBBOARD_TRACKING_STATE_IDLE;
+}
+
 void subboard_mm_app_publish_latest_result(SubboardMmAppContext *ctx)
 {
     subboard_detection_result_t latest_result;
@@ -270,6 +282,41 @@ void subboard_mm_app_publish_latest_result(SubboardMmAppContext *ctx)
                       (int)latest_result.x2,
                       (int)latest_result.y2);
     }
+}
+
+void subboard_mm_app_publish_tracking_summary(SubboardMmAppContext *ctx)
+{
+    subboard_tracking_summary_t summary;
+    bool result_active;
+
+    if ((SUBBOARD_CAPABILITIES & SUBBOARD_STARTUP_CAP_TRACKING_SUMMARY) == 0u) {
+        return;
+    }
+
+    if ((ctx == NULL) || !subboard_dsp_ctrl_get_latest_tracking_summary(&summary)) {
+        return;
+    }
+
+    result_active = (summary.valid != 0u);
+    summary.tracking_state = tracking_summary_state_value(result_active);
+    summary.updated_ms = subboard_mm_app_millis(ctx);
+
+    if (result_active) {
+        summary.tracking_flags |= SUBBOARD_TRACKING_FLAG_HAS_TARGET;
+    }
+    if (subboard_dsp_ctrl_is_tracking_command_pending()) {
+        summary.tracking_flags |= SUBBOARD_TRACKING_FLAG_CMD_PENDING;
+    }
+    if (summary.tracking_state == SUBBOARD_TRACKING_STATE_FOLLOWING_LOST) {
+        summary.tracking_flags |= SUBBOARD_TRACKING_FLAG_LOST;
+    }
+
+    if (memcmp(&summary, &ctx->last_published_tracking, sizeof(summary)) == 0) {
+        return;
+    }
+
+    subboard_startup_i2c_update_tracking(&summary);
+    ctx->last_published_tracking = summary;
 }
 
 void subboard_mm_app_bump_heartbeat_if_needed(SubboardMmAppContext *ctx)

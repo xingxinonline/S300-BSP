@@ -7,6 +7,7 @@
 #include "subboard_log.h"
 
 static subboard_detection_result_t s_latest_result;
+static subboard_tracking_summary_t s_latest_tracking;
 static bool s_proto_warned = false;
 static bool s_compat_logged = false;
 
@@ -44,6 +45,23 @@ static uint8_t score_to_u8(float score)
         value = 100;
     }
     return (uint8_t)value;
+}
+
+static uint8_t normalize_tracking_state(uint8_t raw_state, bool has_target)
+{
+    switch (raw_state) {
+    case TRACKER_STATE_DISABLED:
+        return SUBBOARD_TRACKING_STATE_DISABLED;
+    case TRACKER_STATE_IDLE:
+    case TRACKER_STATE_TENTATIVE:
+        return SUBBOARD_TRACKING_STATE_IDLE;
+    case TRACKER_STATE_TRACKING:
+        return has_target ? SUBBOARD_TRACKING_STATE_FOLLOWING : SUBBOARD_TRACKING_STATE_FOLLOWING_LOST;
+    case TRACKER_STATE_LOST:
+        return SUBBOARD_TRACKING_STATE_FOLLOWING_LOST;
+    default:
+        return has_target ? SUBBOARD_TRACKING_STATE_FOLLOWING : SUBBOARD_TRACKING_STATE_IDLE;
+    }
 }
 
 static bool is_supported_detection_version(uint32_t version)
@@ -113,6 +131,48 @@ static int find_best_publishable_box(const DetectionResult_t *result)
     return best_idx;
 }
 
+static void update_tracking_summary_from_result(const DetectionResult_t *result, int selected_idx)
+{
+    subboard_tracking_summary_t next;
+    bool has_selected = (selected_idx >= 0) && ((uint32_t)selected_idx < result->count);
+
+    memset(&next, 0, sizeof(next));
+    next.frame_id = result->frame_id;
+    next.selected_idx = has_selected ? (uint8_t)selected_idx : 0xFFu;
+    next.count = (uint8_t)((result->count > 255u) ? 255u : result->count);
+    next.tracker_state_raw = result->tracker_state;
+    next.tracker_flags_raw = result->tracker_flags;
+    next.tracking_flags |= SUBBOARD_TRACKING_FLAG_RAW_STATE_VALID;
+
+    if (has_selected) {
+        const DetectionBox_t *box = &result->boxes[selected_idx];
+
+        next.valid = 1u;
+        next.cx = to_i16_clamped((box->x1 + box->x2) / 2);
+        next.cy = to_i16_clamped((box->y1 + box->y2) / 2);
+        next.x1 = to_i16_clamped(box->x1);
+        next.y1 = to_i16_clamped(box->y1);
+        next.x2 = to_i16_clamped(box->x2);
+        next.y2 = to_i16_clamped(box->y2);
+        next.vx = box->vx;
+        next.vy = box->vy;
+        next.confidence = score_to_u8(box->score);
+        next.target_id = box->track_id;
+        next.miss_count = box->miss_count;
+        next.tracking_flags |= SUBBOARD_TRACKING_FLAG_HAS_TARGET;
+        if ((box->miss_count > 0u) || ((result->tracker_flags & TRACKER_FLAG_COASTING) != 0u)) {
+            next.tracking_flags |= SUBBOARD_TRACKING_FLAG_PREDICTED;
+        }
+    }
+
+    if ((result->tracker_flags & TRACKER_FLAG_COASTING) != 0u) {
+        next.tracking_flags |= SUBBOARD_TRACKING_FLAG_PREDICTED;
+    }
+
+    next.tracking_state = normalize_tracking_state(result->tracker_state, has_selected);
+    s_latest_tracking = next;
+}
+
 static void update_from_box(const DetectionBox_t *box, uint8_t count, uint8_t selected_idx)
 {
     subboard_detection_result_t next;
@@ -145,6 +205,7 @@ static void update_from_box(const DetectionBox_t *box, uint8_t count, uint8_t se
 void subboard_detection_adapter_reset(void)
 {
     memset(&s_latest_result, 0, sizeof(s_latest_result));
+    memset(&s_latest_tracking, 0, sizeof(s_latest_tracking));
     s_proto_warned = false;
     s_compat_logged = false;
 }
@@ -152,6 +213,7 @@ void subboard_detection_adapter_reset(void)
 void subboard_detection_adapter_clear(void)
 {
     memset(&s_latest_result, 0, sizeof(s_latest_result));
+    memset(&s_latest_tracking, 0, sizeof(s_latest_tracking));
 }
 
 void subboard_detection_adapter_update_from_multi(const DetectionResult_t *result)
@@ -180,22 +242,48 @@ void subboard_detection_adapter_update_from_multi(const DetectionResult_t *resul
     if (best_idx < 0) {
         subboard_detection_adapter_clear();
         s_latest_result.count = (uint8_t)((result->count > 255u) ? 255u : result->count);
+        update_tracking_summary_from_result(result, -1);
         return;
     }
 
     update_from_box(&result->boxes[best_idx],
                     (uint8_t)((result->count > 255u) ? 255u : result->count),
                     (uint8_t)best_idx);
+    update_tracking_summary_from_result(result, best_idx);
 }
 
 void subboard_detection_adapter_update_from_single(const DetectionBox_t *box)
 {
+    subboard_tracking_summary_t next;
+
     if ((box == NULL) || !is_publishable_detection_type(box->type)) {
         subboard_detection_adapter_clear();
         return;
     }
 
     update_from_box(box, 1u, 0u);
+
+    memset(&next, 0, sizeof(next));
+    next.valid = 1u;
+    next.tracking_state = SUBBOARD_TRACKING_STATE_IDLE;
+    next.tracking_flags = SUBBOARD_TRACKING_FLAG_HAS_TARGET;
+    next.selected_idx = 0u;
+    next.cx = to_i16_clamped((box->x1 + box->x2) / 2);
+    next.cy = to_i16_clamped((box->y1 + box->y2) / 2);
+    next.x1 = to_i16_clamped(box->x1);
+    next.y1 = to_i16_clamped(box->y1);
+    next.x2 = to_i16_clamped(box->x2);
+    next.y2 = to_i16_clamped(box->y2);
+    next.vx = box->vx;
+    next.vy = box->vy;
+    next.count = 1u;
+    next.confidence = score_to_u8(box->score);
+    next.target_id = box->track_id;
+    next.miss_count = box->miss_count;
+    if (box->miss_count > 0u) {
+        next.tracking_flags |= SUBBOARD_TRACKING_FLAG_PREDICTED;
+    }
+    s_latest_tracking = next;
 }
 
 bool subboard_detection_adapter_get_latest(subboard_detection_result_t *out_result)
@@ -205,5 +293,15 @@ bool subboard_detection_adapter_get_latest(subboard_detection_result_t *out_resu
     }
 
     *out_result = s_latest_result;
+    return true;
+}
+
+bool subboard_detection_adapter_get_latest_tracking(subboard_tracking_summary_t *out_summary)
+{
+    if (out_summary == NULL) {
+        return false;
+    }
+
+    *out_summary = s_latest_tracking;
     return true;
 }

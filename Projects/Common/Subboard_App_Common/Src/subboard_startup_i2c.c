@@ -6,6 +6,7 @@
 #include "gpio.h"
 #include "i2c.h"
 #include "rcc.h"
+#include "subboard_app_identity.h"
 #include "subboard_startup_proto.h"
 
 #define SUBBOARD_REG_MAP_SIZE 256u
@@ -72,6 +73,7 @@ int subboard_startup_i2c_init(uint8_t slave_addr)
     g_reg_map[SUBBOARD_STARTUP_REG_REQUEST] = SUBBOARD_STARTUP_REQ_NONE;
     g_reg_map[SUBBOARD_STARTUP_REG_REQUEST_ARG] = 0u;
     g_reg_map[SUBBOARD_STARTUP_REG_REQUEST_ACK] = SUBBOARD_STARTUP_REQ_NONE;
+    g_reg_map[SUBBOARD_STARTUP_REG_CAPABILITIES] = SUBBOARD_CAPABILITIES;
     g_reg_map[SUBBOARD_STARTUP_REG_CMD] = SUBBOARD_STARTUP_CMD_NONE;
     g_reg_map[SUBBOARD_STARTUP_REG_CMD_ARG] = 0u;
     g_reg_map[SUBBOARD_STARTUP_REG_CMD_ACK] = SUBBOARD_STARTUP_CMD_NONE;
@@ -125,6 +127,17 @@ void subboard_startup_i2c_update_result(const subboard_detection_result_t *resul
     __disable_irq();
     g_reg_map[SUBBOARD_STARTUP_REG_STATUS] = result->valid;
     memcpy((void *)&g_reg_map[SUBBOARD_STARTUP_REG_RESULT], result, sizeof(*result));
+    __enable_irq();
+}
+
+void subboard_startup_i2c_update_tracking(const subboard_tracking_summary_t *summary)
+{
+    if (summary == NULL) {
+        return;
+    }
+
+    __disable_irq();
+    memcpy((void *)&g_reg_map[SUBBOARD_STARTUP_REG_TRACKING], summary, sizeof(*summary));
     __enable_irq();
 }
 

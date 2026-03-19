@@ -7,7 +7,7 @@
 extern "C" {
 #endif
 
-#define SUBBOARD_STARTUP_PROTO_VER            0x02u
+#define SUBBOARD_STARTUP_PROTO_VER            0x03u
 
 #define SUBBOARD_STARTUP_SLAVE_ADDR_CARD1     0x10u
 #define SUBBOARD_STARTUP_SLAVE_ADDR_CARD2     0x11u
@@ -21,7 +21,9 @@ extern "C" {
 #define SUBBOARD_STARTUP_REG_REQUEST          0x05u
 #define SUBBOARD_STARTUP_REG_REQUEST_ARG      0x06u
 #define SUBBOARD_STARTUP_REG_REQUEST_ACK      0x07u
+#define SUBBOARD_STARTUP_REG_CAPABILITIES     0x08u
 #define SUBBOARD_STARTUP_REG_RESULT           0x10u
+#define SUBBOARD_STARTUP_REG_TRACKING         0x20u
 #define SUBBOARD_STARTUP_REG_CMD              0x80u
 #define SUBBOARD_STARTUP_REG_CMD_ARG          0x81u
 #define SUBBOARD_STARTUP_REG_CMD_ACK          0x82u
@@ -51,6 +53,9 @@ extern "C" {
 #define SUBBOARD_STARTUP_CMD_STOP_PIPELINE    0x12u
 #define SUBBOARD_STARTUP_CMD_CLEAR_ERROR      0x13u
 #define SUBBOARD_STARTUP_CMD_PING             0x14u
+#define SUBBOARD_STARTUP_CMD_TRACK_START      0x20u
+#define SUBBOARD_STARTUP_CMD_TRACK_STOP       0x21u
+#define SUBBOARD_STARTUP_CMD_TRACK_RESET      0x22u
 
 #define SUBBOARD_STARTUP_RESULT_OK            0x00u
 #define SUBBOARD_STARTUP_RESULT_BUSY          0x01u
@@ -65,6 +70,11 @@ extern "C" {
 #define SUBBOARD_STARTUP_ERR_UNSUPPORTED_CMD  0x02u
 #define SUBBOARD_STARTUP_ERR_DSP_START_FAIL   0x03u
 
+#define SUBBOARD_STARTUP_CAP_DETECTION_RESULT   (1u << 0)
+#define SUBBOARD_STARTUP_CAP_TRACKING_SUMMARY   (1u << 1)
+#define SUBBOARD_STARTUP_CAP_TRACKING_CONTROL   (1u << 2)
+#define SUBBOARD_STARTUP_CAP_GESTURE_RESULT     (1u << 3)
+
 /*
  * v2 语义说明：
  * 1. `CMD` 仍然表示主板 -> 子板的调度命令。
@@ -72,6 +82,8 @@ extern "C" {
  * 3. 对于跨板视频场景，子板 DSP 不能直接要求本地 CM4 立即启 MM；
  *    它应先通知子板 CM4，再由子板 CM4 通过 `REQUEST` 暴露给主板。
  * 4. 主板处理完成后，可通过 `REQUEST_ACK` 回显已消费的请求，随后再下发下一条 `CMD`。
+ * 5. `RESULT` 继续保持通用检测摘要；`TRACKING` 区域用于发布 tracking 专用摘要。
+ * 6. `CMD` 新增 TRACK_START/TRACK_STOP/TRACK_RESET，用于主板通过子板 CM4 驱动 DSP tracking 控制链。
  */
 
 #ifdef __cplusplus

@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <stdio.h>
 
+#include "control_proto.h"
 #include "psram.h"
 #include "rcc.h"
 #include "s300.h"
@@ -205,6 +206,26 @@ static void handle_unsupported_cmd(uint8_t cmd)
     finish_command(cmd, SUBBOARD_STARTUP_RESULT_NOT_SUPPORTED);
 }
 
+static void handle_tracking_cmd(uint8_t cmd, uint8_t track_opcode, const char *label)
+{
+    uint8_t result;
+
+    if ((SUBBOARD_CAPABILITIES & SUBBOARD_STARTUP_CAP_TRACKING_CONTROL) == 0u) {
+        finish_command(cmd, SUBBOARD_STARTUP_RESULT_NOT_SUPPORTED);
+        return;
+    }
+
+    SUB_LOG_INFO(SUBBOARD_APP_TAG " CMD %s arg=0x%02X\r\n",
+                 label,
+                 subboard_startup_i2c_get_command_arg());
+
+    result = subboard_dsp_ctrl_send_tracking_command(track_opcode);
+    if (result == SUBBOARD_STARTUP_RESULT_OK) {
+        subboard_startup_i2c_set_error_code(SUBBOARD_STARTUP_ERR_NONE);
+    }
+    finish_command(cmd, result);
+}
+
 void subboard_mm_app_handle_command(SubboardMmAppContext *ctx, uint8_t cmd)
 {
     if ((ctx == NULL) || (cmd == SUBBOARD_STARTUP_CMD_NONE)) {
@@ -226,6 +247,18 @@ void subboard_mm_app_handle_command(SubboardMmAppContext *ctx, uint8_t cmd)
 
     case SUBBOARD_STARTUP_CMD_CLEAR_ERROR:
         handle_clear_error_cmd(ctx, cmd);
+        break;
+
+    case SUBBOARD_STARTUP_CMD_TRACK_START:
+        handle_tracking_cmd(cmd, CONTROL_CMD_TRACK_START, "TRACK_START");
+        break;
+
+    case SUBBOARD_STARTUP_CMD_TRACK_STOP:
+        handle_tracking_cmd(cmd, CONTROL_CMD_TRACK_STOP, "TRACK_STOP");
+        break;
+
+    case SUBBOARD_STARTUP_CMD_TRACK_RESET:
+        handle_tracking_cmd(cmd, CONTROL_CMD_TRACK_RESET, "TRACK_RESET");
         break;
 
     case SUBBOARD_STARTUP_CMD_STOP_PIPELINE:

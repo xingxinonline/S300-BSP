@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "subboard_detection_result.h"
+#include "subboard_tracking_summary.h"
 
 typedef struct {
     uint32_t (*get_millis)(void);
@@ -16,6 +17,7 @@ typedef struct {
     bool result_active;
     uint8_t active_request;
     subboard_detection_result_t last_published_result;
+    subboard_tracking_summary_t last_published_tracking;
     uint32_t result_invalid_since_ms;
     uint32_t last_heartbeat_ms;
     uint8_t last_logged_state;
@@ -30,6 +32,7 @@ void subboard_mm_app_post_next_master_request(SubboardMmAppContext *ctx);
 void subboard_mm_app_consume_request_ack(SubboardMmAppContext *ctx, uint8_t request_ack);
 void subboard_mm_app_sync_public_state_from_dsp(SubboardMmAppContext *ctx);
 void subboard_mm_app_publish_latest_result(SubboardMmAppContext *ctx);
+void subboard_mm_app_publish_tracking_summary(SubboardMmAppContext *ctx);
 void subboard_mm_app_bump_heartbeat_if_needed(SubboardMmAppContext *ctx);
 void subboard_mm_app_log_public_state_if_needed(SubboardMmAppContext *ctx);
 int subboard_mm_app_start_mm_consumer(SubboardMmAppContext *ctx);

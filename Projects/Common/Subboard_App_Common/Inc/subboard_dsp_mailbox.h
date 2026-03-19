@@ -15,6 +15,7 @@ void subboard_dsp_mailbox_send_config_apply(uint8_t session_id);
 void subboard_dsp_mailbox_send_buffer_bind(uint8_t session_id);
 void subboard_dsp_mailbox_send_start_stream(uint8_t session_id);
 void subboard_dsp_mailbox_send_heartbeat(uint8_t session_id, uint8_t heartbeat_seq);
+void subboard_dsp_mailbox_send_track_command(uint8_t session_id, uint8_t opcode);
 
 #ifdef __cplusplus
 }
