@@ -34,7 +34,9 @@ static bool s_video_path_prepared = false;
 static bool s_mm_runtime_enabled = false;
 static bool s_mm_request_gate_open = false;
 
-static master_demo_subboard_state_t make_subboard_state(uint8_t public_state)
+static master_demo_subboard_state_t make_subboard_state(uint8_t public_state,
+                                                        bool init_complete,
+                                                        bool init_success)
 {
     master_demo_subboard_state_t state;
 
@@ -42,6 +44,8 @@ static master_demo_subboard_state_t make_subboard_state(uint8_t public_state)
     state.online = (public_state != 0xFFu);
     state.running = (public_state == SUBBOARD_STARTUP_STATE_RUNNING);
     state.faulted = (public_state == SUBBOARD_STARTUP_STATE_ERROR);
+    state.init_complete = init_complete;
+    state.init_success = init_success;
     return state;
 }
 
@@ -227,9 +231,15 @@ bool master_demo_app_get_subboard_snapshot(master_demo_subboard_snapshot_t *snap
         return false;
     }
 
-    snapshot->card1 = make_subboard_state(app_card1_subboard_get_public_state());
-    snapshot->card2 = make_subboard_state(app_card2_subboard_get_public_state());
-    snapshot->card3 = make_subboard_state(app_card3_subboard_get_public_state());
+    snapshot->card1 = make_subboard_state(app_card1_subboard_get_public_state(),
+                                          app_card1_subboard_is_init_complete(),
+                                          app_card1_subboard_is_init_successful());
+    snapshot->card2 = make_subboard_state(app_card2_subboard_get_public_state(),
+                                          app_card2_subboard_is_init_complete(),
+                                          app_card2_subboard_is_init_successful());
+    snapshot->card3 = make_subboard_state(app_card3_subboard_get_public_state(),
+                                          app_card3_subboard_is_init_complete(),
+                                          app_card3_subboard_is_init_successful());
     snapshot->any_running = snapshot->card1.running || snapshot->card2.running || snapshot->card3.running;
     snapshot->any_error = snapshot->card1.faulted || snapshot->card2.faulted || snapshot->card3.faulted;
 

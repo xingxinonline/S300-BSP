@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "detection_proto.h"
+#include "app_gimbal_tracking_input.h"
 #include "master_log.h"
 
 #define CARD1_OVERLAY_CLEAR_DEBOUNCE_MS 120u
@@ -49,6 +50,10 @@ int app_card1_result_handler_init(const app_card1_result_handler_ops_t *ops)
 
     s_ops = *ops;
     s_ops_ready = true;
+    if (app_gimbal_tracking_input_init(ops->millis_fn) != 0) {
+        s_ops_ready = false;
+        return -1;
+    }
     app_card1_result_handler_reset();
     return 0;
 }
@@ -59,6 +64,7 @@ void app_card1_result_handler_reset(void)
     s_overlay_invalid_since_ms = 0u;
     s_last_overlay_log_ms = 0u;
     memset(&s_last_result, 0, sizeof(s_last_result));
+    app_gimbal_tracking_input_reset();
 
     if (s_ops_ready && (s_ops.overlay_clear != NULL)) {
         s_ops.overlay_clear();
@@ -78,6 +84,8 @@ void app_card1_result_handler_tick(void)
     if (s_ops.overlay_tick != NULL) {
         s_ops.overlay_tick();
     }
+
+    app_gimbal_tracking_input_tick();
 
     if (s_overlay_active && (s_ops.overlay_is_active != NULL) && !s_ops.overlay_is_active()) {
         if ((s_last_overlay_log_ms == 0u) ||
@@ -101,6 +109,7 @@ void app_card1_result_handler_handle_result(const subboard_detection_result_t *r
 
     displayable = result_is_displayable(result);
     now_ms = card1_result_handler_now_ms();
+    app_gimbal_tracking_input_handle_card1_result(result);
 
     if (displayable) {
         s_overlay_invalid_since_ms = 0u;

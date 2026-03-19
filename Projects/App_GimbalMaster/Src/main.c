@@ -3,6 +3,9 @@
 #include <stdio.h>
 
 #include "app_action_dispatch.h"
+#include "app_card1_subboard.h"
+#include "app_card2_subboard.h"
+#include "app_card3_subboard.h"
 #include "app_gimbal_debug.h"
 #include "app_gimbal_control.h"
 #include "app_media_control.h"
@@ -98,6 +101,8 @@ static uint32_t g_subboard_wait_since_ms = 0u;
 static bool g_subboard_wait_timed_out = false;
 static SubboardWaitPhase_t g_subboard_wait_phase = SUBBOARD_WAIT_PHASE_CARD1;
 static bool g_subboard_init_finalized = false;
+static bool g_subboard_summary_log_valid = false;
+static master_demo_subboard_snapshot_t g_last_subboard_summary_snapshot;
 static uint8_t g_last_status_run_state = 0xFFu;
 static uint8_t g_last_status_brief = 0xFFu;
 static uint32_t g_status_log_count = 0u;
@@ -127,38 +132,189 @@ static const char *subboard_wait_phase_name(SubboardWaitPhase_t phase)
     }
 }
 
-static bool current_wait_phase_online(const master_demo_subboard_snapshot_t *snapshot,
-                                      bool have_snapshot)
+static const master_demo_subboard_state_t *current_wait_phase_state(const master_demo_subboard_snapshot_t *snapshot,
+                                                                    bool have_snapshot)
 {
     if (!have_snapshot || (snapshot == NULL)) {
-        return false;
+        return NULL;
     }
 
     switch (g_subboard_wait_phase) {
     case SUBBOARD_WAIT_PHASE_CARD1:
-        return snapshot->card1.online;
+        return &snapshot->card1;
     case SUBBOARD_WAIT_PHASE_CARD2:
-        return snapshot->card2.online;
+        return &snapshot->card2;
     case SUBBOARD_WAIT_PHASE_CARD3:
-        return snapshot->card3.online;
+        return &snapshot->card3;
     case SUBBOARD_WAIT_PHASE_DONE:
     default:
+        return NULL;
+    }
+}
+
+static uint8_t current_wait_phase_capabilities(void)
+{
+    switch (g_subboard_wait_phase) {
+    case SUBBOARD_WAIT_PHASE_CARD1:
+        return app_card1_subboard_get_capabilities();
+    case SUBBOARD_WAIT_PHASE_CARD2:
+        return app_card2_subboard_get_capabilities();
+    case SUBBOARD_WAIT_PHASE_CARD3:
+        return app_card3_subboard_get_capabilities();
+    case SUBBOARD_WAIT_PHASE_DONE:
+    default:
+        return 0u;
+    }
+}
+
+static const char *current_wait_phase_failure_reason(void)
+{
+    switch (g_subboard_wait_phase) {
+    case SUBBOARD_WAIT_PHASE_CARD1:
+        return app_card1_subboard_get_init_failure_reason();
+    case SUBBOARD_WAIT_PHASE_CARD2:
+        return app_card2_subboard_get_init_failure_reason();
+    case SUBBOARD_WAIT_PHASE_CARD3:
+        return app_card3_subboard_get_init_failure_reason();
+    case SUBBOARD_WAIT_PHASE_DONE:
+    default:
+        return NULL;
+    }
+}
+
+static void log_subboard_summary_line(const char *name,
+                                      const master_demo_subboard_state_t *state,
+                                      uint8_t capabilities)
+{
+    const char *failure_reason = NULL;
+
+    if ((name == NULL) || (state == NULL)) {
+        return;
+    }
+
+    if (state->init_complete && !state->init_success) {
+        if (name[4] == '\0') {
+            failure_reason = NULL;
+        }
+        if (name[4] == '1') {
+            failure_reason = app_card1_subboard_get_init_failure_reason();
+        } else if (name[4] == '2') {
+            failure_reason = app_card2_subboard_get_init_failure_reason();
+        } else if (name[4] == '3') {
+            failure_reason = app_card3_subboard_get_init_failure_reason();
+        }
+    }
+
+    printf("[MASTER] %s init_complete=%u init_success=%u online=%u state=0x%02X running=%u faulted=%u caps=0x%02X detection=%u tracking_summary=%u tracking_control=%u gesture=%u",
+           name,
+           state->init_complete ? 1u : 0u,
+           state->init_success ? 1u : 0u,
+           state->online ? 1u : 0u,
+           (unsigned)state->public_state,
+           state->running ? 1u : 0u,
+           state->faulted ? 1u : 0u,
+           (unsigned)capabilities,
+           (unsigned)((capabilities & SUBBOARD_STARTUP_CAP_DETECTION_RESULT) != 0u),
+           (unsigned)((capabilities & SUBBOARD_STARTUP_CAP_TRACKING_SUMMARY) != 0u),
+           (unsigned)((capabilities & SUBBOARD_STARTUP_CAP_TRACKING_CONTROL) != 0u),
+           (unsigned)((capabilities & SUBBOARD_STARTUP_CAP_GESTURE_RESULT) != 0u));
+
+    if ((failure_reason != NULL) && (failure_reason[0] != '\0')) {
+        printf(" failure_reason=%s", failure_reason);
+    }
+
+    printf("\r\n");
+}
+
+static void log_subboard_startup_summary(const master_demo_subboard_snapshot_t *snapshot,
+                                         bool have_snapshot)
+{
+    bool changed;
+
+    if (!have_snapshot || (snapshot == NULL)) {
+        return;
+    }
+
+    changed = !g_subboard_summary_log_valid ||
+              (snapshot->card1.public_state != g_last_subboard_summary_snapshot.card1.public_state) ||
+              (snapshot->card1.online != g_last_subboard_summary_snapshot.card1.online) ||
+              (snapshot->card1.running != g_last_subboard_summary_snapshot.card1.running) ||
+              (snapshot->card1.faulted != g_last_subboard_summary_snapshot.card1.faulted) ||
+              (snapshot->card1.init_complete != g_last_subboard_summary_snapshot.card1.init_complete) ||
+              (snapshot->card1.init_success != g_last_subboard_summary_snapshot.card1.init_success) ||
+              (snapshot->card2.public_state != g_last_subboard_summary_snapshot.card2.public_state) ||
+              (snapshot->card2.online != g_last_subboard_summary_snapshot.card2.online) ||
+              (snapshot->card2.running != g_last_subboard_summary_snapshot.card2.running) ||
+              (snapshot->card2.faulted != g_last_subboard_summary_snapshot.card2.faulted) ||
+              (snapshot->card2.init_complete != g_last_subboard_summary_snapshot.card2.init_complete) ||
+              (snapshot->card2.init_success != g_last_subboard_summary_snapshot.card2.init_success) ||
+              (snapshot->card3.public_state != g_last_subboard_summary_snapshot.card3.public_state) ||
+              (snapshot->card3.online != g_last_subboard_summary_snapshot.card3.online) ||
+              (snapshot->card3.running != g_last_subboard_summary_snapshot.card3.running) ||
+              (snapshot->card3.faulted != g_last_subboard_summary_snapshot.card3.faulted) ||
+              (snapshot->card3.init_complete != g_last_subboard_summary_snapshot.card3.init_complete) ||
+              (snapshot->card3.init_success != g_last_subboard_summary_snapshot.card3.init_success);
+
+    if (!changed) {
+        return;
+    }
+
+    printf("[MASTER] subboard startup summary\r\n");
+    log_subboard_summary_line("CARD1", &snapshot->card1, app_card1_subboard_get_capabilities());
+    log_subboard_summary_line("CARD2", &snapshot->card2, app_card2_subboard_get_capabilities());
+    log_subboard_summary_line("CARD3", &snapshot->card3, app_card3_subboard_get_capabilities());
+
+    g_last_subboard_summary_snapshot = *snapshot;
+    g_subboard_summary_log_valid = true;
+}
+
+static bool current_wait_phase_ready(const master_demo_subboard_snapshot_t *snapshot,
+                                     bool have_snapshot)
+{
+    const master_demo_subboard_state_t *state = current_wait_phase_state(snapshot, have_snapshot);
+
+    if (state == NULL) {
+        return false;
+    }
+
+    if (state->init_complete) {
         return true;
     }
+
+    return state->online;
 }
 
 static bool step_subboard_wait_phase(const master_demo_subboard_snapshot_t *snapshot,
                                      bool have_snapshot)
 {
-    bool phase_online;
+    const master_demo_subboard_state_t *phase_state;
+    const char *failure_reason;
+    bool phase_ready;
+    uint8_t capabilities;
 
     if (g_subboard_wait_phase == SUBBOARD_WAIT_PHASE_DONE) {
         return true;
     }
 
-    phase_online = current_wait_phase_online(snapshot, have_snapshot);
-    if (phase_online) {
-        printf("[MASTER] subboard wait phase %s complete (online detected)\r\n",
+    phase_state = current_wait_phase_state(snapshot, have_snapshot);
+    phase_ready = current_wait_phase_ready(snapshot, have_snapshot);
+    failure_reason = current_wait_phase_failure_reason();
+    capabilities = current_wait_phase_capabilities();
+    if (phase_ready && (phase_state != NULL) && phase_state->init_complete) {
+        printf("[MASTER] subboard wait phase %s complete (init_success=%u caps=0x%02X detection=%u tracking_summary=%u tracking_control=%u gesture=%u",
+               subboard_wait_phase_name(g_subboard_wait_phase),
+               phase_state->init_success ? 1u : 0u,
+               (unsigned)capabilities,
+               (unsigned)((capabilities & SUBBOARD_STARTUP_CAP_DETECTION_RESULT) != 0u),
+               (unsigned)((capabilities & SUBBOARD_STARTUP_CAP_TRACKING_SUMMARY) != 0u),
+               (unsigned)((capabilities & SUBBOARD_STARTUP_CAP_TRACKING_CONTROL) != 0u),
+               (unsigned)((capabilities & SUBBOARD_STARTUP_CAP_GESTURE_RESULT) != 0u));
+        if (!phase_state->init_success && (failure_reason != NULL) && (failure_reason[0] != '\0')) {
+            printf(" failure_reason=%s", failure_reason);
+        }
+        printf(")\r\n");
+    } else if (phase_ready) {
+        printf("[MASTER] subboard wait phase %s complete (online detected, waiting init result)\r\n",
                subboard_wait_phase_name(g_subboard_wait_phase));
     } else if ((millis() - g_subboard_wait_since_ms) < MASTER_SUBBOARD_WAIT_TIMEOUT_MS) {
         return false;
@@ -752,12 +908,13 @@ int main(void)
     printf("[MASTER] subboard coordination service ready\r\n");
     printf("[MASTER] waiting card1/card2/card3 poll phases before video/MM enable\r\n");
     printf("[MASTER] subboard wait phase timeout = %lu ms\r\n", (unsigned long)MASTER_SUBBOARD_WAIT_TIMEOUT_MS);
-    printf("[MASTER] subboard wait policy = online-first, timeout-fallback\r\n");
+    printf("[MASTER] subboard wait policy = init-success-first, timeout-fallback\r\n");
     app_status_light_set_mode(APP_STATUS_LIGHT_MODE_WAIT_SUBBOARD);
     g_subboard_wait_since_ms = millis();
     g_subboard_wait_timed_out = false;
     g_subboard_wait_phase = SUBBOARD_WAIT_PHASE_CARD1;
     g_subboard_init_finalized = false;
+    g_subboard_summary_log_valid = false;
     g_runtime_poll_target = MASTER_DEMO_POLL_CARD1;
     printf("[MASTER] entering subboard wait phase %s\r\n",
            subboard_wait_phase_name(g_subboard_wait_phase));
@@ -781,6 +938,10 @@ int main(void)
         app_gimbal_debug_tick();
         update_status_light();
         have_subboard_snapshot = master_demo_app_get_subboard_snapshot(&subboard_snapshot);
+
+        if (!g_kws_started) {
+            log_subboard_startup_summary(&subboard_snapshot, have_subboard_snapshot);
+        }
 
         if (!g_kws_started) {
             (void)have_subboard_snapshot;

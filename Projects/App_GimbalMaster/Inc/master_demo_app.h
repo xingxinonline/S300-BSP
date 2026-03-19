@@ -13,6 +13,8 @@ typedef struct {
 	bool online;
 	bool running;
 	bool faulted;
+	bool init_complete;
+	bool init_success;
 } master_demo_subboard_state_t;
 
 typedef struct {

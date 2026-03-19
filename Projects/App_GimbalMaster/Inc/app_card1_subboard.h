@@ -41,6 +41,13 @@ void app_card1_subboard_reset(void);
 void app_card1_subboard_tick(void);
 bool app_card1_subboard_is_running(void);
 uint8_t app_card1_subboard_get_public_state(void);
+uint8_t app_card1_subboard_get_capabilities(void);
+bool app_card1_subboard_is_init_complete(void);
+bool app_card1_subboard_is_init_successful(void);
+const char *app_card1_subboard_get_init_failure_reason(void);
+int app_card1_subboard_request_track_start(void);
+int app_card1_subboard_request_track_stop(void);
+int app_card1_subboard_request_track_reset(void);
 
 #ifdef __cplusplus
 }

@@ -89,6 +89,7 @@ s300_add_executable(
         Src/app_card3_subboard.c
         Src/app_gimbal_control.c
         Src/app_gimbal_debug.c
+        Src/app_gimbal_tracking_input.c
         Src/app_media_control.c
         Src/app_runtime_state.c
         Src/app_status_light.c

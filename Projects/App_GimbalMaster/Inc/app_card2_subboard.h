@@ -41,6 +41,10 @@ void app_card2_subboard_reset(void);
 void app_card2_subboard_tick(void);
 bool app_card2_subboard_is_running(void);
 uint8_t app_card2_subboard_get_public_state(void);
+uint8_t app_card2_subboard_get_capabilities(void);
+bool app_card2_subboard_is_init_complete(void);
+bool app_card2_subboard_is_init_successful(void);
+const char *app_card2_subboard_get_init_failure_reason(void);
 
 #ifdef __cplusplus
 }

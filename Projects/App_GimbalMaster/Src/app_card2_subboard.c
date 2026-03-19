@@ -8,6 +8,10 @@
 #include "master_log.h"
 #include "subboard_startup_proto.h"
 
+#ifndef MASTER_SUBBOARD_WAIT_TIMEOUT_MS
+#define MASTER_SUBBOARD_WAIT_TIMEOUT_MS 3000u
+#endif
+
 #define CARD2_POLL_MS                  200u
 #define CARD2_RUN_POLL_MS               30u
 
@@ -26,6 +30,14 @@ static uint8_t s_last_request_ack = 0xFFu;
 static uint8_t s_last_cmd_ack = 0xFFu;
 static uint8_t s_last_cmd_result = 0xFFu;
 static uint8_t s_public_state = 0xFFu;
+static uint8_t s_capabilities = 0u;
+static uint8_t s_last_capabilities = 0xFFu;
+static bool s_init_started = false;
+static bool s_init_complete = false;
+static bool s_init_success = false;
+static bool s_poll_suspended = false;
+static uint32_t s_init_since_ms = 0u;
+static const char *s_init_failure_reason = NULL;
 
 static uint32_t card2_now_ms(void)
 {
@@ -71,6 +83,74 @@ static const char *request_name(uint8_t request)
     case SUBBOARD_STARTUP_REQ_MASTER_SPI_SYNC: return "REQUEST_MASTER_SPI_SYNC";
     default: return "UNKNOWN";
     }
+}
+
+static void log_capabilities(uint8_t capabilities)
+{
+    if (capabilities == s_last_capabilities) {
+        return;
+    }
+
+    MASTER_LOG_INFO("[MASTER][CARD2] capabilities=0x%02X detection=%u tracking_summary=%u tracking_control=%u gesture=%u\r\n",
+                    (unsigned)capabilities,
+                    (unsigned)((capabilities & SUBBOARD_STARTUP_CAP_DETECTION_RESULT) != 0u),
+                    (unsigned)((capabilities & SUBBOARD_STARTUP_CAP_TRACKING_SUMMARY) != 0u),
+                    (unsigned)((capabilities & SUBBOARD_STARTUP_CAP_TRACKING_CONTROL) != 0u),
+                    (unsigned)((capabilities & SUBBOARD_STARTUP_CAP_GESTURE_RESULT) != 0u));
+    s_last_capabilities = capabilities;
+}
+
+static void reset_runtime_state(void)
+{
+    s_public_state = 0xFFu;
+    s_capabilities = 0u;
+    s_video_prepared = false;
+    s_prepare_sent = false;
+    s_start_dsp_sent = false;
+    s_last_proto_ver = 0xFFu;
+    s_last_state = 0xFFu;
+    s_last_error = 0xFFu;
+    s_last_heartbeat = 0xFFu;
+    s_last_request = 0xFFu;
+    s_last_request_ack = 0xFFu;
+    s_last_cmd_ack = 0xFFu;
+    s_last_cmd_result = 0xFFu;
+    s_last_capabilities = 0xFFu;
+
+    if (s_ops_ready) {
+        app_card2_result_handler_reset();
+    }
+}
+
+static void mark_init_success(uint32_t now_ms, uint8_t proto_ver)
+{
+    if (s_init_success) {
+        return;
+    }
+
+    s_init_complete = true;
+    s_init_success = true;
+    s_poll_suspended = false;
+    s_init_failure_reason = NULL;
+    MASTER_LOG_INFO("[MASTER][CARD2] handshake success proto=0x%02X elapsed=%lu ms\r\n",
+                    (unsigned)proto_ver,
+                    (unsigned long)(now_ms - s_init_since_ms));
+}
+
+static void mark_init_failed(uint32_t now_ms, const char *reason)
+{
+    if (s_init_complete && !s_init_success) {
+        return;
+    }
+
+    s_init_complete = true;
+    s_init_success = false;
+    s_poll_suspended = true;
+    s_init_failure_reason = reason;
+    reset_runtime_state();
+    MASTER_LOG_WARN("[MASTER][CARD2] handshake failed: %s elapsed=%lu ms, suspend polling\r\n",
+                    reason,
+                    (unsigned long)(now_ms - s_init_since_ms));
 }
 
 static int read_reg8(uint8_t reg, uint8_t *value)
@@ -268,23 +348,14 @@ int app_card2_subboard_init(const app_card2_subboard_ops_t *ops)
 
 void app_card2_subboard_reset(void)
 {
-    s_public_state = 0xFFu;
-    s_video_prepared = false;
-    s_prepare_sent = false;
-    s_start_dsp_sent = false;
+    reset_runtime_state();
     s_last_poll_ms = 0u;
-    s_last_proto_ver = 0xFFu;
-    s_last_state = 0xFFu;
-    s_last_error = 0xFFu;
-    s_last_heartbeat = 0xFFu;
-    s_last_request = 0xFFu;
-    s_last_request_ack = 0xFFu;
-    s_last_cmd_ack = 0xFFu;
-    s_last_cmd_result = 0xFFu;
-
-    if (s_ops_ready) {
-        app_card2_result_handler_reset();
-    }
+    s_init_started = false;
+    s_init_complete = false;
+    s_init_success = false;
+    s_poll_suspended = false;
+    s_init_since_ms = 0u;
+    s_init_failure_reason = NULL;
 }
 
 void app_card2_subboard_tick(void)
@@ -297,6 +368,7 @@ void app_card2_subboard_tick(void)
     uint8_t request_ack = SUBBOARD_STARTUP_REQ_NONE;
     uint8_t cmd_ack = SUBBOARD_STARTUP_CMD_NONE;
     uint8_t cmd_result = SUBBOARD_STARTUP_RESULT_OK;
+    uint8_t capabilities = 0u;
     uint32_t now_ms;
     uint32_t poll_ms;
 
@@ -304,7 +376,16 @@ void app_card2_subboard_tick(void)
         return;
     }
 
+    if (s_poll_suspended) {
+        return;
+    }
+
     now_ms = card2_now_ms();
+    if (!s_init_started) {
+        s_init_started = true;
+        s_init_since_ms = now_ms;
+    }
+
     poll_ms = (s_last_state == SUBBOARD_STARTUP_STATE_RUNNING) ? CARD2_RUN_POLL_MS : CARD2_POLL_MS;
     if ((uint32_t)(now_ms - s_last_poll_ms) < poll_ms) {
         return;
@@ -313,9 +394,22 @@ void app_card2_subboard_tick(void)
 
     if (read_reg8(SUBBOARD_STARTUP_REG_PROTO_VER, &proto_ver) != 0) {
         MASTER_LOG_DEBUG("[MASTER][CARD2] waiting subboard at 0x%02X\r\n", SUBBOARD_STARTUP_SLAVE_ADDR_CARD2);
-        app_card2_subboard_reset();
+        reset_runtime_state();
+        if (!s_init_success && ((uint32_t)(now_ms - s_init_since_ms) >= MASTER_SUBBOARD_WAIT_TIMEOUT_MS)) {
+            mark_init_failed(now_ms, "timeout waiting protocol response");
+        }
         return;
     }
+
+    if (proto_ver != SUBBOARD_STARTUP_PROTO_VER) {
+        MASTER_LOG_WARN("[MASTER][CARD2] unsupported proto=0x%02X expected=0x%02X\r\n",
+                        (unsigned)proto_ver,
+                        (unsigned)SUBBOARD_STARTUP_PROTO_VER);
+        mark_init_failed(now_ms, "protocol version mismatch");
+        return;
+    }
+
+    mark_init_success(now_ms, proto_ver);
 
     if (proto_ver != s_last_proto_ver) {
         MASTER_LOG_INFO("[MASTER][CARD2] subboard online, proto=0x%02X\r\n", proto_ver);
@@ -329,9 +423,12 @@ void app_card2_subboard_tick(void)
     (void)read_reg8(SUBBOARD_STARTUP_REG_REQUEST_ACK, &request_ack);
     (void)read_reg8(SUBBOARD_STARTUP_REG_CMD_ACK, &cmd_ack);
     (void)read_reg8(SUBBOARD_STARTUP_REG_CMD_RESULT, &cmd_result);
+    (void)read_reg8(SUBBOARD_STARTUP_REG_CAPABILITIES, &capabilities);
 
     s_public_state = state;
+    s_capabilities = capabilities;
     log_snapshot(state, error, heartbeat, request, request_ack, cmd_ack, cmd_result);
+    log_capabilities(capabilities);
     handle_request(request, request_ack);
     handle_commands(state, request_ack, cmd_ack, cmd_result);
 
@@ -348,4 +445,24 @@ bool app_card2_subboard_is_running(void)
 uint8_t app_card2_subboard_get_public_state(void)
 {
     return s_public_state;
+}
+
+uint8_t app_card2_subboard_get_capabilities(void)
+{
+    return s_capabilities;
+}
+
+bool app_card2_subboard_is_init_complete(void)
+{
+    return s_init_complete;
+}
+
+bool app_card2_subboard_is_init_successful(void)
+{
+    return s_init_success;
+}
+
+const char *app_card2_subboard_get_init_failure_reason(void)
+{
+    return s_init_failure_reason;
 }

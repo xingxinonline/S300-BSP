@@ -25,6 +25,7 @@
 #define GIMBAL_TRACKING_MOVE_TIME_MS     700u
 #define GIMBAL_PARKING_MOVE_TIME_MS      700u
 #define GIMBAL_PREVIEW_MOVE_TIME_MS      700u
+#define GIMBAL_TRACK_INPUT_LOG_INTERVAL_MS 1000u
 
 typedef struct {
     app_gimbal_preset_t preset;
@@ -47,6 +48,17 @@ static bool s_ready = false;
 static bus_servo_t s_servo;
 static float s_last_yaw_angle_deg = 0.0f;
 static float s_last_pitch_angle_deg = GIMBAL_PITCH_MIN_ANGLE_DEG;
+static bool s_have_tracking_observation = false;
+static app_gimbal_tracking_observation_t s_tracking_observation;
+static uint32_t s_last_tracking_observation_log_ms = 0u;
+static bool s_last_tracking_observation_valid = false;
+static bool s_last_tracking_observation_frozen = false;
+static bool s_last_tracking_observation_timeout = false;
+
+static uint32_t gimbal_tracking_observation_now_ms(void)
+{
+    return s_tracking_observation.updated_ms;
+}
 
 static const app_gimbal_preset_desc_t *gimbal_find_preset(app_gimbal_preset_t preset)
 {
@@ -323,4 +335,60 @@ bool app_gimbal_control_read_status(app_gimbal_control_status_t *status)
     status->yaw_angle_deg = positions_valid ? yaw_pulse_to_angle_deg(yaw_position) : s_last_yaw_angle_deg;
     status->pitch_angle_deg = positions_valid ? pitch_pulse_to_angle_deg(pitch_position) : s_last_pitch_angle_deg;
     return positions_valid;
+}
+
+void app_gimbal_control_observe_tracking_input(const app_gimbal_tracking_observation_t *observation)
+{
+    uint32_t now_ms;
+    bool should_log;
+
+    if (observation == NULL) {
+        return;
+    }
+
+    s_tracking_observation = *observation;
+    s_have_tracking_observation = true;
+    now_ms = gimbal_tracking_observation_now_ms();
+
+    should_log = (observation->valid != s_last_tracking_observation_valid) ||
+                 (observation->frozen != s_last_tracking_observation_frozen) ||
+                 (observation->freeze_timed_out != s_last_tracking_observation_timeout);
+
+    if (!should_log && observation->tracking_active) {
+        should_log = ((s_last_tracking_observation_log_ms == 0u) ||
+                     ((uint32_t)(now_ms - s_last_tracking_observation_log_ms) >= GIMBAL_TRACK_INPUT_LOG_INTERVAL_MS));
+    }
+
+    if (!should_log) {
+        return;
+    }
+
+    MASTER_LOG_INFO("[MASTER][GIMBAL] track observe-only active=%u valid=%u lost=%u frozen=%u timeout=%u err=(%ld,%ld) box=%ldx%ld cmd=(%.3f,%.3f) conf=%u\r\n",
+                    observation->tracking_active ? 1u : 0u,
+                    observation->valid ? 1u : 0u,
+                    observation->lost ? 1u : 0u,
+                    observation->frozen ? 1u : 0u,
+                    observation->freeze_timed_out ? 1u : 0u,
+                    (long)observation->error_x,
+                    (long)observation->error_y,
+                    (long)observation->box_w,
+                    (long)observation->box_h,
+                    (double)observation->yaw_cmd,
+                    (double)observation->pitch_cmd,
+                    (unsigned)observation->confidence);
+
+    s_last_tracking_observation_valid = observation->valid;
+    s_last_tracking_observation_frozen = observation->frozen;
+    s_last_tracking_observation_timeout = observation->freeze_timed_out;
+    s_last_tracking_observation_log_ms = now_ms;
+}
+
+bool app_gimbal_control_get_tracking_observation(app_gimbal_tracking_observation_t *observation)
+{
+    if ((observation == NULL) || !s_have_tracking_observation) {
+        return false;
+    }
+
+    *observation = s_tracking_observation;
+    return true;
 }

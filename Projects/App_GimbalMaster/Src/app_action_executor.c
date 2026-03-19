@@ -2,6 +2,7 @@
 
 #include <stddef.h>
 
+#include "app_card1_subboard.h"
 #include "app_fill_light.h"
 #include "app_gimbal_control.h"
 #include "app_media_control.h"
@@ -62,12 +63,21 @@ app_action_execute_result_t app_action_execute(const app_action_t *action)
         return APP_ACTION_EXECUTE_IGNORED;
 
     case APP_ACTION_TRACK_START:
+        if (app_card1_subboard_request_track_start() != 0) {
+            return APP_ACTION_EXECUTE_IGNORED;
+        }
+
         return (app_gimbal_control_set_tracking(true) == APP_GIMBAL_CONTROL_ACCEPTED) ?
-            APP_ACTION_EXECUTE_DONE : APP_ACTION_EXECUTE_IGNORED;
+            APP_ACTION_EXECUTE_DONE : APP_ACTION_EXECUTE_FAILED;
 
     case APP_ACTION_TRACK_STOP:
+        if (app_card1_subboard_is_running() &&
+            (app_card1_subboard_request_track_stop() != 0)) {
+            return APP_ACTION_EXECUTE_IGNORED;
+        }
+
         return (app_gimbal_control_set_tracking(false) == APP_GIMBAL_CONTROL_ACCEPTED) ?
-            APP_ACTION_EXECUTE_DONE : APP_ACTION_EXECUTE_IGNORED;
+            APP_ACTION_EXECUTE_DONE : APP_ACTION_EXECUTE_FAILED;
 
     case APP_ACTION_FILL_LIGHT_ON:
         return (app_fill_light_set_enabled(true) == 0) ?
