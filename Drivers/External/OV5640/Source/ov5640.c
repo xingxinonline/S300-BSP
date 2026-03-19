@@ -7,6 +7,32 @@
 #include "video_config.h"
 #include "rcc.h"
 
+#ifndef BOARD_CAMERA_FPS
+#define BOARD_CAMERA_FPS 30
+#endif
+
+#if (BOARD_CAMERA_FPS == 10)
+#define OV5640_TIMING_VTS                 2952u
+#elif (BOARD_CAMERA_FPS == 15)
+#define OV5640_TIMING_VTS                 1968u
+#elif (BOARD_CAMERA_FPS == 20)
+#define OV5640_TIMING_VTS                 1476u
+#elif (BOARD_CAMERA_FPS == 25)
+#define OV5640_TIMING_VTS                 1181u
+#elif (BOARD_CAMERA_FPS == 30)
+#define OV5640_TIMING_VTS                 984u
+#else
+#error "Unsupported BOARD_CAMERA_FPS, expected one of 10, 15, 20, 25, 30"
+#endif
+
+#define OV5640_TIMING_VTS_H               ((OV5640_TIMING_VTS >> 8) & 0xFFu)
+#define OV5640_TIMING_VTS_L               (OV5640_TIMING_VTS & 0xFFu)
+#define OV5640_AE_MAX_EXPOSURE            (OV5640_TIMING_VTS * 6u)
+#define OV5640_AE_MAX_60HZ_H              ((OV5640_AE_MAX_EXPOSURE >> 8) & 0xFFu)
+#define OV5640_AE_MAX_60HZ_L              (OV5640_AE_MAX_EXPOSURE & 0xFFu)
+#define OV5640_AE_MAX_50HZ_H              OV5640_AE_MAX_60HZ_H
+#define OV5640_AE_MAX_50HZ_L              OV5640_AE_MAX_60HZ_L
+
 /* 取材自原始驱动的初始化表，压缩为关键寄存器配置以演示移植；
  * 若需完整画质，请替换为完整表（可将大数组拆到独立 .inc 以减小编译单元体积）。
  */
@@ -250,17 +276,17 @@ static const uint16_t ov5640_yuv422_cfg[][2] =
     {0x380B, SENSOR_IMAGE_HEIGHT & 0xff}, //DVP output height[7:0]
     {0x380C, 0x07},  // HTS[15:8] = 0x07
     {0x380D, 0x68},  // HTS[7:0]  = 0x68, HTS = 1896 (datasheet VGA)
-    {0x380E, 0x03},  // VTS[15:8] = 0x03
-    {0x380F, 0xD8},  // VTS[7:0]  = 0xD8, VTS = 984 (datasheet VGA)
+    {0x380E, OV5640_TIMING_VTS_H},  // VTS[15:8]
+    {0x380F, OV5640_TIMING_VTS_L},  // VTS[7:0]
     {0x3813, 0x06}, //Timing Voffset (datasheet VGA)
     {0x3618, 0x00},
     {0x3612, 0x29},
     {0x3709, 0x52},
     {0x370C, 0x03},
-    {0x3A02, 0x17},//60Hz max exposure (datasheet VGA night mode 5fps)
-    {0x3A03, 0x10},//60Hz max exposure
-    {0x3A14, 0x17},//50Hz max exposure (datasheet VGA night mode 5fps)
-    {0x3A15, 0x10},//50Hz max exposure
+    {0x3A02, OV5640_AE_MAX_60HZ_H},//60Hz max exposure
+    {0x3A03, OV5640_AE_MAX_60HZ_L},//60Hz max exposure
+    {0x3A14, OV5640_AE_MAX_50HZ_H},//50Hz max exposure
+    {0x3A15, OV5640_AE_MAX_50HZ_L},//50Hz max exposure
     {0x4004, 0x02},
     {0x3002, 0x1C},
     {0x3006, 0xC3},

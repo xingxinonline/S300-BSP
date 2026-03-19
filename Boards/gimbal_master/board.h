@@ -261,6 +261,11 @@ extern "C" {
 #define BOARD_CAMERA_FORMAT         0
 #endif
 
+/** @brief OV5640 输出帧率: 当前支持 10/15/20/25/30 */
+#ifndef BOARD_CAMERA_FPS
+#define BOARD_CAMERA_FPS            30
+#endif
+
 /* 控制引脚 (RST/PWDN) */
 #ifndef BOARD_CAM_PORT
 #define BOARD_CAM_PORT              GPIOA
