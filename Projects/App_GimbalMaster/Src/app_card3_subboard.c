@@ -168,6 +168,10 @@ static void handle_request(uint8_t request, uint8_t request_ack)
         return;
     }
 
+    if ((s_ops.is_mm_request_allowed != NULL) && !s_ops.is_mm_request_allowed()) {
+        return;
+    }
+
     if (request == SUBBOARD_STARTUP_REQ_MASTER_MM_ENABLE) {
         if (!s_video_prepared) {
             if ((s_ops.prepare_video_path == NULL) || (s_ops.prepare_video_path() != 0)) {

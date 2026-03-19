@@ -13,8 +13,8 @@
 #define CARD3_GESTURE_TYPE_PEACE  2u
 
 #define CARD3_GESTURE_MIN_CONFIDENCE  60u
-#define CARD3_GESTURE_HOLD_MS        1000u
-#define CARD3_GESTURE_LOSS_RESET_MS   300u
+#define CARD3_GESTURE_HOLD_MS         500u
+#define CARD3_GESTURE_LOSS_RESET_MS   200u
 #define CARD3_GESTURE_REARM_MS        800u
 
 static app_card3_result_handler_millis_fn_t s_millis_fn = NULL;
@@ -116,10 +116,10 @@ static void card3_dispatch_gesture_action(DetectionType_t gesture_type, uint8_t 
         return;
     }
 
-    MASTER_LOG_INFO("[MASTER][CARD3] gesture=%s conf=%u -> action=%u\r\n",
-                    card3_gesture_name(gesture_type),
-                    (unsigned)confidence,
-                    (unsigned)action.type);
+    MASTER_LOG_DEBUG("[MASTER][CARD3] gesture=%s conf=%u -> action=%u\r\n",
+                     card3_gesture_name(gesture_type),
+                     (unsigned)confidence,
+                     (unsigned)action.type);
     app_action_dispatch(&action);
 }
 

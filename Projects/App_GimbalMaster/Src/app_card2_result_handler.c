@@ -8,12 +8,12 @@
 #include "detection_proto.h"
 #include "master_log.h"
 
-#define CARD2_OVERLAY_CLEAR_DEBOUNCE_MS 120u
+#define CARD2_RESULT_LOG_MIN_INTERVAL_MS 1500u
 
 static app_card2_result_handler_ops_t s_ops;
 static bool s_ops_ready = false;
-static bool s_overlay_active = false;
-static uint32_t s_overlay_invalid_since_ms = 0u;
+static bool s_result_active = false;
+static uint32_t s_last_result_log_ms = 0u;
 static subboard_detection_result_t s_last_result;
 
 static uint32_t card2_result_handler_now_ms(void)
@@ -53,30 +53,14 @@ int app_card2_result_handler_init(const app_card2_result_handler_ops_t *ops)
 
 void app_card2_result_handler_reset(void)
 {
-    s_overlay_active = false;
-    s_overlay_invalid_since_ms = 0u;
+    s_result_active = false;
+    s_last_result_log_ms = 0u;
     memset(&s_last_result, 0, sizeof(s_last_result));
-
-    if (s_ops_ready && (s_ops.overlay_clear != NULL)) {
-        s_ops.overlay_clear();
-    }
 }
 
 void app_card2_result_handler_tick(void)
 {
-    if (!s_ops_ready) {
-        return;
-    }
-
-    if (s_ops.overlay_tick != NULL) {
-        s_ops.overlay_tick();
-    }
-
-    if (s_overlay_active && (s_ops.overlay_is_active != NULL) && !s_ops.overlay_is_active()) {
-        MASTER_LOG_INFO("[MASTER][CARD2] overlay cleared\r\n");
-        s_overlay_active = false;
-        s_overlay_invalid_since_ms = 0u;
-    }
+    (void)s_ops_ready;
 }
 
 void app_card2_result_handler_handle_result(const subboard_detection_result_t *result)
@@ -91,45 +75,27 @@ void app_card2_result_handler_handle_result(const subboard_detection_result_t *r
     displayable = result_is_displayable(result);
     now_ms = card2_result_handler_now_ms();
 
-    if (displayable) {
-        s_overlay_invalid_since_ms = 0u;
-    } else if (s_overlay_active) {
-        if (s_overlay_invalid_since_ms == 0u) {
-            s_overlay_invalid_since_ms = now_ms;
-        }
-
-        if ((uint32_t)(now_ms - s_overlay_invalid_since_ms) >= CARD2_OVERLAY_CLEAR_DEBOUNCE_MS) {
-            if (s_ops.overlay_clear != NULL) {
-                s_ops.overlay_clear();
-            }
-            if (s_overlay_active && (s_ops.overlay_is_active != NULL) && !s_ops.overlay_is_active()) {
-                MASTER_LOG_INFO("[MASTER][CARD2] overlay cleared\r\n");
-                s_overlay_active = false;
-            }
-            s_overlay_invalid_since_ms = 0u;
-        }
-    }
-
     if (memcmp(result, &s_last_result, sizeof(*result)) == 0) {
         return;
     }
 
     s_last_result = *result;
     if (displayable) {
-        if (s_ops.overlay_draw != NULL) {
-            s_ops.overlay_draw(result);
-        }
-        if (!s_overlay_active) {
-            MASTER_LOG_INFO("[MASTER][CARD2] overlay shown: type=%s count=%u conf=%u box=(%d,%d)-(%d,%d) id=%u\r\n",
-                            detection_type_label(result->type),
-                            (unsigned)result->count,
-                            (unsigned)result->confidence,
-                            (int)result->x1,
-                            (int)result->y1,
-                            (int)result->x2,
-                            (int)result->y2,
-                            (unsigned)result->face_id);
-            s_overlay_active = true;
+        if (!s_result_active) {
+            if ((s_last_result_log_ms == 0u) ||
+                ((uint32_t)(now_ms - s_last_result_log_ms) >= CARD2_RESULT_LOG_MIN_INTERVAL_MS)) {
+                MASTER_LOG_INFO("[MASTER][CARD2] result active: type=%s count=%u conf=%u box=(%d,%d)-(%d,%d) id=%u\r\n",
+                                detection_type_label(result->type),
+                                (unsigned)result->count,
+                                (unsigned)result->confidence,
+                                (int)result->x1,
+                                (int)result->y1,
+                                (int)result->x2,
+                                (int)result->y2,
+                                (unsigned)result->face_id);
+                s_last_result_log_ms = now_ms;
+            }
+            s_result_active = true;
         }
         MASTER_LOG_DEBUG("[MASTER][CARD2] detection result: type=%s count=%u conf=%u box=(%d,%d)-(%d,%d) id=%u\r\n",
                          detection_type_label(result->type),
@@ -141,6 +107,14 @@ void app_card2_result_handler_handle_result(const subboard_detection_result_t *r
                          (int)result->y2,
                          (unsigned)result->face_id);
     } else {
+        if (s_result_active) {
+            if ((s_last_result_log_ms == 0u) ||
+                ((uint32_t)(now_ms - s_last_result_log_ms) >= CARD2_RESULT_LOG_MIN_INTERVAL_MS)) {
+                MASTER_LOG_INFO("[MASTER][CARD2] result idle\r\n");
+                s_last_result_log_ms = now_ms;
+            }
+            s_result_active = false;
+        }
         MASTER_LOG_DEBUG("[MASTER][CARD2] detection result cleared\r\n");
     }
 }

@@ -74,6 +74,13 @@ typedef enum {
     CM4_KWS_PENDING_START_ACK,
 } Cm4KwsPending_t;
 
+typedef enum {
+    SUBBOARD_WAIT_PHASE_CARD1 = 0,
+    SUBBOARD_WAIT_PHASE_CARD2,
+    SUBBOARD_WAIT_PHASE_CARD3,
+    SUBBOARD_WAIT_PHASE_DONE,
+} SubboardWaitPhase_t;
+
 static volatile uint32_t g_tick_ms = 0u;
 
 static Cm4KwsState_t g_state = CM4_KWS_STATE_RESET;
@@ -89,11 +96,16 @@ static uint32_t g_last_heartbeat_ms = 0u;
 static bool g_kws_started = false;
 static uint32_t g_subboard_wait_since_ms = 0u;
 static bool g_subboard_wait_timed_out = false;
+static SubboardWaitPhase_t g_subboard_wait_phase = SUBBOARD_WAIT_PHASE_CARD1;
+static bool g_subboard_init_finalized = false;
 static uint8_t g_last_status_run_state = 0xFFu;
 static uint8_t g_last_status_brief = 0xFFu;
 static uint32_t g_status_log_count = 0u;
 static uint32_t g_tx_heartbeat_log_count = 0u;
 static uint32_t g_rx_heartbeat_log_count = 0u;
+static master_demo_poll_target_t g_runtime_poll_target = MASTER_DEMO_POLL_CARD1;
+
+static uint32_t millis(void);
 
 static bool log_stride_hit(uint32_t count, uint32_t stride)
 {
@@ -102,6 +114,98 @@ static bool log_stride_hit(uint32_t count, uint32_t stride)
     }
 
     return (count % stride) == 0u;
+}
+
+static const char *subboard_wait_phase_name(SubboardWaitPhase_t phase)
+{
+    switch (phase) {
+    case SUBBOARD_WAIT_PHASE_CARD1: return "CARD1";
+    case SUBBOARD_WAIT_PHASE_CARD2: return "CARD2";
+    case SUBBOARD_WAIT_PHASE_CARD3: return "CARD3";
+    case SUBBOARD_WAIT_PHASE_DONE: return "DONE";
+    default: return "UNKNOWN";
+    }
+}
+
+static bool current_wait_phase_online(const master_demo_subboard_snapshot_t *snapshot,
+                                      bool have_snapshot)
+{
+    if (!have_snapshot || (snapshot == NULL)) {
+        return false;
+    }
+
+    switch (g_subboard_wait_phase) {
+    case SUBBOARD_WAIT_PHASE_CARD1:
+        return snapshot->card1.online;
+    case SUBBOARD_WAIT_PHASE_CARD2:
+        return snapshot->card2.online;
+    case SUBBOARD_WAIT_PHASE_CARD3:
+        return snapshot->card3.online;
+    case SUBBOARD_WAIT_PHASE_DONE:
+    default:
+        return true;
+    }
+}
+
+static bool step_subboard_wait_phase(const master_demo_subboard_snapshot_t *snapshot,
+                                     bool have_snapshot)
+{
+    bool phase_online;
+
+    if (g_subboard_wait_phase == SUBBOARD_WAIT_PHASE_DONE) {
+        return true;
+    }
+
+    phase_online = current_wait_phase_online(snapshot, have_snapshot);
+    if (phase_online) {
+        printf("[MASTER] subboard wait phase %s complete (online detected)\r\n",
+               subboard_wait_phase_name(g_subboard_wait_phase));
+    } else if ((millis() - g_subboard_wait_since_ms) < MASTER_SUBBOARD_WAIT_TIMEOUT_MS) {
+        return false;
+    } else {
+        printf("[MASTER] subboard wait phase %s complete (%lu ms timeout)\r\n",
+               subboard_wait_phase_name(g_subboard_wait_phase),
+               (unsigned long)MASTER_SUBBOARD_WAIT_TIMEOUT_MS);
+    }
+
+    if (g_subboard_wait_phase == SUBBOARD_WAIT_PHASE_CARD3) {
+        g_subboard_wait_phase = SUBBOARD_WAIT_PHASE_DONE;
+        return true;
+    }
+
+    g_subboard_wait_phase = (SubboardWaitPhase_t)((int)g_subboard_wait_phase + 1);
+    g_subboard_wait_since_ms = millis();
+    printf("[MASTER] entering subboard wait phase %s\r\n",
+           subboard_wait_phase_name(g_subboard_wait_phase));
+    return false;
+}
+
+static master_demo_poll_target_t current_subboard_poll_target(void)
+{
+    switch (g_subboard_wait_phase) {
+    case SUBBOARD_WAIT_PHASE_CARD1:
+        return MASTER_DEMO_POLL_CARD1;
+    case SUBBOARD_WAIT_PHASE_CARD2:
+        return MASTER_DEMO_POLL_CARD2;
+    case SUBBOARD_WAIT_PHASE_CARD3:
+        return MASTER_DEMO_POLL_CARD3;
+    case SUBBOARD_WAIT_PHASE_DONE:
+    default:
+        return MASTER_DEMO_POLL_ALL;
+    }
+}
+
+static master_demo_poll_target_t next_runtime_subboard_poll_target(master_demo_poll_target_t target)
+{
+    switch (target) {
+    case MASTER_DEMO_POLL_CARD1:
+        return MASTER_DEMO_POLL_CARD2;
+    case MASTER_DEMO_POLL_CARD2:
+        return MASTER_DEMO_POLL_CARD3;
+    case MASTER_DEMO_POLL_CARD3:
+    default:
+        return MASTER_DEMO_POLL_CARD1;
+    }
 }
 
 static void handle_kws_keyword_report(uint8_t keyword_idx, uint8_t confidence, uint32_t chunk_idx)
@@ -183,10 +287,10 @@ static void dsp_uart_init(void)
 static void kws_mic_switch_gpio_init(void)
 {
 #if defined(BOARD_AUDIO_CODEC_ES7210)
-    gpio_set_function(GPIOA, 31u, FUNCTION_2);
-    gpio_set_direction(GPIOA, 31u, 0u);
-    gpio_set_mode(GPIOA, 31u, GPIO_DOWN);
-    printf("[KWS-CTRL] MIC switch GPIO31=%u\r\n", gpio_get_value(GPIOA, 31u) ? 1u : 0u);
+    board_audio_mic_sw_pin_init();
+    printf("[KWS-CTRL] MIC switch GPIO%u=%u (1=MIC4, 0=MIC1+MIC2)\r\n",
+           (unsigned)BOARD_MIC_SW_PIN,
+           gpio_get_value(BOARD_MIC_SW_PORT, BOARD_MIC_SW_PIN) ? 1u : 0u);
 #endif
 }
 
@@ -470,6 +574,10 @@ static void process_dsp_messages(void)
             break;
         }
 
+        if (kws_control_stream_handle_mailbox_message(msg)) {
+            continue;
+        }
+
         if (!control_msg_session_matches(msg, g_session_id)) {
             printf("[KWS-CTRL] Drop stale message: 0x%08lX (session=0x%02X, current=0x%02X)\r\n",
                    (unsigned long)msg,
@@ -642,51 +750,70 @@ int main(void)
         }
     }
     printf("[MASTER] subboard coordination service ready\r\n");
-    printf("[MASTER] waiting for subboard RUNNING before starting local KWS\r\n");
-    printf("[MASTER] subboard wait timeout = %lu ms\r\n", (unsigned long)MASTER_SUBBOARD_WAIT_TIMEOUT_MS);
+    printf("[MASTER] waiting card1/card2/card3 poll phases before video/MM enable\r\n");
+    printf("[MASTER] subboard wait phase timeout = %lu ms\r\n", (unsigned long)MASTER_SUBBOARD_WAIT_TIMEOUT_MS);
+    printf("[MASTER] subboard wait policy = online-first, timeout-fallback\r\n");
     app_status_light_set_mode(APP_STATUS_LIGHT_MODE_WAIT_SUBBOARD);
     g_subboard_wait_since_ms = millis();
     g_subboard_wait_timed_out = false;
+    g_subboard_wait_phase = SUBBOARD_WAIT_PHASE_CARD1;
+    g_subboard_init_finalized = false;
+    g_runtime_poll_target = MASTER_DEMO_POLL_CARD1;
+    printf("[MASTER] entering subboard wait phase %s\r\n",
+           subboard_wait_phase_name(g_subboard_wait_phase));
 
     while (1) {
         master_demo_subboard_snapshot_t subboard_snapshot;
         bool have_subboard_snapshot;
 
-        master_demo_app_tick();
+        if (!g_kws_started && !g_subboard_init_finalized) {
+            master_demo_app_tick_target(current_subboard_poll_target());
+        } else if (!g_kws_started) {
+            master_demo_app_tick();
+        } else {
+            process_dsp_messages();
+            step_state_machine();
+            kws_control_stream_step();
+
+            master_demo_app_tick_target(g_runtime_poll_target);
+            g_runtime_poll_target = next_runtime_subboard_poll_target(g_runtime_poll_target);
+        }
         app_gimbal_debug_tick();
         update_status_light();
         have_subboard_snapshot = master_demo_app_get_subboard_snapshot(&subboard_snapshot);
 
         if (!g_kws_started) {
-            if (have_subboard_snapshot && subboard_snapshot.any_running) {
-                if (kws_runtime_init("subboard reached RUNNING") != 0) {
-                    printf("[KWS-CTRL] KWS runtime init failed\r\n");
-                    app_status_light_set_mode(APP_STATUS_LIGHT_MODE_ERROR);
-                    while (1) {
-                        app_status_light_tick();
-                        __WFI();
+            (void)have_subboard_snapshot;
+            (void)subboard_snapshot;
+
+            if (!g_subboard_init_finalized) {
+                if (step_subboard_wait_phase(&subboard_snapshot, have_subboard_snapshot)) {
+                    if (master_demo_app_finalize_subboard_init() != 0) {
+                        printf("[MASTER] subboard init finalize failed\r\n");
+                        app_status_light_set_mode(APP_STATUS_LIGHT_MODE_ERROR);
+                        while (1) {
+                            app_status_light_tick();
+                            __WFI();
+                        }
                     }
-                }
-            } else if (!g_subboard_wait_timed_out &&
-                      ((millis() - g_subboard_wait_since_ms) >= MASTER_SUBBOARD_WAIT_TIMEOUT_MS)) {
-                g_subboard_wait_timed_out = true;
-                printf("[MASTER] subboard wait timeout after %lu ms, start local KWS without subboard\r\n",
-                      (unsigned long)MASTER_SUBBOARD_WAIT_TIMEOUT_MS);
-                if (kws_runtime_init("subboard wait timeout fallback") != 0) {
-                    printf("[KWS-CTRL] KWS runtime init failed\r\n");
-                    app_status_light_set_mode(APP_STATUS_LIGHT_MODE_ERROR);
-                    while (1) {
-                        app_status_light_tick();
-                        __WFI();
-                    }
+
+                    g_subboard_init_finalized = true;
+                    g_subboard_wait_timed_out = true;
+                } else {
+                    continue;
                 }
             }
 
+            if (kws_runtime_init("subboard init phase complete") != 0) {
+                    printf("[KWS-CTRL] KWS runtime init failed\r\n");
+                    app_status_light_set_mode(APP_STATUS_LIGHT_MODE_ERROR);
+                    while (1) {
+                        app_status_light_tick();
+                        __WFI();
+                    }
+                }
+
             continue;
         }
-
-        process_dsp_messages();
-        step_state_machine();
-        kws_control_stream_step();
     }
 }

@@ -292,6 +292,19 @@ void board_audio_i2s_pins_init(void)
     set_gpio_function(BOARD_I2S1_PORT, BOARD_I2S1_DATA_DIN_PIN, BOARD_I2S1_FUNCTION);
 }
 
+void board_audio_mic_sw_pin_init(void)
+{
+    set_gpio_function(BOARD_MIC_SW_PORT, BOARD_MIC_SW_PIN, BOARD_MIC_SW_FUNCTION);
+    set_gpio_mode(BOARD_MIC_SW_PORT, BOARD_MIC_SW_PIN, GPIO_DOWN);
+    set_gpio_direction(BOARD_MIC_SW_PORT, BOARD_MIC_SW_PIN, 1);  /* Output */
+}
+
+void board_audio_select_mic(bool wireless)
+{
+    board_audio_mic_sw_pin_init();
+    set_gpio_data(BOARD_MIC_SW_PORT, BOARD_MIC_SW_PIN, wireless ? 1 : 0);
+}
+
 void board_audio_pa_enable(bool enable)
 {
     set_gpio_function(BOARD_PA_EN_PORT, BOARD_PA_EN_PIN, BOARD_PA_EN_FUNCTION);

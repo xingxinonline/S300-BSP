@@ -4,10 +4,13 @@
 #include <stdint.h>
 #include <stdio.h>
 
+#include "kws_proto.h"
 #include "audio_app.h"
 #include "audio_codec.h"
+#include "board.h"
 #include "dma.h"
 #include "i2s.h"
+#include "mailbox_proto.h"
 #include "s300.h"
 
 #define DSP_AUDIO_IN_ADDR             0x44040000u
@@ -26,11 +29,25 @@
 #define MASTER_KWS_STREAM_STATS_LOG_INTERVAL 1024u
 #endif
 
+#ifndef MASTER_KWS_TOP_SCORE_LOG_INTERVAL
+#define MASTER_KWS_TOP_SCORE_LOG_INTERVAL 128u
+#endif
+
+#ifndef MASTER_KWS_UNKNOWN_SCORE_LOG_INTERVAL
+#define MASTER_KWS_UNKNOWN_SCORE_LOG_INTERVAL MASTER_KWS_STREAM_STATS_LOG_INTERVAL
+#endif
+
+#ifndef MASTER_KWS_USE_MIC4
+#define MASTER_KWS_USE_MIC4 0u
+#endif
+
 #define KWS_REPORT_CONFIRM_FRAMES     2u
+#define KWS_STRUCTURED_SCORE_COUNT    8u
 
 static volatile int16_t *g_dsp_in_block = (volatile int16_t *)DSP_AUDIO_IN_ADDR;
 static volatile int16_t *g_dsp_out_block = (volatile int16_t *)DSP_AUDIO_OUT_ADDR;
 static volatile uint8_t *g_kws_cmd = (volatile uint8_t *)DSP_KWS_CMD_ADDR;
+static volatile KWSResult_t *g_kws_result = (volatile KWSResult_t *)DSP_KWS_BASE_ADDR;
 
 static volatile uint32_t *g_dsp_ready_flag = (volatile uint32_t *)DSP_READY_FLAG_ADDR;
 static volatile uint32_t *g_input_ready_flag = (volatile uint32_t *)DSP_INPUT_READY_FLAG_ADDR;
@@ -49,6 +66,7 @@ static uint32_t g_keyword_last_report_chunk[8] = {0u};
 static uint8_t g_pending_keyword_idx = 0u;
 static uint8_t g_pending_keyword_hits = 0u;
 static uint32_t g_pending_keyword_chunk = 0u;
+static uint32_t g_last_structured_frame_id = 0u;
 static kws_control_stream_keyword_callback_t g_keyword_callback = 0;
 
 static const char *g_keywords[] = {
@@ -89,11 +107,19 @@ static const uint16_t g_keyword_report_cooldown_chunks[] = {
 #if defined(BOARD_AUDIO_CODEC_ES7210)
 static bool g_mic_initialized = false;
 
+static const char *kws_selected_mic_name(void)
+{
+    return (MASTER_KWS_USE_MIC4 != 0u) ? "MIC4" : "MIC1+MIC2";
+}
+
 static void kws_update_mic_source(void)
 {
     if (!g_mic_initialized) {
-        audio_codec_apply_kws_mic_profile(false);
-        printf("[KWS-CTRL] MIC source -> MIC1+MIC2 (fixed)\r\n");
+        audio_codec_apply_kws_mic_profile(MASTER_KWS_USE_MIC4 != 0u);
+        printf("[KWS-CTRL] MIC source -> %s (GPIO%u=%u)\r\n",
+               kws_selected_mic_name(),
+               (unsigned)BOARD_MIC_SW_PIN,
+               gpio_get_value(BOARD_MIC_SW_PORT, BOARD_MIC_SW_PIN) ? 1u : 0u);
         g_mic_initialized = true;
     }
 }
@@ -191,6 +217,194 @@ static void log_top_keyword(void)
     }
 }
 
+static void find_structured_top_keyword(const volatile KWSResult_t *result,
+                                        uint8_t *out_idx,
+                                        uint8_t *out_score)
+{
+    uint8_t max_val = 0u;
+    uint8_t max_idx = 0u;
+
+    for (uint8_t i = 0u; i < KWS_STRUCTURED_SCORE_COUNT; i++) {
+        if (result->scores[i] > max_val) {
+            max_val = result->scores[i];
+            max_idx = i;
+        }
+    }
+
+    *out_idx = max_idx;
+    *out_score = max_val;
+}
+
+static bool should_log_top_keyword_diagnostic(uint8_t max_idx, uint8_t max_val)
+{
+    if ((MASTER_KWS_TOP_SCORE_LOG_INTERVAL == 0u) ||
+        ((g_result_count % MASTER_KWS_TOP_SCORE_LOG_INTERVAL) != 0u)) {
+        return false;
+    }
+
+    if ((max_idx == 0u) && (max_val == 0u)) {
+        if (MASTER_KWS_UNKNOWN_SCORE_LOG_INTERVAL == 0u) {
+            return false;
+        }
+
+        return (g_result_count % MASTER_KWS_UNKNOWN_SCORE_LOG_INTERVAL) == 0u;
+    }
+
+    return true;
+}
+
+static void log_structured_keyword_diagnostic(const volatile KWSResult_t *result)
+{
+    uint8_t max_val = 0u;
+    uint8_t max_idx = 0u;
+    uint8_t threshold = 0u;
+
+    find_structured_top_keyword(result, &max_idx, &max_val);
+    if (!should_log_top_keyword_diagnostic(max_idx, max_val)) {
+        return;
+    }
+
+    if (max_idx < KEYWORDS_COUNT) {
+        threshold = g_keyword_thresholds[max_idx];
+        printf("[KWS-CTRL] top1=%s score=%u threshold=%u frame=%lu mic=%s scores=[%u,%u,%u,%u,%u,%u,%u,%u] keyword_idx=%u confidence=%u\r\n",
+               g_keywords[max_idx],
+               (unsigned)max_val,
+               (unsigned)threshold,
+               (unsigned long)result->frame_id,
+               kws_selected_mic_name(),
+               (unsigned)result->scores[0],
+               (unsigned)result->scores[1],
+               (unsigned)result->scores[2],
+               (unsigned)result->scores[3],
+               (unsigned)result->scores[4],
+               (unsigned)result->scores[5],
+               (unsigned)result->scores[6],
+               (unsigned)result->scores[7],
+               (unsigned)result->keyword_idx,
+               (unsigned)result->confidence);
+    }
+}
+
+static void report_structured_keyword(const volatile KWSResult_t *result)
+{
+    uint32_t chunk_idx = (result->frame_id != 0u) ? result->frame_id : g_result_count;
+
+    if (g_keyword_callback != 0) {
+        g_keyword_callback((uint8_t)result->keyword_idx,
+                           (uint8_t)result->confidence,
+                           chunk_idx);
+    }
+
+    if (result->keyword_idx < KEYWORDS_COUNT) {
+        printf("[KWS-CTRL] >>> %s (confidence=%u, frame=%lu, cycles=%lu)\r\n",
+               g_keywords[result->keyword_idx],
+               (unsigned)result->confidence,
+               (unsigned long)chunk_idx,
+               (unsigned long)(*g_dsp_calc_cycles));
+    } else {
+        printf("[KWS-CTRL] >>> keyword[%u] (confidence=%u, frame=%lu, cycles=%lu)\r\n",
+               (unsigned)result->keyword_idx,
+               (unsigned)result->confidence,
+               (unsigned long)chunk_idx,
+               (unsigned long)(*g_dsp_calc_cycles));
+    }
+}
+
+static bool handle_structured_result(const volatile KWSResult_t *result, bool log_invalid)
+{
+    if (!KWS_RESULT_IS_VALID(result)) {
+        if (log_invalid) {
+            printf("[KWS-CTRL] structured result invalid @0x%08lX magic=0x%08lX\r\n",
+                   (unsigned long)(uintptr_t)result,
+                   (unsigned long)result->magic);
+        }
+        return false;
+    }
+
+    if ((result->frame_id != 0u) && (result->frame_id == g_last_structured_frame_id)) {
+        return true;
+    }
+
+    g_last_structured_frame_id = result->frame_id;
+    g_result_count++;
+    log_structured_keyword_diagnostic(result);
+
+    if (KWS_IS_VALID_KEYWORD(result->keyword_idx) && (result->confidence != 0u)) {
+        report_structured_keyword(result);
+    }
+
+    return true;
+}
+
+static void log_top_keyword_diagnostic(void)
+{
+    uint8_t max_val = 0u;
+    uint8_t max_idx = 0u;
+    uint8_t threshold = 0u;
+    unsigned score0;
+    unsigned score1;
+    unsigned score2;
+    unsigned score3;
+    unsigned score4;
+    unsigned score5;
+    unsigned score6;
+    unsigned score7;
+
+    for (uint8_t i = 0; i < 8u; i++) {
+        if (g_kws_cmd[i] > max_val) {
+            max_val = g_kws_cmd[i];
+            max_idx = i;
+        }
+    }
+
+    if (!should_log_top_keyword_diagnostic(max_idx, max_val)) {
+        return;
+    }
+
+    score0 = (unsigned)g_kws_cmd[0];
+    score1 = (unsigned)g_kws_cmd[1];
+    score2 = (unsigned)g_kws_cmd[2];
+    score3 = (unsigned)g_kws_cmd[3];
+    score4 = (unsigned)g_kws_cmd[4];
+    score5 = (unsigned)g_kws_cmd[5];
+    score6 = (unsigned)g_kws_cmd[6];
+    score7 = (unsigned)g_kws_cmd[7];
+
+    if (max_idx < KEYWORDS_COUNT) {
+        threshold = g_keyword_thresholds[max_idx];
+        printf("[KWS-CTRL] top1=%s score=%u threshold=%u pending_hits=%u chunk=%lu mic=%s scores=[%u,%u,%u,%u,%u,%u,%u,%u]\r\n",
+               g_keywords[max_idx],
+               (unsigned)max_val,
+               (unsigned)threshold,
+               (unsigned)g_pending_keyword_hits,
+               (unsigned long)g_result_count,
+               kws_selected_mic_name(),
+               score0,
+               score1,
+               score2,
+               score3,
+               score4,
+               score5,
+               score6,
+               score7);
+    } else {
+        printf("[KWS-CTRL] top1=keyword[%u] score=%u threshold=? pending_hits=%u chunk=%lu mic=%s scores=[%u,%u,%u,%u,%u,%u,%u,%u]\r\n",
+               (unsigned)max_idx,
+               (unsigned)max_val,
+               (unsigned)g_pending_keyword_hits,
+               (unsigned long)g_result_count,
+               kws_selected_mic_name(),
+               score0,
+               score1,
+               score2,
+               score3,
+               score4,
+               score5,
+               score6,
+               score7);
+    }
+}
+
 uint32_t kws_control_stream_get_audio_in_addr(void)
 {
     return DSP_AUDIO_IN_ADDR;
@@ -228,6 +442,7 @@ void kws_control_stream_reset_session(void)
     g_pending_keyword_idx = 0u;
     g_pending_keyword_hits = 0u;
     g_pending_keyword_chunk = 0u;
+    g_last_structured_frame_id = 0u;
 
     for (uint32_t i = 0u; i < 8u; i++) {
         g_keyword_last_report_chunk[i] = 0u;
@@ -254,6 +469,26 @@ void kws_control_stream_set_keyword_report_callback(kws_control_stream_keyword_c
     g_keyword_callback = callback;
 }
 
+bool kws_control_stream_handle_mailbox_message(uint32_t msg)
+{
+    uint32_t msg_type = MAILBOX_GET_MSG_TYPE(msg);
+    uint32_t payload = MAILBOX_GET_PAYLOAD(msg);
+
+    if (msg_type == MAILBOX_MSG_TYPE_KWS) {
+        uintptr_t addr = (uintptr_t)DSP_KWS_BASE_ADDR + (uintptr_t)payload;
+        const volatile KWSResult_t *result = (const volatile KWSResult_t *)addr;
+
+        (void)handle_structured_result(result, true);
+        return true;
+    }
+
+    if (msg_type == MAILBOX_MSG_TYPE_NO_RESULT) {
+        return true;
+    }
+
+    return false;
+}
+
 void kws_control_stream_step(void)
 {
     audio_ctx_t *ctx;
@@ -269,8 +504,12 @@ void kws_control_stream_step(void)
         __DSB();
         *g_output_ready_flag = 0u;
         __DSB();
-        g_result_count++;
-        log_top_keyword();
+
+        if (!handle_structured_result(g_kws_result, false)) {
+            g_result_count++;
+            log_top_keyword_diagnostic();
+            log_top_keyword();
+        }
     }
 
     if (*g_dsp_ready_flag == 0u) {

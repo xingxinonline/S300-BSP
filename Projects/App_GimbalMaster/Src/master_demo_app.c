@@ -30,6 +30,9 @@
 static uint32_t (*s_get_millis)(void) = 0;
 static i2c_soft_t s_i2c;
 static bool s_i2c_ready = false;
+static bool s_video_path_prepared = false;
+static bool s_mm_runtime_enabled = false;
+static bool s_mm_request_gate_open = false;
 
 static master_demo_subboard_state_t make_subboard_state(uint8_t public_state)
 {
@@ -162,6 +165,11 @@ static void trigger_spi_reg_update(void)
 
 static void trigger_mm_runtime_enable(void)
 {
+    if (s_mm_runtime_enabled) {
+        MASTER_LOG_DEBUG("[MASTER] MM runtime already enabled, skip reapply\r\n");
+        return;
+    }
+
     trigger_core_reg_update();
 
 #if defined(BOARD_LCD_SPI_ENABLE_ON_INIT) && (BOARD_LCD_SPI_ENABLE_ON_INIT == 0)
@@ -170,11 +178,23 @@ static void trigger_mm_runtime_enable(void)
     trigger_spi_reg_update();
     MASTER_LOG_INFO("[MASTER] applied MM runtime enable: core + lcd spi\r\n");
 #endif
+
+    s_mm_runtime_enabled = true;
+}
+
+static bool is_mm_request_gate_open(void)
+{
+    return s_mm_request_gate_open;
 }
 
 static int video_path_prepare(void)
 {
     int ret;
+
+    if (s_video_path_prepared) {
+        MASTER_LOG_DEBUG("[MASTER] video path already ready, skip reinit\r\n");
+        return 0;
+    }
 
     ret = rcc_init_mm_pll(8, 400, 0, 3, 2);
     if (ret != RCC_STATUS_OK) {
@@ -196,6 +216,7 @@ static int video_path_prepare(void)
 
     init_video(EM_DVP, APP_CAM_FMT, C1080X720P);
     master_detection_overlay_init(millis);
+    s_video_path_prepared = true;
     MASTER_LOG_INFO("[MASTER] video path ready\r\n");
     return 0;
 }
@@ -222,6 +243,9 @@ int master_demo_app_init(uint32_t (*get_millis_fn)(void))
     app_card3_subboard_ops_t card3_ops;
 
     s_get_millis = get_millis_fn;
+    s_video_path_prepared = false;
+    s_mm_runtime_enabled = false;
+    s_mm_request_gate_open = false;
 
     MASTER_LOG_INFO("\r\n=================================================\r\n");
     MASTER_LOG_INFO("  S300 Gimbal Master App\r\n");
@@ -238,6 +262,7 @@ int master_demo_app_init(uint32_t (*get_millis_fn)(void))
     card1_ops.write_reg8_at = write_reg8_at;
     card1_ops.prepare_video_path = video_path_prepare;
     card1_ops.trigger_mm_runtime_enable = trigger_mm_runtime_enable;
+    card1_ops.is_mm_request_allowed = is_mm_request_gate_open;
     card1_ops.overlay_tick = master_detection_overlay_tick;
     card1_ops.overlay_is_active = master_detection_overlay_is_active;
     card1_ops.overlay_clear = master_detection_overlay_clear;
@@ -249,16 +274,18 @@ int master_demo_app_init(uint32_t (*get_millis_fn)(void))
     card2_ops.write_reg8_at = write_reg8_at;
     card2_ops.prepare_video_path = video_path_prepare;
     card2_ops.trigger_mm_runtime_enable = trigger_mm_runtime_enable;
-    card2_ops.overlay_tick = master_detection_overlay_tick;
-    card2_ops.overlay_is_active = master_detection_overlay_is_active;
-    card2_ops.overlay_clear = master_detection_overlay_clear;
-    card2_ops.overlay_draw = master_detection_overlay_draw;
+    card2_ops.is_mm_request_allowed = is_mm_request_gate_open;
+    card2_ops.overlay_tick = NULL;
+    card2_ops.overlay_is_active = NULL;
+    card2_ops.overlay_clear = NULL;
+    card2_ops.overlay_draw = NULL;
 
     card3_ops.millis_fn = millis;
     card3_ops.read_regs_at = read_regs_at;
     card3_ops.write_reg8_at = write_reg8_at;
     card3_ops.prepare_video_path = video_path_prepare;
     card3_ops.trigger_mm_runtime_enable = trigger_mm_runtime_enable;
+    card3_ops.is_mm_request_allowed = is_mm_request_gate_open;
 
     if (app_card1_subboard_init(&card1_ops) != 0) {
         return -1;
@@ -275,7 +302,38 @@ int master_demo_app_init(uint32_t (*get_millis_fn)(void))
 
 void master_demo_app_tick(void)
 {
-    app_card1_subboard_tick();
-    app_card2_subboard_tick();
-    app_card3_subboard_tick();
+    master_demo_app_tick_target(MASTER_DEMO_POLL_ALL);
+}
+
+void master_demo_app_tick_target(master_demo_poll_target_t target)
+{
+    switch (target) {
+    case MASTER_DEMO_POLL_CARD1:
+        app_card1_subboard_tick();
+        break;
+    case MASTER_DEMO_POLL_CARD2:
+        app_card2_subboard_tick();
+        break;
+    case MASTER_DEMO_POLL_CARD3:
+        app_card3_subboard_tick();
+        break;
+    case MASTER_DEMO_POLL_ALL:
+    default:
+        app_card1_subboard_tick();
+        app_card2_subboard_tick();
+        app_card3_subboard_tick();
+        break;
+    }
+}
+
+int master_demo_app_finalize_subboard_init(void)
+{
+    if (video_path_prepare() != 0) {
+        return -1;
+    }
+
+    trigger_mm_runtime_enable();
+    s_mm_request_gate_open = true;
+    MASTER_LOG_INFO("[MASTER] subboard init phase complete, MM request gate opened\r\n");
+    return 0;
 }

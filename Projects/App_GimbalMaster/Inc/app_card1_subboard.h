@@ -16,6 +16,7 @@ typedef int (*app_card1_subboard_read_regs_fn_t)(uint8_t slave_addr, uint8_t reg
 typedef int (*app_card1_subboard_write_reg8_fn_t)(uint8_t slave_addr, uint8_t reg, uint8_t value);
 typedef int (*app_card1_subboard_prepare_video_fn_t)(void);
 typedef void (*app_card1_subboard_runtime_enable_fn_t)(void);
+typedef bool (*app_card1_subboard_mm_request_gate_fn_t)(void);
 typedef void (*app_card1_subboard_overlay_tick_fn_t)(void);
 typedef bool (*app_card1_subboard_overlay_is_active_fn_t)(void);
 typedef void (*app_card1_subboard_overlay_clear_fn_t)(void);
@@ -28,6 +29,7 @@ typedef struct {
     app_card1_subboard_write_reg8_fn_t write_reg8_at;
     app_card1_subboard_prepare_video_fn_t prepare_video_path;
     app_card1_subboard_runtime_enable_fn_t trigger_mm_runtime_enable;
+    app_card1_subboard_mm_request_gate_fn_t is_mm_request_allowed;
     app_card1_subboard_overlay_tick_fn_t overlay_tick;
     app_card1_subboard_overlay_is_active_fn_t overlay_is_active;
     app_card1_subboard_overlay_clear_fn_t overlay_clear;

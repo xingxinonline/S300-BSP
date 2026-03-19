@@ -13,6 +13,7 @@ typedef int (*app_card3_subboard_read_regs_fn_t)(uint8_t slave_addr, uint8_t reg
 typedef int (*app_card3_subboard_write_reg8_fn_t)(uint8_t slave_addr, uint8_t reg, uint8_t value);
 typedef int (*app_card3_subboard_prepare_video_fn_t)(void);
 typedef void (*app_card3_subboard_runtime_enable_fn_t)(void);
+typedef bool (*app_card3_subboard_mm_request_gate_fn_t)(void);
 
 typedef struct {
     app_card3_subboard_millis_fn_t millis_fn;
@@ -20,6 +21,7 @@ typedef struct {
     app_card3_subboard_write_reg8_fn_t write_reg8_at;
     app_card3_subboard_prepare_video_fn_t prepare_video_path;
     app_card3_subboard_runtime_enable_fn_t trigger_mm_runtime_enable;
+    app_card3_subboard_mm_request_gate_fn_t is_mm_request_allowed;
 } app_card3_subboard_ops_t;
 
 int app_card3_subboard_init(const app_card3_subboard_ops_t *ops);

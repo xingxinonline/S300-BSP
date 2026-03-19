@@ -597,6 +597,7 @@ int audio_codec_apply_kws_mic_profile(bool use_mic4)
 {
     if (!g_es7210_ready) return -1;
 
+    board_audio_select_mic(use_mic4);
     es7210_apply_sdk_profile(use_mic4);
 
     return 0;
