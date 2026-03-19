@@ -13,8 +13,16 @@ extern "C" {
 
 typedef uint32_t (*app_gimbal_tracking_input_millis_fn_t)(void);
 
+typedef enum {
+    APP_GIMBAL_TRACK_VIEW_IDLE = 0,
+    APP_GIMBAL_TRACK_VIEW_TARGET_READY,
+    APP_GIMBAL_TRACK_VIEW_FOLLOWING,
+    APP_GIMBAL_TRACK_VIEW_FOLLOWING_LOST,
+} app_gimbal_track_view_t;
+
 typedef struct {
     uint32_t updated_ms;
+    uint32_t frame_id;
     uint32_t screen_w;
     uint32_t screen_h;
     int32_t screen_cx;
@@ -31,11 +39,15 @@ typedef struct {
     int32_t box_h;
     int8_t vx;
     int8_t vy;
+    uint8_t count;
+    uint8_t selected_idx;
+    uint8_t target_id;
     uint8_t confidence;
     uint8_t tracking_state;
     uint8_t miss_count;
     uint8_t tracker_state_raw;
     uint8_t tracker_flags_raw;
+    bool raw_state_valid;
     bool valid;
     bool tracking_active;
     bool predicted;
@@ -43,6 +55,7 @@ typedef struct {
     bool command_pending;
     bool frozen;
     bool freeze_timed_out;
+    app_gimbal_track_view_t effective_view;
     float norm_error_x;
     float norm_error_y;
     float yaw_cmd;
@@ -55,6 +68,8 @@ void app_gimbal_tracking_input_tick(void);
 void app_gimbal_tracking_input_handle_card1_result(const subboard_detection_result_t *result);
 void app_gimbal_tracking_input_handle_card1_tracking(const subboard_tracking_summary_t *summary);
 void app_gimbal_tracking_input_get_output(app_gimbal_tracking_input_output_t *out_output);
+const char *app_gimbal_tracking_input_view_name(app_gimbal_track_view_t view);
+const char *app_gimbal_tracking_input_raw_tracker_name(uint8_t tracker_state_raw);
 
 #ifdef __cplusplus
 }

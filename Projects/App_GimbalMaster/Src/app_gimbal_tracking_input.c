@@ -5,10 +5,12 @@
 #include "app_gimbal_control.h"
 #include "app_runtime_state.h"
 #include "board.h"
+#include "detection_proto.h"
 #include "master_log.h"
 
 #define MASTER_TRACK_INPUT_LOG_INTERVAL_MS   1000u
 #define MASTER_TRACK_INPUT_FREEZE_MS          600u
+#define MASTER_TRACK_INPUT_SOURCE_TIMEOUT_MS  500u
 #define MASTER_TRACK_INPUT_DZ_X               0.08f
 #define MASTER_TRACK_INPUT_DZ_Y               0.10f
 
@@ -19,6 +21,7 @@ static bool s_have_tracking_summary = false;
 static subboard_detection_result_t s_last_result;
 static subboard_tracking_summary_t s_last_tracking_summary;
 static uint32_t s_last_result_ms = 0u;
+static uint32_t s_last_tracking_summary_ms = 0u;
 static uint32_t s_last_valid_control_ms = 0u;
 static float s_last_valid_yaw_cmd = 0.0f;
 static float s_last_valid_pitch_cmd = 0.0f;
@@ -27,6 +30,7 @@ static bool s_last_tracking_active = false;
 static bool s_last_valid = false;
 static bool s_last_frozen = false;
 static bool s_last_timeout = false;
+static app_gimbal_track_view_t s_last_effective_view = (app_gimbal_track_view_t)0xFF;
 static uint32_t s_last_log_ms = 0u;
 static app_gimbal_tracking_input_output_t s_last_output;
 
@@ -115,6 +119,51 @@ static bool tracking_summary_command_pending(const subboard_tracking_summary_t *
            ((summary->tracking_flags & SUBBOARD_TRACKING_FLAG_CMD_PENDING) != 0u);
 }
 
+static app_gimbal_track_view_t effective_tracking_view(bool tracking_active, bool has_target)
+{
+    if (tracking_active) {
+        return has_target ? APP_GIMBAL_TRACK_VIEW_FOLLOWING : APP_GIMBAL_TRACK_VIEW_FOLLOWING_LOST;
+    }
+
+    if (has_target) {
+        return APP_GIMBAL_TRACK_VIEW_TARGET_READY;
+    }
+
+    return APP_GIMBAL_TRACK_VIEW_IDLE;
+}
+
+static const char *track_mode_name(bool tracking_active)
+{
+    return tracking_active ? "FOLLOWING" : "IDLE";
+}
+
+static const char *raw_tracker_state_name(uint8_t tracker_state)
+{
+    switch (tracker_state) {
+    case TRACKER_STATE_DISABLED: return "DISABLED";
+    case TRACKER_STATE_IDLE: return "IDLE";
+    case TRACKER_STATE_TENTATIVE: return "TENTATIVE";
+    case TRACKER_STATE_TRACKING: return "TRACKING";
+    case TRACKER_STATE_LOST: return "LOST";
+    default: return "UNKNOWN";
+    }
+}
+
+static const char *raw_tracker_state_label(const app_gimbal_tracking_input_output_t *output)
+{
+    if ((output == NULL) || !output->raw_state_valid) {
+        return "UNKNOWN";
+    }
+
+    return raw_tracker_state_name(output->tracker_state_raw);
+}
+
+static bool source_is_fresh(uint32_t now_ms, uint32_t source_ms)
+{
+    return (source_ms != 0u) &&
+           ((uint32_t)(now_ms - source_ms) <= MASTER_TRACK_INPUT_SOURCE_TIMEOUT_MS);
+}
+
 static void build_output(app_gimbal_tracking_input_output_t *out_output)
 {
     bool predicted = false;
@@ -122,6 +171,9 @@ static void build_output(app_gimbal_tracking_input_output_t *out_output)
     bool lost = false;
     bool tracking_active;
     bool valid;
+    bool summary_fresh;
+    bool result_fresh;
+    bool use_tracking_summary;
     uint32_t now_ms;
 
     if (out_output == NULL) {
@@ -138,11 +190,15 @@ static void build_output(app_gimbal_tracking_input_output_t *out_output)
 
     now_ms = tracking_input_now_ms();
     tracking_active = app_runtime_state_is_tracking();
-    valid = s_have_tracking_summary ?
-        tracking_summary_has_target(&s_last_tracking_summary) :
-        (s_have_last_result && result_is_trackable(&s_last_result));
+    summary_fresh = s_have_tracking_summary && source_is_fresh(now_ms, s_last_tracking_summary_ms);
+    result_fresh = s_have_last_result && source_is_fresh(now_ms, s_last_result_ms);
+    use_tracking_summary = summary_fresh;
 
-    if (s_have_tracking_summary) {
+    valid = use_tracking_summary ?
+        tracking_summary_has_target(&s_last_tracking_summary) :
+        (result_fresh && result_is_trackable(&s_last_result));
+
+    if (summary_fresh) {
         predicted = tracking_summary_is_predicted(&s_last_tracking_summary);
         command_pending = tracking_summary_command_pending(&s_last_tracking_summary);
         lost = tracking_summary_is_lost(&s_last_tracking_summary);
@@ -153,12 +209,14 @@ static void build_output(app_gimbal_tracking_input_output_t *out_output)
     out_output->valid = valid;
     out_output->predicted = predicted;
     out_output->command_pending = command_pending;
+    out_output->effective_view = effective_tracking_view(tracking_active, valid);
 
     if (valid) {
         float half_w = ((float)BOARD_DISPLAY_WIDTH) * 0.5f;
         float half_h = ((float)BOARD_DISPLAY_HEIGHT) * 0.5f;
 
-        if (s_have_tracking_summary) {
+        if (use_tracking_summary) {
+            out_output->frame_id = s_last_tracking_summary.frame_id;
             out_output->target_x1 = s_last_tracking_summary.x1;
             out_output->target_y1 = s_last_tracking_summary.y1;
             out_output->target_x2 = s_last_tracking_summary.x2;
@@ -169,12 +227,18 @@ static void build_output(app_gimbal_tracking_input_output_t *out_output)
             out_output->box_h = s_last_tracking_summary.y2 - s_last_tracking_summary.y1;
             out_output->vx = s_last_tracking_summary.vx;
             out_output->vy = s_last_tracking_summary.vy;
+            out_output->count = s_last_tracking_summary.count;
+            out_output->selected_idx = s_last_tracking_summary.selected_idx;
+            out_output->target_id = s_last_tracking_summary.target_id;
             out_output->confidence = s_last_tracking_summary.confidence;
             out_output->tracking_state = s_last_tracking_summary.tracking_state;
             out_output->miss_count = s_last_tracking_summary.miss_count;
             out_output->tracker_state_raw = s_last_tracking_summary.tracker_state_raw;
             out_output->tracker_flags_raw = s_last_tracking_summary.tracker_flags_raw;
+            out_output->raw_state_valid =
+                ((s_last_tracking_summary.tracking_flags & SUBBOARD_TRACKING_FLAG_RAW_STATE_VALID) != 0u);
         } else {
+            out_output->target_id = s_last_result.face_id;
             out_output->target_x1 = s_last_result.x1;
             out_output->target_y1 = s_last_result.y1;
             out_output->target_x2 = s_last_result.x2;
@@ -185,6 +249,8 @@ static void build_output(app_gimbal_tracking_input_output_t *out_output)
             out_output->box_h = s_last_result.y2 - s_last_result.y1;
             out_output->vx = s_last_result.vx;
             out_output->vy = s_last_result.vy;
+            out_output->count = s_last_result.count;
+            out_output->selected_idx = s_last_result.selected_idx;
             out_output->confidence = s_last_result.confidence;
         }
 
@@ -232,7 +298,8 @@ static void maybe_log_output(const app_gimbal_tracking_input_output_t *output)
     should_log = (output->tracking_active != s_last_tracking_active) ||
                  (output->valid != s_last_valid) ||
                  (output->frozen != s_last_frozen) ||
-                 (output->freeze_timed_out != s_last_timeout);
+                 (output->freeze_timed_out != s_last_timeout) ||
+                 (output->effective_view != s_last_effective_view);
 
     if (!should_log && output->tracking_active) {
         should_log = ((s_last_log_ms == 0u) ||
@@ -243,25 +310,29 @@ static void maybe_log_output(const app_gimbal_tracking_input_output_t *output)
         return;
     }
 
-    MASTER_LOG_INFO("[MASTER][TRACK-IN] card1 tracking=%u valid=%u pred=%u lost=%u pending=%u frozen=%u timeout=%u state=%u miss=%u raw_state=%u raw_flags=0x%02X cx=%ld cy=%ld err_x=%ld err_y=%ld box=%ldx%ld conf=%u ycmd=%.3f pcmd=%.3f\r\n",
-                    output->tracking_active ? 1u : 0u,
-                    output->valid ? 1u : 0u,
-                    output->predicted ? 1u : 0u,
-                    output->lost ? 1u : 0u,
-                    output->command_pending ? 1u : 0u,
-                    output->frozen ? 1u : 0u,
-                    output->freeze_timed_out ? 1u : 0u,
-                    (unsigned)output->tracking_state,
-                    (unsigned)output->miss_count,
-                    (unsigned)output->tracker_state_raw,
+    MASTER_LOG_INFO("[MASTER][TRACK-IN] card1 mode=%s effective=%s raw_tracker=%s raw_flags=0x%02X target=%u frame=%lu count=%u selected=%u id=%u conf=%u miss=%u cx=%ld cy=%ld err_x=%ld err_y=%ld box=%ldx%ld pred=%u lost=%u pending=%u frozen=%u timeout=%u ycmd=%.3f pcmd=%.3f\r\n",
+                    track_mode_name(output->tracking_active),
+                    app_gimbal_tracking_input_view_name(output->effective_view),
+                    raw_tracker_state_label(output),
                     (unsigned)output->tracker_flags_raw,
+                    output->valid ? 1u : 0u,
+                    (unsigned long)output->frame_id,
+                    (unsigned)output->count,
+                    (unsigned)output->selected_idx,
+                    (unsigned)output->target_id,
+                    (unsigned)output->confidence,
+                    (unsigned)output->miss_count,
                     (long)output->target_cx,
                     (long)output->target_cy,
                     (long)output->error_x,
                     (long)output->error_y,
                     (long)output->box_w,
                     (long)output->box_h,
-                    (unsigned)output->confidence,
+                    output->predicted ? 1u : 0u,
+                    output->lost ? 1u : 0u,
+                    output->command_pending ? 1u : 0u,
+                    output->frozen ? 1u : 0u,
+                    output->freeze_timed_out ? 1u : 0u,
                     (double)output->yaw_cmd,
                     (double)output->pitch_cmd);
 
@@ -269,6 +340,7 @@ static void maybe_log_output(const app_gimbal_tracking_input_output_t *output)
     s_last_valid = output->valid;
     s_last_frozen = output->frozen;
     s_last_timeout = output->freeze_timed_out;
+    s_last_effective_view = output->effective_view;
     s_last_log_ms = now_ms;
 }
 
@@ -319,6 +391,7 @@ void app_gimbal_tracking_input_reset(void)
     memset(&s_last_result, 0, sizeof(s_last_result));
     memset(&s_last_tracking_summary, 0, sizeof(s_last_tracking_summary));
     s_last_result_ms = 0u;
+    s_last_tracking_summary_ms = 0u;
     s_last_valid_control_ms = 0u;
     s_last_valid_yaw_cmd = 0.0f;
     s_last_valid_pitch_cmd = 0.0f;
@@ -327,6 +400,7 @@ void app_gimbal_tracking_input_reset(void)
     s_last_valid = false;
     s_last_frozen = false;
     s_last_timeout = false;
+    s_last_effective_view = (app_gimbal_track_view_t)0xFF;
     s_last_log_ms = 0u;
     memset(&s_last_output, 0, sizeof(s_last_output));
     s_last_output.screen_w = BOARD_DISPLAY_WIDTH;
@@ -367,6 +441,7 @@ void app_gimbal_tracking_input_handle_card1_tracking(const subboard_tracking_sum
 
     s_last_tracking_summary = *summary;
     s_have_tracking_summary = true;
+    s_last_tracking_summary_ms = tracking_input_now_ms();
 }
 
 void app_gimbal_tracking_input_get_output(app_gimbal_tracking_input_output_t *out_output)
@@ -376,4 +451,21 @@ void app_gimbal_tracking_input_get_output(app_gimbal_tracking_input_output_t *ou
     }
 
     *out_output = s_last_output;
+}
+
+const char *app_gimbal_tracking_input_view_name(app_gimbal_track_view_t view)
+{
+    switch (view) {
+    case APP_GIMBAL_TRACK_VIEW_TARGET_READY: return "TARGET_READY";
+    case APP_GIMBAL_TRACK_VIEW_FOLLOWING: return "FOLLOWING";
+    case APP_GIMBAL_TRACK_VIEW_FOLLOWING_LOST: return "FOLLOWING_LOST";
+    case APP_GIMBAL_TRACK_VIEW_IDLE:
+    default:
+        return "IDLE";
+    }
+}
+
+const char *app_gimbal_tracking_input_raw_tracker_name(uint8_t tracker_state_raw)
+{
+    return raw_tracker_state_name(tracker_state_raw);
 }
