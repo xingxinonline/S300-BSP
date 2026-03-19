@@ -66,12 +66,17 @@ extern "C" {
 #define CONTROL_CMD_GRP_CONFIG            0x04u
 #define CONTROL_CMD_GRP_BUFFER            0x05u
 #define CONTROL_CMD_GRP_STREAM            0x06u
+#define CONTROL_CMD_GRP_TRACK             0x07u
 #define CONTROL_CMD_GRP_SYSTEM            0x0Fu
 
 #define CONTROL_CMD_CONFIG_APPLY          0x01u
 #define CONTROL_CMD_BUFFER_BIND           0x01u
 #define CONTROL_CMD_STREAM_FRAME_READY    0x01u
 #define CONTROL_CMD_STREAM_AUDIO_READY    0x02u
+#define CONTROL_CMD_TRACK_START           0x01u
+#define CONTROL_CMD_TRACK_STOP            0x02u
+#define CONTROL_CMD_TRACK_RESET           0x03u
+#define CONTROL_CMD_TRACK_LOCK            0x04u
 
 /*===========================================================================
  * ACK/NACK 响应类别
@@ -246,6 +251,9 @@ typedef enum {
 
 #define CONTROL_CMD_MAKE(group, session, opcode, arg8) \
     CONTROL_MAKE_MSG(CONTROL_MSG_TYPE_CMD, (group), (session), CONTROL_CMD_ARG((opcode), (arg8)))
+
+#define CONTROL_CMD_TRACK(session, opcode, arg8) \
+    CONTROL_CMD_MAKE(CONTROL_CMD_GRP_TRACK, (session), (opcode), (arg8))
 
 #define CONTROL_ACK_CODE(kind, code)     CONTROL_CMD_ARG((code), (kind))
 

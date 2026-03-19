@@ -12,6 +12,8 @@
 #define HT_ALPHA_SOLID          0xFFu
 #define HT_ALPHA_CLEAR          0x00u
 #define HT_LOG_EVERY_N_FRAMES   30u
+#define HT_BOX_COLOR_IDLE       0x8410u
+#define HT_BOX_COLOR_TRACKING   0x07E0u
 
 typedef struct {
     int32_t x1;
@@ -26,14 +28,12 @@ static uint32_t s_prev_count = 0u;
 static uint32_t s_last_valid_ms = 0u;
 static bool s_proto_warned = false;
 static uint32_t s_last_logged_frame_id = 0u;
-
-static const uint16_t s_box_colors[] = {
-    0x07E0u,
-    0xFFE0u,
-    0x07FFu,
-    0xF81Fu,
-    0xFFFFu,
+static bool s_tracking_active = false;
+static human_tracking_overlay_status_t s_status = {
+    .selected_idx = -1,
 };
+
+static bool is_valid_detection_result_for_demo(const DetectionResult_t *result);
 
 static uint32_t millis(void)
 {
@@ -53,6 +53,86 @@ static uint8_t normalize_score_pct(float score_raw)
     }
 
     return 0u;
+}
+
+static void reset_status(void)
+{
+    s_status.frame_id = 0u;
+    s_status.timestamp_ms = 0u;
+    s_status.count = 0u;
+    s_status.selected_idx = -1;
+    s_status.tracker_state = 0u;
+    s_status.tracker_flags = 0u;
+    s_status.primary_track_id = 0u;
+    s_status.primary_score_pct = 0u;
+    s_status.primary_miss_count = 0u;
+    s_status.has_target = false;
+}
+
+static void clear_target_status_preserve_frame(void)
+{
+    s_status.count = 0u;
+    s_status.selected_idx = -1;
+    s_status.tracker_state = 0u;
+    s_status.tracker_flags = 0u;
+    s_status.primary_track_id = 0u;
+    s_status.primary_score_pct = 0u;
+    s_status.primary_miss_count = 0u;
+    s_status.has_target = false;
+}
+
+static bool box_geometry_is_valid(int32_t x1, int32_t y1, int32_t x2, int32_t y2)
+{
+    return ((x2 - x1) > 2) && ((y2 - y1) > 2);
+}
+
+static int32_t normalize_selected_idx(const DetectionResult_t *result)
+{
+    if ((result == 0) || (result->count == 0u)) {
+        return -1;
+    }
+
+    if ((result->selected_idx >= 0) &&
+        ((uint32_t)result->selected_idx < result->count)) {
+        return result->selected_idx;
+    }
+
+    if (result->count == 1u) {
+        return 0;
+    }
+
+    return -1;
+}
+
+static void update_status_from_result(const DetectionResult_t *result)
+{
+    int32_t selected_idx;
+
+    reset_status();
+    if (!is_valid_detection_result_for_demo(result)) {
+        return;
+    }
+
+    selected_idx = normalize_selected_idx(result);
+    s_status.frame_id = result->frame_id;
+    s_status.timestamp_ms = result->timestamp_ms;
+    s_status.count = result->count;
+    s_status.selected_idx = selected_idx;
+    s_status.tracker_state = result->tracker_state;
+    s_status.tracker_flags = result->tracker_flags;
+
+    if ((selected_idx >= 0) && ((uint32_t)selected_idx < result->count)) {
+        const DetectionBox_t *box = &result->boxes[selected_idx];
+        DetectionType_t type = detection_type_from_raw(box->type);
+
+        s_status.primary_track_id = box->track_id;
+        s_status.primary_score_pct = normalize_score_pct(box->score);
+        s_status.primary_miss_count = box->miss_count;
+        s_status.has_target = ((type == DETECTION_TYPE_PERSON) ||
+                               (type == DETECTION_TYPE_HUMAN) ||
+                               (type == DETECTION_TYPE_UNKNOWN)) &&
+                              box_geometry_is_valid(box->x1, box->y1, box->x2, box->y2);
+    }
 }
 
 static bool is_supported_detection_version(uint32_t version)
@@ -190,8 +270,10 @@ static void clear_all_boxes(void)
 static void process_multi_result(const DetectionResult_t *result)
 {
     uint32_t drawn = 0u;
+    int32_t selected_idx;
 
     clear_all_boxes();
+    update_status_from_result(result);
 
     if (!is_valid_detection_result_for_demo(result)) {
         if ((result != 0) && !s_proto_warned) {
@@ -214,6 +296,7 @@ static void process_multi_result(const DetectionResult_t *result)
     }
 
     s_last_valid_ms = millis();
+    selected_idx = s_status.selected_idx;
 
     for (uint32_t index = 0u; index < result->count && index < MAX_DETECTION_COUNT; index++) {
         const DetectionBox_t *box = &result->boxes[index];
@@ -248,8 +331,9 @@ static void process_multi_result(const DetectionResult_t *result)
         }
 
         draw_rect_border(x1, y1, x2, y2,
-                         s_box_colors[drawn % (sizeof(s_box_colors) / sizeof(s_box_colors[0]))],
-                         HT_ALPHA_SOLID);
+                 (((int32_t)index == selected_idx) && s_tracking_active) ?
+                 HT_BOX_COLOR_TRACKING : HT_BOX_COLOR_IDLE,
+                 HT_ALPHA_SOLID);
 
         if (drawn < MAX_DETECTION_COUNT) {
             s_prev_boxes[drawn].x1 = x1;
@@ -265,10 +349,13 @@ static void process_multi_result(const DetectionResult_t *result)
     if ((drawn > 0u) &&
         ((s_last_logged_frame_id == 0u) ||
          ((result->frame_id - s_last_logged_frame_id) >= HT_LOG_EVERY_N_FRAMES))) {
-        printf("[HT-OVL] frame=%lu humans=%lu selected=%ld\r\n",
+        printf("[HT-OVL] frame=%lu humans=%lu selected=%ld raw_tracker=%u raw_flags=0x%02X primary_id=%u\r\n",
                (unsigned long)result->frame_id,
                (unsigned long)drawn,
-               (long)result->selected_idx);
+               (long)s_status.selected_idx,
+               (unsigned)s_status.tracker_state,
+               (unsigned)s_status.tracker_flags,
+               (unsigned)s_status.primary_track_id);
         s_last_logged_frame_id = result->frame_id;
     }
 }
@@ -284,6 +371,8 @@ void human_tracking_overlay_reset(void)
     clear_all_boxes();
     s_last_valid_ms = 0u;
     s_last_logged_frame_id = 0u;
+    s_tracking_active = false;
+    reset_status();
 }
 
 void human_tracking_overlay_tick(void)
@@ -321,9 +410,24 @@ bool human_tracking_overlay_handle_mailbox_message(uint32_t msg)
 
     case MAILBOX_MSG_TYPE_NO_RESULT:
         clear_all_boxes();
+        clear_target_status_preserve_frame();
         return true;
 
     default:
         return false;
     }
+}
+
+void human_tracking_overlay_get_status(human_tracking_overlay_status_t *out_status)
+{
+    if (out_status == 0) {
+        return;
+    }
+
+    *out_status = s_status;
+}
+
+void human_tracking_overlay_set_tracking_active(bool tracking_active)
+{
+    s_tracking_active = tracking_active;
 }

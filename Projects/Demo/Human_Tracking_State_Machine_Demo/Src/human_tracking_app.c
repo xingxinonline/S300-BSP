@@ -5,6 +5,7 @@
 #include "board.h"
 #include "camera_ov5640.h"
 #include "control_proto.h"
+#include "detection_proto.h"
 #include "gpio.h"
 #include "human_tracking_app.h"
 #include "human_tracking_overlay.h"
@@ -14,6 +15,7 @@
 #include "rcc.h"
 #include "s300.h"
 #include "uart.h"
+#include "uart_s300.h"
 #include "video.h"
 
 #if BOARD_CAMERA_FORMAT == 0
@@ -22,10 +24,11 @@
     #define APP_CAM_FMT CAMREA_YUV422
 #endif
 
-#define HT_HELLO_RETRY_MS         200u
-#define HT_RESOURCE_RETRY_MS      300u
-#define HT_HEARTBEAT_INTERVAL_MS  1000u
-#define HT_RESPONSE_TIMEOUT_MS    2000u
+#define HT_HELLO_RETRY_MS             200u
+#define HT_RESOURCE_RETRY_MS          300u
+#define HT_HEARTBEAT_INTERVAL_MS      1000u
+#define HT_RESPONSE_TIMEOUT_MS        2000u
+#define HT_FRAME_LOG_EVERY_N_FRAMES   30u
 
 #define HT_STREAM_ID_MAIN         0x01u
 #define HT_CONFIG_SLOT_ID         0x31u
@@ -48,11 +51,27 @@ typedef enum {
     HT_PENDING_CONFIG_ACK,
     HT_PENDING_BUFFER_ACK,
     HT_PENDING_START_ACK,
+    HT_PENDING_TRACK_START_ACK,
+    HT_PENDING_TRACK_STOP_ACK,
+    HT_PENDING_TRACK_RESET_ACK,
 } HumanTrackingPending_t;
+
+typedef enum {
+    HT_TRACK_MODE_IDLE = 0,
+    HT_TRACK_MODE_FOLLOWING,
+} HumanTrackingTrackMode_t;
+
+typedef enum {
+    HT_EFFECTIVE_IDLE = 0,
+    HT_EFFECTIVE_TARGET_READY,
+    HT_EFFECTIVE_FOLLOWING,
+    HT_EFFECTIVE_FOLLOWING_LOST,
+} HumanTrackingEffectiveView_t;
 
 static uint32_t (*s_get_millis)(void) = 0;
 static HumanTrackingState_t s_state = HT_STATE_RESET;
 static HumanTrackingPending_t s_pending = HT_PENDING_NONE;
+static HumanTrackingTrackMode_t s_track_mode = HT_TRACK_MODE_IDLE;
 static uint8_t s_session_id = 0u;
 static uint8_t s_heartbeat_seq = 0u;
 static uint32_t s_state_since_ms = 0u;
@@ -60,6 +79,15 @@ static uint32_t s_last_hello_ms = 0u;
 static uint32_t s_last_resource_ms = 0u;
 static uint32_t s_last_heartbeat_ms = 0u;
 static uint8_t s_video_resource_flags = 0u;
+static bool s_target_visible = false;
+static bool s_last_logged_has_target = false;
+static uint8_t s_last_tracker_state = 0xFFu;
+static uint8_t s_last_tracker_flags = 0xFFu;
+static uint8_t s_last_primary_track_id = 0xFFu;
+static int32_t s_last_selected_idx = -2;
+static uint32_t s_last_target_frame_id = 0u;
+static HumanTrackingTrackMode_t s_last_logged_track_mode = (HumanTrackingTrackMode_t)0xFFu;
+static HumanTrackingEffectiveView_t s_last_effective_view = (HumanTrackingEffectiveView_t)0xFFu;
 
 static uint32_t millis(void)
 {
@@ -72,6 +100,34 @@ static void app_delay_ms(uint32_t delay)
     while ((uint32_t)(millis() - start_ms) < delay) {
         __NOP();
     }
+}
+
+static S300_UART_TypeDef *debug_uart_dev(void)
+{
+    switch (BOARD_DEBUG_UART_IDX) {
+    case 0: return UART0;
+    case 1: return UART1;
+    case 2: return UART2;
+    case 3: return UART3;
+    default: return UART2;
+    }
+}
+
+static int debug_uart_getchar_noblock(uint8_t *out_char)
+{
+    S300_UART_TypeDef *uart;
+
+    if (out_char == 0) {
+        return 0;
+    }
+
+    uart = debug_uart_dev();
+    if ((uart->USR & 0x08u) == 0u) {
+        return 0;
+    }
+
+    *out_char = (uint8_t)(uart->RBR_THR_DLL & 0xFFu);
+    return 1;
 }
 
 static const char *state_name(HumanTrackingState_t state)
@@ -88,6 +144,48 @@ static const char *state_name(HumanTrackingState_t state)
     }
 }
 
+static const char *track_mode_name(HumanTrackingTrackMode_t mode)
+{
+    return (mode == HT_TRACK_MODE_FOLLOWING) ? "FOLLOWING" : "IDLE";
+}
+
+static const char *tracker_state_name(uint8_t tracker_state)
+{
+    switch (tracker_state) {
+    case TRACKER_STATE_DISABLED: return "DISABLED";
+    case TRACKER_STATE_IDLE: return "IDLE";
+    case TRACKER_STATE_TENTATIVE: return "TENTATIVE";
+    case TRACKER_STATE_TRACKING: return "TRACKING";
+    case TRACKER_STATE_LOST: return "LOST";
+    default: return "UNKNOWN";
+    }
+}
+
+static HumanTrackingEffectiveView_t effective_tracking_view(const human_tracking_overlay_status_t *status)
+{
+    if (s_track_mode == HT_TRACK_MODE_FOLLOWING) {
+        return (status != 0 && status->has_target) ? HT_EFFECTIVE_FOLLOWING : HT_EFFECTIVE_FOLLOWING_LOST;
+    }
+
+    if ((status != 0) && status->has_target) {
+        return HT_EFFECTIVE_TARGET_READY;
+    }
+
+    return HT_EFFECTIVE_IDLE;
+}
+
+static const char *effective_tracking_view_name(const human_tracking_overlay_status_t *status)
+{
+    switch (effective_tracking_view(status)) {
+    case HT_EFFECTIVE_TARGET_READY: return "TARGET_READY";
+    case HT_EFFECTIVE_FOLLOWING: return "FOLLOWING";
+    case HT_EFFECTIVE_FOLLOWING_LOST: return "FOLLOWING_LOST";
+    case HT_EFFECTIVE_IDLE:
+    default:
+        return "IDLE";
+    }
+}
+
 static void enter_state(HumanTrackingState_t next_state)
 {
     if (s_state != next_state) {
@@ -96,6 +194,19 @@ static void enter_state(HumanTrackingState_t next_state)
         s_state_since_ms = millis();
         if (next_state != HT_STATE_RUNNING) {
             human_tracking_overlay_reset();
+        }
+        if ((next_state == HT_STATE_RESET) || (next_state == HT_STATE_ERROR)) {
+            s_track_mode = HT_TRACK_MODE_IDLE;
+            s_target_visible = false;
+            s_last_logged_has_target = false;
+            s_last_tracker_state = 0xFFu;
+            s_last_tracker_flags = 0xFFu;
+            s_last_primary_track_id = 0xFFu;
+            s_last_selected_idx = -2;
+            s_last_target_frame_id = 0u;
+            s_last_logged_track_mode = (HumanTrackingTrackMode_t)0xFFu;
+            s_last_effective_view = (HumanTrackingEffectiveView_t)0xFFu;
+            human_tracking_overlay_set_tracking_active(false);
         }
     }
 }
@@ -179,6 +290,11 @@ static void dsp_uart_init(void)
     printf("[HT-SM] UART3 initialized for DSP\r\n");
 }
 
+static void print_serial_help(void)
+{
+    printf("[HT-SM] Serial cmd: s=start x=stop r=reset p=status h=help\r\n");
+}
+
 static void log_video_resources_ready(void)
 {
     printf("[HT-SM] CM4 video resources ready: camera=%u mm=%u lcd=%u\r\n",
@@ -228,6 +344,10 @@ static bool handle_runtime_message(uint32_t msg)
 static void dsp_start_new_session(void)
 {
     s_session_id++;
+    s_track_mode = HT_TRACK_MODE_IDLE;
+    s_target_visible = false;
+    s_last_logged_has_target = false;
+    s_last_selected_idx = -2;
     human_tracking_overlay_reset();
     set_dsp_warm_reset(true);
     app_delay_ms(50u);
@@ -319,6 +439,147 @@ static void send_heartbeat(void)
     s_last_heartbeat_ms = millis();
 }
 
+static void send_track_command(uint8_t opcode, const char *label, HumanTrackingPending_t pending)
+{
+    if (s_state != HT_STATE_RUNNING) {
+        printf("[HT-SM][WARN] ignore %s before RUNNING\r\n", label);
+        return;
+    }
+
+    if (s_pending != HT_PENDING_NONE) {
+        printf("[HT-SM][WARN] ignore %s while pending=%u\r\n", label, (unsigned)s_pending);
+        return;
+    }
+
+    send_control_msg(CONTROL_CMD_TRACK(s_session_id, opcode, 0u), label);
+    s_pending = pending;
+}
+
+static void send_track_start(void)
+{
+    send_track_command(CONTROL_CMD_TRACK_START, "CMD.TRACK_START", HT_PENDING_TRACK_START_ACK);
+}
+
+static void send_track_stop(void)
+{
+    send_track_command(CONTROL_CMD_TRACK_STOP, "CMD.TRACK_STOP", HT_PENDING_TRACK_STOP_ACK);
+}
+
+static void send_track_reset(void)
+{
+    send_track_command(CONTROL_CMD_TRACK_RESET, "CMD.TRACK_RESET", HT_PENDING_TRACK_RESET_ACK);
+}
+
+static void print_tracking_status(void)
+{
+    human_tracking_overlay_status_t status;
+
+    human_tracking_overlay_get_status(&status);
+    printf("[HT-SM] status app=%s mode=%s effective=%s target=%u frame=%lu count=%lu selected=%ld raw_tracker=%s raw_flags=0x%02X id=%u score=%u miss=%u\r\n",
+           state_name(s_state),
+           track_mode_name(s_track_mode),
+           effective_tracking_view_name(&status),
+           (unsigned)status.has_target,
+           (unsigned long)status.frame_id,
+           (unsigned long)status.count,
+           (long)status.selected_idx,
+           tracker_state_name(status.tracker_state),
+           (unsigned)status.tracker_flags,
+           (unsigned)status.primary_track_id,
+           (unsigned)status.primary_score_pct,
+           (unsigned)status.primary_miss_count);
+}
+
+static void process_serial_command(void)
+{
+    uint8_t cmd;
+
+    while (debug_uart_getchar_noblock(&cmd)) {
+        if ((cmd == '\r') || (cmd == '\n') || (cmd == ' ')) {
+            continue;
+        }
+
+        if ((cmd >= 'A') && (cmd <= 'Z')) {
+            cmd = (uint8_t)(cmd - 'A' + 'a');
+        }
+
+        switch (cmd) {
+        case 's':
+            send_track_start();
+            break;
+        case 'x':
+            send_track_stop();
+            break;
+        case 'r':
+            send_track_reset();
+            break;
+        case 'p':
+            print_tracking_status();
+            break;
+        case 'h':
+        case '?':
+            print_serial_help();
+            break;
+        default:
+            printf("[HT-SM] unknown cmd '%c'\r\n", (char)cmd);
+            print_serial_help();
+            break;
+        }
+    }
+}
+
+static void update_tracking_status_from_overlay(void)
+{
+    human_tracking_overlay_status_t status;
+    HumanTrackingEffectiveView_t effective_view;
+    bool should_log;
+
+    human_tracking_overlay_get_status(&status);
+    if (status.has_target) {
+        s_target_visible = true;
+    } else {
+        s_target_visible = false;
+    }
+
+    human_tracking_overlay_set_tracking_active(s_track_mode == HT_TRACK_MODE_FOLLOWING);
+
+    effective_view = effective_tracking_view(&status);
+    should_log = (status.has_target != s_last_logged_has_target) ||
+                 (status.selected_idx != s_last_selected_idx) ||
+                 (status.tracker_state != s_last_tracker_state) ||
+                 (status.tracker_flags != s_last_tracker_flags) ||
+                 (status.primary_track_id != s_last_primary_track_id) ||
+                 (s_track_mode != s_last_logged_track_mode) ||
+                 (effective_view != s_last_effective_view);
+
+    if (!should_log && (status.frame_id != 0u) && (s_last_target_frame_id != 0u) &&
+        ((status.frame_id - s_last_target_frame_id) >= HT_FRAME_LOG_EVERY_N_FRAMES)) {
+        should_log = true;
+    }
+
+    if (should_log) {
+        printf("[HT-SM] DSP frame=%lu target=%u selected=%ld mode=%s effective=%s raw_tracker=%s raw_flags=0x%02X id=%u score=%u miss=%u\r\n",
+               (unsigned long)status.frame_id,
+               (unsigned)status.has_target,
+               (long)status.selected_idx,
+               track_mode_name(s_track_mode),
+               effective_tracking_view_name(&status),
+               tracker_state_name(status.tracker_state),
+               (unsigned)status.tracker_flags,
+               (unsigned)status.primary_track_id,
+               (unsigned)status.primary_score_pct,
+               (unsigned)status.primary_miss_count);
+        s_last_logged_has_target = status.has_target;
+        s_last_selected_idx = status.selected_idx;
+        s_last_target_frame_id = status.frame_id;
+        s_last_tracker_state = status.tracker_state;
+        s_last_tracker_flags = status.tracker_flags;
+        s_last_primary_track_id = status.primary_track_id;
+        s_last_logged_track_mode = s_track_mode;
+        s_last_effective_view = effective_view;
+    }
+}
+
 static void handle_ack(uint32_t msg)
 {
     uint16_t arg = CONTROL_GET_ARG(msg);
@@ -330,6 +591,36 @@ static void handle_ack(uint32_t msg)
            (unsigned)kind, (unsigned)code, (unsigned)status);
 
     if (kind == CONTROL_RSP_KIND_CMD) {
+        if ((s_pending == HT_PENDING_TRACK_START_ACK) &&
+            (code == CONTROL_CMD_TRACK_START) &&
+            (status == CONTROL_ACK_OK)) {
+            s_pending = HT_PENDING_NONE;
+            s_track_mode = HT_TRACK_MODE_FOLLOWING;
+            human_tracking_overlay_set_tracking_active(true);
+            printf("[HT-SM] tracking start ACK, mode=%s\r\n", track_mode_name(s_track_mode));
+            return;
+        }
+
+        if ((s_pending == HT_PENDING_TRACK_STOP_ACK) &&
+            (code == CONTROL_CMD_TRACK_STOP) &&
+            (status == CONTROL_ACK_OK)) {
+            s_pending = HT_PENDING_NONE;
+            s_track_mode = HT_TRACK_MODE_IDLE;
+            human_tracking_overlay_set_tracking_active(false);
+            printf("[HT-SM] tracking stop ACK, mode=%s\r\n", track_mode_name(s_track_mode));
+            return;
+        }
+
+        if ((s_pending == HT_PENDING_TRACK_RESET_ACK) &&
+            (code == CONTROL_CMD_TRACK_RESET) &&
+            (status == CONTROL_ACK_OK)) {
+            s_pending = HT_PENDING_NONE;
+            s_track_mode = HT_TRACK_MODE_IDLE;
+            human_tracking_overlay_set_tracking_active(false);
+            printf("[HT-SM] tracking reset ACK, mode=%s\r\n", track_mode_name(s_track_mode));
+            return;
+        }
+
         if ((s_pending == HT_PENDING_CONFIG_ACK) &&
             (code == CONTROL_CMD_CONFIG_APPLY) &&
             (status == CONTROL_ACK_OK)) {
@@ -367,6 +658,20 @@ static void handle_nack(uint32_t msg)
 
     printf("[HT-SM] RX NACK kind=%u code=0x%02X error=%u\r\n",
            (unsigned)kind, (unsigned)code, (unsigned)error);
+
+    if ((kind == CONTROL_RSP_KIND_CMD) &&
+        ((s_pending == HT_PENDING_TRACK_START_ACK) ||
+         (s_pending == HT_PENDING_TRACK_STOP_ACK) ||
+         (s_pending == HT_PENDING_TRACK_RESET_ACK))) {
+        s_pending = HT_PENDING_NONE;
+        if ((code == CONTROL_CMD_TRACK_STOP) || (code == CONTROL_CMD_TRACK_RESET)) {
+            s_track_mode = HT_TRACK_MODE_IDLE;
+            human_tracking_overlay_set_tracking_active(false);
+        }
+        printf("[HT-SM][WARN] track cmd rejected, stay mode=%s\r\n", track_mode_name(s_track_mode));
+        return;
+    }
+
     s_pending = HT_PENDING_NONE;
     enter_state(HT_STATE_ERROR);
 }
@@ -470,8 +775,8 @@ static void process_mailbox(void)
             break;
 
         default:
-            if (s_state == HT_STATE_RUNNING) {
-                (void)human_tracking_overlay_handle_mailbox_message(msg);
+            if ((s_state == HT_STATE_RUNNING) && human_tracking_overlay_handle_mailbox_message(msg)) {
+                update_tracking_status_from_overlay();
             }
             break;
         }
@@ -552,10 +857,12 @@ void human_tracking_app_init(uint32_t (*get_millis_fn)(void))
     dsp_uart_init();
     s_state_since_ms = millis();
     printf("[HT-SM] Human tracking state machine demo started\r\n");
+    print_serial_help();
 }
 
 void human_tracking_app_tick(void)
 {
     process_mailbox();
+    process_serial_command();
     step_state_machine();
 }
