@@ -39,11 +39,13 @@ static master_demo_subboard_state_t make_subboard_state(uint8_t public_state,
                                                         bool init_success)
 {
     master_demo_subboard_state_t state;
+    bool online = (public_state != 0xFFu);
 
     state.public_state = public_state;
-    state.online = (public_state != 0xFFu);
+    state.online = online;
     state.running = (public_state == SUBBOARD_STARTUP_STATE_RUNNING);
-    state.faulted = (public_state == SUBBOARD_STARTUP_STATE_ERROR);
+    state.faulted = (online && (public_state == SUBBOARD_STARTUP_STATE_ERROR)) ||
+                    (init_complete && !init_success);
     state.init_complete = init_complete;
     state.init_success = init_success;
     return state;

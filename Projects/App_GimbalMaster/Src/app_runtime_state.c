@@ -228,19 +228,24 @@ app_runtime_event_result_t app_runtime_state_apply_event(app_runtime_event_t eve
         return APP_RUNTIME_EVENT_NO_CHANGE;
 
     case APP_RUNTIME_EVENT_RECORD_START:
-        return set_recording(true);
+        result = set_recording(true);
+        break;
 
     case APP_RUNTIME_EVENT_RECORD_STOP:
-        return set_recording(false);
+        result = set_recording(false);
+        break;
 
     case APP_RUNTIME_EVENT_TRACK_START:
-        return set_tracking(true);
+        result = set_tracking(true);
+        break;
 
     case APP_RUNTIME_EVENT_TRACK_STOP:
-        return set_tracking(false);
+        result = set_tracking(false);
+        break;
 
     case APP_RUNTIME_EVENT_FILL_LIGHT_ON:
-        return set_fill_light(true);
+        result = set_fill_light(true);
+        break;
 
     case APP_RUNTIME_EVENT_FILL_LIGHT_OFF:
         result = set_fill_light(false);

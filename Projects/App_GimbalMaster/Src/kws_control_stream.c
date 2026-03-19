@@ -85,8 +85,8 @@ static const uint8_t g_keyword_thresholds[] = {
     96u,
     94u,
     94u,
-    96u,
-    96u,
+    90u,
+    90u,
     98u,
     98u,
 };

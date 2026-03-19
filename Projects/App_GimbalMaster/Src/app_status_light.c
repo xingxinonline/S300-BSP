@@ -4,6 +4,7 @@
 #include <stdint.h>
 
 #include "board.h"
+#include "master_log.h"
 #include "s300.h"
 #include "ws2812.h"
 
@@ -34,6 +35,19 @@ static uint32_t s_pulse_started_ms = 0u;
 static uint32_t s_pulse_until_ms = 0u;
 static app_status_light_feedback_t s_pulse_feedback = APP_STATUS_LIGHT_FEEDBACK_NONE;
 static uint8_t s_runtime_flags = 0u;
+
+static const char *mode_name(app_status_light_mode_t mode)
+{
+    switch (mode) {
+    case APP_STATUS_LIGHT_MODE_DISABLED: return "DISABLED";
+    case APP_STATUS_LIGHT_MODE_BOOT: return "BOOT";
+    case APP_STATUS_LIGHT_MODE_WAIT_SUBBOARD: return "WAIT_SUBBOARD";
+    case APP_STATUS_LIGHT_MODE_SUBBOARD_READY: return "SUBBOARD_READY";
+    case APP_STATUS_LIGHT_MODE_KWS_RUNNING: return "KWS_RUNNING";
+    case APP_STATUS_LIGHT_MODE_ERROR: return "ERROR";
+    default: return "UNKNOWN";
+    }
+}
 
 static uint32_t millis(void)
 {
@@ -279,6 +293,11 @@ int app_status_light_init(uint32_t (*get_millis_fn)(void))
 
 void app_status_light_set_mode(app_status_light_mode_t mode)
 {
+    if (s_mode != mode) {
+        MASTER_LOG_INFO("[MASTER][LIGHT] mode %s -> %s\r\n",
+                        mode_name(s_mode),
+                        mode_name(mode));
+    }
     s_mode = mode;
 }
 

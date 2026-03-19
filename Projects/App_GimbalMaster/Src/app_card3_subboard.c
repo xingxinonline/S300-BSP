@@ -41,6 +41,7 @@ static bool s_init_started = false;
 static bool s_init_complete = false;
 static bool s_init_success = false;
 static bool s_poll_suspended = false;
+static bool s_snapshot_read_failed = false;
 static uint32_t s_init_since_ms = 0u;
 static const char *s_init_failure_reason = NULL;
 
@@ -127,6 +128,7 @@ static void reset_runtime_state(void)
     s_public_state = 0xFFu;
     s_capabilities = 0u;
     s_last_capabilities = 0xFFu;
+    s_snapshot_read_failed = false;
     memset(&s_last_card3_result, 0, sizeof(s_last_card3_result));
     app_card3_result_handler_notify_offline();
 }
@@ -179,6 +181,38 @@ static int write_reg8(uint8_t reg, uint8_t value)
     }
 
     return s_ops.write_reg8_at(SUBBOARD_STARTUP_SLAVE_ADDR_CARD3, reg, value);
+}
+
+static bool read_runtime_snapshot(uint8_t *state,
+                                  uint8_t *error,
+                                  uint8_t *heartbeat,
+                                  uint8_t *request,
+                                  uint8_t *request_ack,
+                                  uint8_t *cmd_ack,
+                                  uint8_t *cmd_result,
+                                  uint8_t *capabilities)
+{
+    if ((read_reg8(SUBBOARD_STARTUP_REG_SYS_STATE, state) != 0) ||
+        (read_reg8(SUBBOARD_STARTUP_REG_ERROR_CODE, error) != 0) ||
+        (read_reg8(SUBBOARD_STARTUP_REG_HEARTBEAT, heartbeat) != 0) ||
+        (read_reg8(SUBBOARD_STARTUP_REG_REQUEST, request) != 0) ||
+        (read_reg8(SUBBOARD_STARTUP_REG_REQUEST_ACK, request_ack) != 0) ||
+        (read_reg8(SUBBOARD_STARTUP_REG_CMD_ACK, cmd_ack) != 0) ||
+        (read_reg8(SUBBOARD_STARTUP_REG_CMD_RESULT, cmd_result) != 0) ||
+        (read_reg8(SUBBOARD_STARTUP_REG_CAPABILITIES, capabilities) != 0)) {
+        if (!s_snapshot_read_failed) {
+            MASTER_LOG_WARN("[MASTER][CARD3] runtime snapshot read failed, keep last known state\r\n");
+            s_snapshot_read_failed = true;
+        }
+        return false;
+    }
+
+    if (s_snapshot_read_failed) {
+        MASTER_LOG_INFO("[MASTER][CARD3] runtime snapshot read recovered\r\n");
+        s_snapshot_read_failed = false;
+    }
+
+    return true;
 }
 
 static int send_prepare_video_cmd(void)
@@ -419,14 +453,16 @@ void app_card3_subboard_tick(void)
         s_last_proto_ver = proto_ver;
     }
 
-    (void)read_reg8(SUBBOARD_STARTUP_REG_SYS_STATE, &state);
-    (void)read_reg8(SUBBOARD_STARTUP_REG_ERROR_CODE, &error);
-    (void)read_reg8(SUBBOARD_STARTUP_REG_HEARTBEAT, &heartbeat);
-    (void)read_reg8(SUBBOARD_STARTUP_REG_REQUEST, &request);
-    (void)read_reg8(SUBBOARD_STARTUP_REG_REQUEST_ACK, &request_ack);
-    (void)read_reg8(SUBBOARD_STARTUP_REG_CMD_ACK, &cmd_ack);
-    (void)read_reg8(SUBBOARD_STARTUP_REG_CMD_RESULT, &cmd_result);
-    (void)read_reg8(SUBBOARD_STARTUP_REG_CAPABILITIES, &capabilities);
+    if (!read_runtime_snapshot(&state,
+                               &error,
+                               &heartbeat,
+                               &request,
+                               &request_ack,
+                               &cmd_ack,
+                               &cmd_result,
+                               &capabilities)) {
+        return;
+    }
 
     s_public_state = state;
     s_capabilities = capabilities;

@@ -47,6 +47,27 @@ static uint8_t score_to_u8(float score)
     return (uint8_t)value;
 }
 
+static bool raw_tracking_state_is_meaningful(const DetectionResult_t *result, bool has_target)
+{
+    if (result == NULL) {
+        return false;
+    }
+
+    switch (result->tracker_state) {
+    case TRACKER_STATE_IDLE:
+    case TRACKER_STATE_TENTATIVE:
+    case TRACKER_STATE_TRACKING:
+    case TRACKER_STATE_LOST:
+        return true;
+
+    case TRACKER_STATE_DISABLED:
+        return !has_target && (result->tracker_flags == 0u);
+
+    default:
+        return false;
+    }
+}
+
 static uint8_t normalize_tracking_state(uint8_t raw_state, bool has_target)
 {
     switch (raw_state) {
@@ -142,7 +163,9 @@ static void update_tracking_summary_from_result(const DetectionResult_t *result,
     next.count = (uint8_t)((result->count > 255u) ? 255u : result->count);
     next.tracker_state_raw = result->tracker_state;
     next.tracker_flags_raw = result->tracker_flags;
-    next.tracking_flags |= SUBBOARD_TRACKING_FLAG_RAW_STATE_VALID;
+    if (raw_tracking_state_is_meaningful(result, has_selected)) {
+        next.tracking_flags |= SUBBOARD_TRACKING_FLAG_RAW_STATE_VALID;
+    }
 
     if (has_selected) {
         const DetectionBox_t *box = &result->boxes[selected_idx];
