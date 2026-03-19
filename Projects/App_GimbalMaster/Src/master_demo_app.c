@@ -9,7 +9,7 @@
 #include "app_fill_light.h"
 #include "camera_ov5640.h"
 #include "gpio.h"
-#include "i2c_soft.h"
+#include "i2c.h"
 #include "master_detection_overlay.h"
 #include "master_log.h"
 #include "psram.h"
@@ -24,11 +24,11 @@
 #define APP_CAM_FMT CAMREA_YUV422
 #endif
 
-#define MASTER_I2C_BUS_HZ              100000u
+#define MASTER_I2C_BUS_HZ              400000u
 #define MASTER_I2C_RETRY               2u
+#define MASTER_I2C_HW_PORT             EM_I2C1
 
 static uint32_t (*s_get_millis)(void) = 0;
-static i2c_soft_t s_i2c;
 static bool s_i2c_ready = false;
 static bool s_video_path_prepared = false;
 static bool s_mm_runtime_enabled = false;
@@ -58,25 +58,28 @@ static uint32_t millis(void)
 
 static int master_i2c_init(void)
 {
-    i2c_soft_cfg_t cfg;
+    uint32_t apb_clk;
     int ret;
 
-    set_cortex_m4_apb1_clock(RCC_CM4_APB1_GPIO, true);
-    cfg.port = GPIOA;
-    cfg.pin_scl = 0u;
-    cfg.pin_sda = 1u;
-    cfg.func_scl = FUNCTION_2;
-    cfg.func_sda = FUNCTION_2;
-    cfg.pull_mode = GPIO_UP;
-    cfg.bus_hz = MASTER_I2C_BUS_HZ;
+    rcc_set_cortex_m4_apb1_clock(RCC_CM4_APB1_I2C1, true);
+    gpio_set_function(GPIOA, 0u, FUNCTION_3);
+    gpio_set_function(GPIOA, 1u, FUNCTION_3);
+    gpio_set_mode(GPIOA, 0u, GPIO_UP);
+    gpio_set_mode(GPIOA, 1u, GPIO_UP);
 
-    ret = i2c_soft_init(&s_i2c, &cfg, SystemCoreClock);
+    apb_clk = rcc_get_clock(RCC_CLOCK_APB1);
+    ret = init_i2c(MASTER_I2C_HW_PORT,
+                   (emI2CPRO)(EM_I2C_MASTER | EM_I2C_400K | EM_I2C_RESTART_EN),
+                   0u,
+                   apb_clk,
+                   MASTER_I2C_BUS_HZ);
     if (ret != 0) {
         MASTER_LOG_WARN("[MASTER] i2c init failed=%d\r\n", ret);
         return -1;
     }
 
-    i2c_soft_bus_recover(&s_i2c);
+    i2c_set_timeout(I2C_DEFAULT_TIMEOUT);
+    i2c_reset_stats(MASTER_I2C_HW_PORT);
     s_i2c_ready = true;
     return 0;
 }
@@ -91,17 +94,15 @@ static int read_reg8_at(uint8_t slave_addr, uint8_t reg, uint8_t *value)
     }
 
     for (attempt = 0u; attempt < MASTER_I2C_RETRY; attempt++) {
-        ret = i2c_soft_mem_read(&s_i2c,
-                                slave_addr,
-                                reg,
-                                false,
-                                value,
-                                1u);
-        if (ret == 0) {
+        ret = i2c_read(MASTER_I2C_HW_PORT,
+                       slave_addr,
+                       reg,
+                       EM_BOOL_FALSE,
+                       value,
+                       1u);
+        if (ret > 0) {
             return 0;
         }
-
-        i2c_soft_bus_recover(&s_i2c);
     }
 
     return -1;
@@ -117,17 +118,15 @@ static int read_regs_at(uint8_t slave_addr, uint8_t reg, uint8_t *buffer, uint32
     }
 
     for (attempt = 0u; attempt < MASTER_I2C_RETRY; attempt++) {
-        ret = i2c_soft_mem_read(&s_i2c,
-                                slave_addr,
-                                reg,
-                                false,
-                                buffer,
-                                length);
-        if (ret == 0) {
+        ret = i2c_read_burst(MASTER_I2C_HW_PORT,
+                             slave_addr,
+                             reg,
+                             EM_BOOL_FALSE,
+                             buffer,
+                             (uint16_t)length);
+        if (ret > 0) {
             return 0;
         }
-
-        i2c_soft_bus_recover(&s_i2c);
     }
 
     return -1;
@@ -143,17 +142,15 @@ static int write_reg8_at(uint8_t slave_addr, uint8_t reg, uint8_t value)
     }
 
     for (attempt = 0u; attempt < MASTER_I2C_RETRY; attempt++) {
-        ret = i2c_soft_mem_write(&s_i2c,
-                                 slave_addr,
-                                 reg,
-                                 false,
-                                 &value,
-                                 1u);
-        if (ret == 0) {
+        ret = i2c_write(MASTER_I2C_HW_PORT,
+                        slave_addr,
+                        reg,
+                        EM_BOOL_FALSE,
+                        &value,
+                        1u);
+        if (ret > 0) {
             return 0;
         }
-
-        i2c_soft_bus_recover(&s_i2c);
     }
 
     return -1;

@@ -100,7 +100,7 @@ s300_add_executable(
         Src/master_detection_overlay.c
         ${AUDIO_SHARED_DIR}/audio_app.c
         ${AUDIO_SHARED_DIR}/audio_codec.c
-    DRIVERS rcc gpio uart dma i2s i2c_soft mailbox mm psram ${AUDIO_CODEC_DRIVERS}
+    DRIVERS rcc gpio uart dma i2s i2c mailbox mm psram ${AUDIO_CODEC_DRIVERS}
     INCLUDES . Inc ${KWS_DEMO_DIR}/Src ${AUDIO_SHARED_DIR} ${SHARED_DETECTION_DIR}/Inc ${CMAKE_SOURCE_DIR}/Projects/Common/Subboard_Protocol ${CMAKE_SOURCE_DIR}/Algorithm_Models/protocol
     LIBRARIES ws2812 bus_servo
     DBG_NAME gimbal_master
