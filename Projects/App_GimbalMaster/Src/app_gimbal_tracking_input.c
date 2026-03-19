@@ -11,6 +11,7 @@
 #define MASTER_TRACK_INPUT_LOG_INTERVAL_MS   1000u
 #define MASTER_TRACK_INPUT_FREEZE_MS          600u
 #define MASTER_TRACK_INPUT_SOURCE_TIMEOUT_MS  500u
+#define MASTER_TRACK_INPUT_IDLE_MIN_CONF      96u
 #define MASTER_TRACK_INPUT_DZ_X               0.08f
 #define MASTER_TRACK_INPUT_DZ_Y               0.10f
 
@@ -164,6 +165,11 @@ static bool source_is_fresh(uint32_t now_ms, uint32_t source_ms)
            ((uint32_t)(now_ms - source_ms) <= MASTER_TRACK_INPUT_SOURCE_TIMEOUT_MS);
 }
 
+static uint8_t current_source_confidence(bool use_tracking_summary)
+{
+    return use_tracking_summary ? s_last_tracking_summary.confidence : s_last_result.confidence;
+}
+
 static void build_output(app_gimbal_tracking_input_output_t *out_output)
 {
     bool predicted = false;
@@ -174,6 +180,7 @@ static void build_output(app_gimbal_tracking_input_output_t *out_output)
     bool summary_fresh;
     bool result_fresh;
     bool use_tracking_summary;
+    uint8_t source_confidence;
     uint32_t now_ms;
 
     if (out_output == NULL) {
@@ -197,6 +204,11 @@ static void build_output(app_gimbal_tracking_input_output_t *out_output)
     valid = use_tracking_summary ?
         tracking_summary_has_target(&s_last_tracking_summary) :
         (result_fresh && result_is_trackable(&s_last_result));
+    source_confidence = valid ? current_source_confidence(use_tracking_summary) : 0u;
+
+    if (!tracking_active && valid && (source_confidence < MASTER_TRACK_INPUT_IDLE_MIN_CONF)) {
+        valid = false;
+    }
 
     if (summary_fresh) {
         predicted = tracking_summary_is_predicted(&s_last_tracking_summary);

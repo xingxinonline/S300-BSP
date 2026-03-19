@@ -11,6 +11,7 @@
 #include "video.h"
 
 #define MASTER_BOX_TIMEOUT_MS 500u
+#define MASTER_OVERLAY_REFRESH_INTERVAL_MS 67u
 #define MASTER_BOX_COLOR_IDLE      0x8410u
 #define MASTER_BOX_COLOR_TRACKING  0x07E0u
 #define MASTER_BOX_COLOR_PREDICTED 0xFFE0u
@@ -54,9 +55,11 @@ static uint32_t (*s_get_millis)(void) = 0;
 static DrawnBox_t s_drawn_box;
 static bool s_box_drawn = false;
 static uint32_t s_last_box_ms = 0u;
+static uint32_t s_last_overlay_refresh_ms = 0u;
 static uint32_t s_fps_window_start_ms = 0u;
 static uint32_t s_fps_frame_counter = 0u;
 static uint32_t s_display_fps = 0u;
+static bool s_overlay_refresh_pending = false;
 
 static const uint8_t s_font5x7_digits[][5] = {
     {0x3E, 0x51, 0x49, 0x45, 0x3E},
@@ -94,6 +97,12 @@ static int32_t fps_osd_origin_x(void)
 static void trigger_overlay_refresh(void)
 {
     *(volatile uint32_t *)(DSP_VIDEO_SS_BASE + 0x50u) = 1u;
+}
+
+static bool overlay_refresh_due(uint32_t now_ms)
+{
+    return (s_last_overlay_refresh_ms == 0u) ||
+           ((uint32_t)(now_ms - s_last_overlay_refresh_ms) >= MASTER_OVERLAY_REFRESH_INTERVAL_MS);
 }
 
 static void set_pixel_alpha(uint32_t x, uint32_t y, uint8_t alpha)
@@ -594,9 +603,11 @@ void master_detection_overlay_init(uint32_t (*get_millis_fn)(void))
 
     s_box_drawn = false;
     s_last_box_ms = 0u;
+    s_last_overlay_refresh_ms = 0u;
     s_fps_window_start_ms = 0u;
     s_fps_frame_counter = 0u;
     s_display_fps = 0u;
+    s_overlay_refresh_pending = true;
     draw_fps_osd();
     trigger_overlay_refresh();
 }
@@ -613,6 +624,7 @@ void master_detection_overlay_clear(void)
                       s_drawn_box.y2);
     clear_arrow(&s_drawn_box);
     s_box_drawn = false;
+    s_overlay_refresh_pending = true;
     trigger_overlay_refresh();
 }
 
@@ -668,20 +680,38 @@ static void sync_overlay_from_tracking_output(void)
     }
     s_box_drawn = true;
     s_last_box_ms = millis();
+}
+
+static void refresh_overlay_if_due(void)
+{
+    uint32_t now_ms = millis();
+
+    if (!s_overlay_refresh_pending && !overlay_refresh_due(now_ms)) {
+        return;
+    }
+
+    if (!overlay_refresh_due(now_ms)) {
+        return;
+    }
+
+    sync_overlay_from_tracking_output();
+    update_fps_stats();
     trigger_overlay_refresh();
+    s_last_overlay_refresh_ms = now_ms;
+    s_overlay_refresh_pending = false;
 }
 
 void master_detection_overlay_draw(const subboard_detection_result_t *result)
 {
     (void)result;
-    sync_overlay_from_tracking_output();
+    s_overlay_refresh_pending = true;
+    refresh_overlay_if_due();
 }
 
 void master_detection_overlay_tick(void)
 {
-    sync_overlay_from_tracking_output();
-    update_fps_stats();
-    trigger_overlay_refresh();
+    s_overlay_refresh_pending = true;
+    refresh_overlay_if_due();
 }
 
 bool master_detection_overlay_is_active(void)
