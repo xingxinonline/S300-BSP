@@ -18,6 +18,10 @@ typedef struct {
 	uint8_t primary_track_id;
 	uint8_t primary_score_pct;
 	uint8_t primary_miss_count;
+	int32_t primary_x1;
+	int32_t primary_y1;
+	int32_t primary_x2;
+	int32_t primary_y2;
 	bool has_target;
 } human_tracking_overlay_status_t;
 

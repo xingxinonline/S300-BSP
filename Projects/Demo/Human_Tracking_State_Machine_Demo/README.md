@@ -13,8 +13,8 @@
 ## 当前状态
 
 1. 当前代码骨架仍复用 Human_Detection_State_Machine_Demo 的 session 状态机，但已补上 TRACK_START、TRACK_STOP、TRACK_RESET 控制命令。
-2. 当前 overlay 已按 tracking 语义消费 DetectionResult_t：主目标优先使用 selected_idx，高亮显示并透传 track_id、tracker_state、tracker_flags；日志中的 raw_tracker/raw_flags 仅表示 DSP 原始字段。未追踪时目标框为灰色，追踪确认后主目标框为绿色。
-3. CM4 侧增加了最小 tracking consumer，可读取 DSP 当前唯一主目标状态，并通过串口手动触发 TRACK_START、TRACK_STOP、TRACK_RESET；运行日志会同时打印 mode 和 effective，用于区分本地控制状态与 DSP 原始 tracker 字段。
+2. 当前 overlay 已按 tracking 语义消费 DetectionResult_t：主目标优先使用 selected_idx，高亮显示并透传 track_id、tracker_state、tracker_flags；日志中的 raw_tracker/raw_flags 仅表示 DSP 原始字段。未追踪时目标框为灰色，追踪确认后主目标框为绿色；若 miss_count > 0，则主目标切为黄色虚线预测框，并使用 vx/vy 从框中心绘制速度箭头。左上角额外显示基于 overlay 实际消费结果的 FPS 统计，且已对镜像显示链路做文字与锚点补偿。
+3. CM4 侧增加了最小 tracking consumer，可读取 DSP 当前唯一主目标状态，并通过串口手动触发 TRACK_START、TRACK_STOP、TRACK_RESET；运行日志会同时打印 mode 和 effective，用于区分本地控制状态与 DSP 原始 tracker 字段。当前已额外导出一层最小云台接口，包含目标中心点、相对屏幕中心偏差、框宽高、predicted/lost 标记，并在 Demo 内补了归一化误差映射、软死区以及丢失后短时冻结策略，供后续云台控制层直接消费。
 4. 后续真正的 tracking 适配继续只在本 Demo 内完成，不回灌到 Human_Detection_State_Machine_Demo。
 
 ## 目录说明
@@ -22,8 +22,9 @@
 1. Src/main.c：板级启动、SysTick 和 app tick。
 2. Src/human_tracking_app.c：CM4 控制面状态机、视频链路初始化。
 3. Src/human_tracking_overlay.c：消费 tracking 结果，高亮主目标，并暴露当前 DSP 主目标状态给 app。
-4. algorithm_reference/README.md：DSP 侧 tracking 版本最小实现约束。
-5. model_bin/README.md：DSP 固件放置约定。
+4. Src/human_tracking_target.c：把 overlay 状态转换为 tracking 语义快照和最小云台控制输入。
+5. algorithm_reference/README.md：DSP 侧 tracking 版本最小实现约束。
+6. model_bin/README.md：DSP 固件放置约定。
 
 ## 构建目标
 

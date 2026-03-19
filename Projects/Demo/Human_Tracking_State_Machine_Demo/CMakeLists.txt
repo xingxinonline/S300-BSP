@@ -32,6 +32,7 @@ set(SRCS
     ${PROJECT_DIR}/Src/main.c
     ${PROJECT_DIR}/Src/human_tracking_app.c
     ${PROJECT_DIR}/Src/human_tracking_overlay.c
+    ${PROJECT_DIR}/Src/human_tracking_target.c
     ${SHARED_DETECTION_DIR}/Src/camera_ov5640.c
 )
 

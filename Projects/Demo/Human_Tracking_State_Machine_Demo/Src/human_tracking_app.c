@@ -10,6 +10,7 @@
 #include "human_tracking_app.h"
 #include "human_tracking_overlay.h"
 #include "human_tracking_runtime_proto.h"
+#include "human_tracking_target.h"
 #include "mailbox.h"
 #include "mailbox_proto.h"
 #include "rcc.h"
@@ -61,13 +62,6 @@ typedef enum {
     HT_TRACK_MODE_FOLLOWING,
 } HumanTrackingTrackMode_t;
 
-typedef enum {
-    HT_EFFECTIVE_IDLE = 0,
-    HT_EFFECTIVE_TARGET_READY,
-    HT_EFFECTIVE_FOLLOWING,
-    HT_EFFECTIVE_FOLLOWING_LOST,
-} HumanTrackingEffectiveView_t;
-
 static uint32_t (*s_get_millis)(void) = 0;
 static HumanTrackingState_t s_state = HT_STATE_RESET;
 static HumanTrackingPending_t s_pending = HT_PENDING_NONE;
@@ -79,15 +73,6 @@ static uint32_t s_last_hello_ms = 0u;
 static uint32_t s_last_resource_ms = 0u;
 static uint32_t s_last_heartbeat_ms = 0u;
 static uint8_t s_video_resource_flags = 0u;
-static bool s_target_visible = false;
-static bool s_last_logged_has_target = false;
-static uint8_t s_last_tracker_state = 0xFFu;
-static uint8_t s_last_tracker_flags = 0xFFu;
-static uint8_t s_last_primary_track_id = 0xFFu;
-static int32_t s_last_selected_idx = -2;
-static uint32_t s_last_target_frame_id = 0u;
-static HumanTrackingTrackMode_t s_last_logged_track_mode = (HumanTrackingTrackMode_t)0xFFu;
-static HumanTrackingEffectiveView_t s_last_effective_view = (HumanTrackingEffectiveView_t)0xFFu;
 
 static uint32_t millis(void)
 {
@@ -161,31 +146,6 @@ static const char *tracker_state_name(uint8_t tracker_state)
     }
 }
 
-static HumanTrackingEffectiveView_t effective_tracking_view(const human_tracking_overlay_status_t *status)
-{
-    if (s_track_mode == HT_TRACK_MODE_FOLLOWING) {
-        return (status != 0 && status->has_target) ? HT_EFFECTIVE_FOLLOWING : HT_EFFECTIVE_FOLLOWING_LOST;
-    }
-
-    if ((status != 0) && status->has_target) {
-        return HT_EFFECTIVE_TARGET_READY;
-    }
-
-    return HT_EFFECTIVE_IDLE;
-}
-
-static const char *effective_tracking_view_name(const human_tracking_overlay_status_t *status)
-{
-    switch (effective_tracking_view(status)) {
-    case HT_EFFECTIVE_TARGET_READY: return "TARGET_READY";
-    case HT_EFFECTIVE_FOLLOWING: return "FOLLOWING";
-    case HT_EFFECTIVE_FOLLOWING_LOST: return "FOLLOWING_LOST";
-    case HT_EFFECTIVE_IDLE:
-    default:
-        return "IDLE";
-    }
-}
-
 static void enter_state(HumanTrackingState_t next_state)
 {
     if (s_state != next_state) {
@@ -197,15 +157,7 @@ static void enter_state(HumanTrackingState_t next_state)
         }
         if ((next_state == HT_STATE_RESET) || (next_state == HT_STATE_ERROR)) {
             s_track_mode = HT_TRACK_MODE_IDLE;
-            s_target_visible = false;
-            s_last_logged_has_target = false;
-            s_last_tracker_state = 0xFFu;
-            s_last_tracker_flags = 0xFFu;
-            s_last_primary_track_id = 0xFFu;
-            s_last_selected_idx = -2;
-            s_last_target_frame_id = 0u;
-            s_last_logged_track_mode = (HumanTrackingTrackMode_t)0xFFu;
-            s_last_effective_view = (HumanTrackingEffectiveView_t)0xFFu;
+            human_tracking_target_reset();
             human_tracking_overlay_set_tracking_active(false);
         }
     }
@@ -345,9 +297,7 @@ static void dsp_start_new_session(void)
 {
     s_session_id++;
     s_track_mode = HT_TRACK_MODE_IDLE;
-    s_target_visible = false;
-    s_last_logged_has_target = false;
-    s_last_selected_idx = -2;
+    human_tracking_target_reset();
     human_tracking_overlay_reset();
     set_dsp_warm_reset(true);
     app_delay_ms(50u);
@@ -472,22 +422,39 @@ static void send_track_reset(void)
 
 static void print_tracking_status(void)
 {
-    human_tracking_overlay_status_t status;
+    human_tracking_target_snapshot_t snapshot;
+    human_tracking_gimbal_control_t gimbal_control;
 
-    human_tracking_overlay_get_status(&status);
-    printf("[HT-SM] status app=%s mode=%s effective=%s target=%u frame=%lu count=%lu selected=%ld raw_tracker=%s raw_flags=0x%02X id=%u score=%u miss=%u\r\n",
+    human_tracking_target_capture(s_track_mode == HT_TRACK_MODE_FOLLOWING, &snapshot);
+    human_tracking_target_fill_gimbal_control(&snapshot, millis(), &gimbal_control);
+    printf("[HT-SM] status app=%s mode=%s effective=%s target=%u frame=%lu count=%lu selected=%ld raw_tracker=%s raw_flags=0x%02X id=%u score=%u miss=%u cx=%ld cy=%ld err_x=%ld err_y=%ld box=%ldx%ld pred=%u lost=%u ycmd=%.3f pcmd=%.3f dz=%u/%u frozen=%u fms=%lu timeout=%u\r\n",
            state_name(s_state),
            track_mode_name(s_track_mode),
-           effective_tracking_view_name(&status),
-           (unsigned)status.has_target,
-           (unsigned long)status.frame_id,
-           (unsigned long)status.count,
-           (long)status.selected_idx,
-           tracker_state_name(status.tracker_state),
-           (unsigned)status.tracker_flags,
-           (unsigned)status.primary_track_id,
-           (unsigned)status.primary_score_pct,
-           (unsigned)status.primary_miss_count);
+           human_tracking_target_view_name(snapshot.effective_view),
+           (unsigned)snapshot.overlay.has_target,
+           (unsigned long)snapshot.overlay.frame_id,
+           (unsigned long)snapshot.overlay.count,
+           (long)snapshot.overlay.selected_idx,
+           tracker_state_name(snapshot.overlay.tracker_state),
+           (unsigned)snapshot.overlay.tracker_flags,
+           (unsigned)snapshot.overlay.primary_track_id,
+           (unsigned)snapshot.overlay.primary_score_pct,
+           (unsigned)snapshot.overlay.primary_miss_count,
+           (long)gimbal_control.target.target_cx,
+           (long)gimbal_control.target.target_cy,
+           (long)gimbal_control.target.error_x,
+           (long)gimbal_control.target.error_y,
+           (long)gimbal_control.target.box_w,
+           (long)gimbal_control.target.box_h,
+           (unsigned)gimbal_control.target.predicted,
+           (unsigned)gimbal_control.target.lost,
+           (double)gimbal_control.yaw_cmd,
+           (double)gimbal_control.pitch_cmd,
+           (unsigned)gimbal_control.yaw_in_deadzone,
+           (unsigned)gimbal_control.pitch_in_deadzone,
+           (unsigned)gimbal_control.frozen,
+           (unsigned long)gimbal_control.freeze_age_ms,
+           (unsigned)gimbal_control.freeze_timed_out);
 }
 
 static void process_serial_command(void)
@@ -530,53 +497,39 @@ static void process_serial_command(void)
 
 static void update_tracking_status_from_overlay(void)
 {
-    human_tracking_overlay_status_t status;
-    HumanTrackingEffectiveView_t effective_view;
-    bool should_log;
+    human_tracking_target_snapshot_t snapshot;
+    human_tracking_gimbal_control_t gimbal_control;
 
-    human_tracking_overlay_get_status(&status);
-    if (status.has_target) {
-        s_target_visible = true;
-    } else {
-        s_target_visible = false;
-    }
+    human_tracking_target_capture(s_track_mode == HT_TRACK_MODE_FOLLOWING, &snapshot);
+    human_tracking_target_fill_gimbal_control(&snapshot, millis(), &gimbal_control);
 
-    human_tracking_overlay_set_tracking_active(s_track_mode == HT_TRACK_MODE_FOLLOWING);
-
-    effective_view = effective_tracking_view(&status);
-    should_log = (status.has_target != s_last_logged_has_target) ||
-                 (status.selected_idx != s_last_selected_idx) ||
-                 (status.tracker_state != s_last_tracker_state) ||
-                 (status.tracker_flags != s_last_tracker_flags) ||
-                 (status.primary_track_id != s_last_primary_track_id) ||
-                 (s_track_mode != s_last_logged_track_mode) ||
-                 (effective_view != s_last_effective_view);
-
-    if (!should_log && (status.frame_id != 0u) && (s_last_target_frame_id != 0u) &&
-        ((status.frame_id - s_last_target_frame_id) >= HT_FRAME_LOG_EVERY_N_FRAMES)) {
-        should_log = true;
-    }
-
-    if (should_log) {
-        printf("[HT-SM] DSP frame=%lu target=%u selected=%ld mode=%s effective=%s raw_tracker=%s raw_flags=0x%02X id=%u score=%u miss=%u\r\n",
-               (unsigned long)status.frame_id,
-               (unsigned)status.has_target,
-               (long)status.selected_idx,
+    if (human_tracking_target_consume_snapshot(&snapshot, HT_FRAME_LOG_EVERY_N_FRAMES)) {
+        printf("[HT-SM] DSP frame=%lu target=%u selected=%ld mode=%s effective=%s raw_tracker=%s raw_flags=0x%02X id=%u score=%u miss=%u cx=%ld cy=%ld err_x=%ld err_y=%ld box=%ldx%ld pred=%u lost=%u ycmd=%.3f pcmd=%.3f dz=%u/%u frozen=%u fms=%lu timeout=%u\r\n",
+               (unsigned long)snapshot.overlay.frame_id,
+               (unsigned)snapshot.overlay.has_target,
+               (long)snapshot.overlay.selected_idx,
                track_mode_name(s_track_mode),
-               effective_tracking_view_name(&status),
-               tracker_state_name(status.tracker_state),
-               (unsigned)status.tracker_flags,
-               (unsigned)status.primary_track_id,
-               (unsigned)status.primary_score_pct,
-               (unsigned)status.primary_miss_count);
-        s_last_logged_has_target = status.has_target;
-        s_last_selected_idx = status.selected_idx;
-        s_last_target_frame_id = status.frame_id;
-        s_last_tracker_state = status.tracker_state;
-        s_last_tracker_flags = status.tracker_flags;
-        s_last_primary_track_id = status.primary_track_id;
-        s_last_logged_track_mode = s_track_mode;
-        s_last_effective_view = effective_view;
+               human_tracking_target_view_name(snapshot.effective_view),
+               tracker_state_name(snapshot.overlay.tracker_state),
+               (unsigned)snapshot.overlay.tracker_flags,
+               (unsigned)snapshot.overlay.primary_track_id,
+               (unsigned)snapshot.overlay.primary_score_pct,
+               (unsigned)snapshot.overlay.primary_miss_count,
+               (long)gimbal_control.target.target_cx,
+               (long)gimbal_control.target.target_cy,
+               (long)gimbal_control.target.error_x,
+               (long)gimbal_control.target.error_y,
+               (long)gimbal_control.target.box_w,
+               (long)gimbal_control.target.box_h,
+               (unsigned)gimbal_control.target.predicted,
+               (unsigned)gimbal_control.target.lost,
+               (double)gimbal_control.yaw_cmd,
+               (double)gimbal_control.pitch_cmd,
+               (unsigned)gimbal_control.yaw_in_deadzone,
+               (unsigned)gimbal_control.pitch_in_deadzone,
+               (unsigned)gimbal_control.frozen,
+               (unsigned long)gimbal_control.freeze_age_ms,
+               (unsigned)gimbal_control.freeze_timed_out);
     }
 }
 
