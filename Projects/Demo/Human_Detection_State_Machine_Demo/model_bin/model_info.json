@@ -1,0 +1,16 @@
+{
+    "name": "Human Detection State Machine Demo Local Override",
+    "id": "human_detection_state_machine_demo_local_override",
+    "version": "0.0.0-local",
+    "date": "2026-03-13",
+    "description": "Local override DSP bins for Human_Detection_State_Machine_Demo. These bins are used for CM4-DSP state-machine bring-up and human-detection validation in the demo workspace.",
+    "source": "Local override human-detection state-machine demo bins; upstream version not recorded",
+    "compatibility": {
+        "dsp_fw": "Unknown"
+    },
+    "notes": [
+        "These local bins are selected before Algorithm_Models/Human_Detection.",
+        "Current validation targets the Human_Detection_State_Machine_Demo control path, runtime mailbox interaction and human-detection result publishing.",
+        "Replace this metadata together with the bin files when switching to a newer formal Human_Detection demo bin set."
+    ]
+}
