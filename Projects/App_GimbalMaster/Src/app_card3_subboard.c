@@ -192,14 +192,11 @@ static bool read_runtime_snapshot(uint8_t *state,
                                   uint8_t *cmd_result,
                                   uint8_t *capabilities)
 {
-    if ((read_reg8(SUBBOARD_STARTUP_REG_SYS_STATE, state) != 0) ||
-        (read_reg8(SUBBOARD_STARTUP_REG_ERROR_CODE, error) != 0) ||
-        (read_reg8(SUBBOARD_STARTUP_REG_HEARTBEAT, heartbeat) != 0) ||
-        (read_reg8(SUBBOARD_STARTUP_REG_REQUEST, request) != 0) ||
-        (read_reg8(SUBBOARD_STARTUP_REG_REQUEST_ACK, request_ack) != 0) ||
-        (read_reg8(SUBBOARD_STARTUP_REG_CMD_ACK, cmd_ack) != 0) ||
-        (read_reg8(SUBBOARD_STARTUP_REG_CMD_RESULT, cmd_result) != 0) ||
-        (read_reg8(SUBBOARD_STARTUP_REG_CAPABILITIES, capabilities) != 0)) {
+    uint8_t runtime_regs[SUBBOARD_STARTUP_REG_CAPABILITIES - SUBBOARD_STARTUP_REG_SYS_STATE + 1u];
+    uint8_t cmd_regs[SUBBOARD_STARTUP_REG_CMD_RESULT - SUBBOARD_STARTUP_REG_CMD_ACK + 1u];
+
+    if ((read_regs(SUBBOARD_STARTUP_REG_SYS_STATE, runtime_regs, sizeof(runtime_regs)) != 0) ||
+        (read_regs(SUBBOARD_STARTUP_REG_CMD_ACK, cmd_regs, sizeof(cmd_regs)) != 0)) {
         if (!s_snapshot_read_failed) {
             MASTER_LOG_WARN("[MASTER][CARD3] runtime snapshot read failed, keep last known state\r\n");
             s_snapshot_read_failed = true;
@@ -211,6 +208,15 @@ static bool read_runtime_snapshot(uint8_t *state,
         MASTER_LOG_INFO("[MASTER][CARD3] runtime snapshot read recovered\r\n");
         s_snapshot_read_failed = false;
     }
+
+    *state = runtime_regs[SUBBOARD_STARTUP_REG_SYS_STATE - SUBBOARD_STARTUP_REG_SYS_STATE];
+    *error = runtime_regs[SUBBOARD_STARTUP_REG_ERROR_CODE - SUBBOARD_STARTUP_REG_SYS_STATE];
+    *heartbeat = runtime_regs[SUBBOARD_STARTUP_REG_HEARTBEAT - SUBBOARD_STARTUP_REG_SYS_STATE];
+    *request = runtime_regs[SUBBOARD_STARTUP_REG_REQUEST - SUBBOARD_STARTUP_REG_SYS_STATE];
+    *request_ack = runtime_regs[SUBBOARD_STARTUP_REG_REQUEST_ACK - SUBBOARD_STARTUP_REG_SYS_STATE];
+    *capabilities = runtime_regs[SUBBOARD_STARTUP_REG_CAPABILITIES - SUBBOARD_STARTUP_REG_SYS_STATE];
+    *cmd_ack = cmd_regs[SUBBOARD_STARTUP_REG_CMD_ACK - SUBBOARD_STARTUP_REG_CMD_ACK];
+    *cmd_result = cmd_regs[SUBBOARD_STARTUP_REG_CMD_RESULT - SUBBOARD_STARTUP_REG_CMD_ACK];
 
     return true;
 }
