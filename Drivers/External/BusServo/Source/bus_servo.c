@@ -16,8 +16,10 @@
  * Debug Configuration
  *===========================================================================*/
 
-/** @brief 启用调试输出 (设为 0 关闭) */
+/** @brief 启用调试输出 (可通过 CMake 编译定义覆盖) */
+#ifndef BUS_SERVO_DEBUG
 #define BUS_SERVO_DEBUG         0
+#endif
 
 #if BUS_SERVO_DEBUG
 #define DBG_PRINT(...)          printf(__VA_ARGS__)
@@ -43,8 +45,11 @@
 #define FRAME_OFF_CMD           4
 #define FRAME_OFF_PARAM         5
 
-/** @brief TX->RX 切换延时 (微秒) - 经测试验证 30us 即可稳定 */
-#define TX_RX_SWITCH_DELAY_US   30
+/** @brief 发完最后一位后，切到 RX 前的保护时间 (微秒) */
+#define TX_RX_PRE_SWITCH_DELAY_US   5
+
+/** @brief 切到 RX 后，等待模拟开关和总线稳定的时间 (微秒) */
+#define TX_RX_POST_SWITCH_DELAY_US  25
 
 /** @brief 接收首字节超时 (毫秒) */
 #define RX_FIRST_BYTE_TIMEOUT_MS  100
@@ -182,12 +187,15 @@ static void set_rx_mode(bus_servo_t *servo)
 {
     /* 等待发送完成 */
     wait_tx_complete(servo);
-    
-    /* 验证过的延时值 */
-    delay_us(TX_RX_SWITCH_DELAY_US);
-    
-    /* 切换到接收模式 */
+
+    /* 给最后一位和线端留一个很小的保护时间，避免切换过早 */
+    delay_us(TX_RX_PRE_SWITCH_DELAY_US);
+
+    /* 尽快切换到接收模式，避免错过舵机紧跟写包后的快速响应 */
     gpio_set_data(GPIOA, servo->dir_pin, BUS_SERVO_DIR_RX);
+
+    /* 给模拟开关和总线方向一点稳定时间 */
+    delay_us(TX_RX_POST_SWITCH_DELAY_US);
 }
 
 /**

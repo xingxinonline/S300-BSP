@@ -6,7 +6,6 @@
 #include "app_card1_subboard.h"
 #include "app_card2_subboard.h"
 #include "app_card3_subboard.h"
-#include "app_gimbal_debug.h"
 #include "app_gimbal_control.h"
 #include "app_media_control.h"
 #include "app_runtime_state.h"
@@ -886,7 +885,6 @@ int main(void)
     printf("[KWS-CTRL] Model dir=%s\r\n", APP_GIMBAL_MASTER_MODEL_DIR);
 
     app_gimbal_control_init();
-    app_gimbal_debug_init(millis);
     app_media_control_init();
     app_runtime_state_reset();
 
@@ -935,7 +933,6 @@ int main(void)
             master_demo_app_tick_target(g_runtime_poll_target);
             g_runtime_poll_target = next_runtime_subboard_poll_target(g_runtime_poll_target);
         }
-        app_gimbal_debug_tick();
         update_status_light();
         have_subboard_snapshot = master_demo_app_get_subboard_snapshot(&subboard_snapshot);
 

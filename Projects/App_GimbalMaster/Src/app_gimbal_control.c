@@ -27,6 +27,21 @@
 #define GIMBAL_PREVIEW_MOVE_TIME_MS      700u
 #define GIMBAL_TRACK_INPUT_LOG_INTERVAL_MS 1000u
 
+#ifndef MASTER_GIMBAL_STATUS_READBACK_ENABLE
+#define MASTER_GIMBAL_STATUS_READBACK_ENABLE 0
+#endif
+
+#ifndef MASTER_GIMBAL_TRACK_CONTROL_ENABLE
+#define MASTER_GIMBAL_TRACK_CONTROL_ENABLE 1
+#endif
+
+#define GIMBAL_TRACK_CONTROL_INTERVAL_MS       80u
+#define GIMBAL_TRACK_CONTROL_MOVE_TIME_MS      90u
+#define GIMBAL_TRACK_CONTROL_LOG_INTERVAL_MS   1000u
+#define GIMBAL_TRACK_CONTROL_MIN_CMD           0.05f
+#define GIMBAL_TRACK_CONTROL_YAW_STEP_DEG      3.0f
+#define GIMBAL_TRACK_CONTROL_PITCH_STEP_DEG    1.2f
+
 typedef struct {
     app_gimbal_preset_t preset;
     float yaw_angle_deg;
@@ -54,6 +69,9 @@ static uint32_t s_last_tracking_observation_log_ms = 0u;
 static bool s_last_tracking_observation_valid = false;
 static bool s_last_tracking_observation_frozen = false;
 static bool s_last_tracking_observation_timeout = false;
+static uint32_t s_last_tracking_control_ms = 0u;
+static uint32_t s_last_tracking_control_log_ms = 0u;
+static bool s_last_tracking_drive_active = false;
 
 static uint32_t gimbal_tracking_observation_now_ms(void)
 {
@@ -131,11 +149,26 @@ static uint16_t pitch_angle_deg_to_pulse(float angle_deg)
                        (GIMBAL_PITCH_MAX_ANGLE_DEG - GIMBAL_PITCH_MIN_ANGLE_DEG)));
 }
 
+static bool gimbal_status_readback_enabled(void)
+{
+    return MASTER_GIMBAL_STATUS_READBACK_ENABLE != 0;
+}
+
+static float abs_f32(float value)
+{
+    return (value < 0.0f) ? -value : value;
+}
+
+static const char *gimbal_tracking_source_name(bool from_tracking_summary)
+{
+    return from_tracking_summary ? "summary" : "result-fallback";
+}
+
 static bool gimbal_read_positions(int16_t *yaw_position, int16_t *pitch_position)
 {
     int ret;
 
-    if (!s_ready) {
+    if (!s_ready || !gimbal_status_readback_enabled()) {
         return false;
     }
 
@@ -170,6 +203,10 @@ static void gimbal_log_status(const char *reason)
     int16_t pitch_position = 0;
 
     if (!gimbal_read_positions(&yaw_position, &pitch_position)) {
+        MASTER_LOG_INFO("[MASTER][GIMBAL] status(%s) yaw=%.1fdeg pitch=%.1fdeg cached=1\r\n",
+                        reason != NULL ? reason : "unknown",
+                        (double)s_last_yaw_angle_deg,
+                        (double)s_last_pitch_angle_deg);
         return;
     }
 
@@ -206,6 +243,142 @@ static int gimbal_move_raw(uint16_t yaw_pulse, uint16_t pitch_pulse, uint16_t ti
     }
 
     return 0;
+}
+
+static app_gimbal_control_result_t gimbal_apply_angles(float yaw_angle_deg,
+                                                       float pitch_angle_deg,
+                                                       uint16_t time_ms,
+                                                       bool verbose_log,
+                                                       const char *status_reason)
+{
+    uint16_t yaw_pulse;
+    uint16_t pitch_pulse;
+
+    if (!s_ready) {
+        MASTER_LOG_WARN("[MASTER][GIMBAL] move request ignored, servo backend unavailable\r\n");
+        return APP_GIMBAL_CONTROL_NO_CHANGE;
+    }
+
+    yaw_pulse = yaw_angle_deg_to_pulse(yaw_angle_deg);
+    pitch_pulse = pitch_angle_deg_to_pulse(pitch_angle_deg);
+
+    if (gimbal_move_raw(yaw_pulse, pitch_pulse, time_ms) != 0) {
+        return APP_GIMBAL_CONTROL_NO_CHANGE;
+    }
+
+    s_last_yaw_angle_deg = clamp_f32(yaw_angle_deg, GIMBAL_YAW_MIN_ANGLE_DEG, GIMBAL_YAW_MAX_ANGLE_DEG);
+    s_last_pitch_angle_deg = clamp_f32(pitch_angle_deg, GIMBAL_PITCH_MIN_ANGLE_DEG, GIMBAL_PITCH_MAX_ANGLE_DEG);
+
+    if (verbose_log) {
+        MASTER_LOG_INFO("[MASTER][GIMBAL] move yaw=%.1fdeg pitch=%.1fdeg time=%u\r\n",
+                        (double)s_last_yaw_angle_deg,
+                        (double)s_last_pitch_angle_deg,
+                        (unsigned)time_ms);
+        gimbal_log_status(status_reason != NULL ? status_reason : "move-to-angles");
+    }
+
+    return APP_GIMBAL_CONTROL_ACCEPTED;
+}
+
+static bool tracking_observation_can_drive(const app_gimbal_tracking_observation_t *observation)
+{
+    if ((observation == NULL) || !s_ready) {
+        return false;
+    }
+
+    if (!observation->tracking_active || observation->freeze_timed_out) {
+        return false;
+    }
+
+    if (!(observation->valid || observation->frozen)) {
+        return false;
+    }
+
+    return (abs_f32(observation->yaw_cmd) >= GIMBAL_TRACK_CONTROL_MIN_CMD) ||
+           (abs_f32(observation->pitch_cmd) >= GIMBAL_TRACK_CONTROL_MIN_CMD);
+}
+
+static void gimbal_apply_tracking_drive(const app_gimbal_tracking_observation_t *observation)
+{
+    float next_yaw_deg;
+    float next_pitch_deg;
+    float yaw_delta_deg;
+    float pitch_delta_deg;
+    uint32_t now_ms;
+    bool drive_active;
+    bool should_log;
+
+#if !MASTER_GIMBAL_TRACK_CONTROL_ENABLE
+    (void)observation;
+    return;
+#else
+    if (observation == NULL) {
+        return;
+    }
+
+    now_ms = observation->updated_ms;
+    drive_active = tracking_observation_can_drive(observation);
+
+    if (!drive_active) {
+        if (s_last_tracking_drive_active) {
+            MASTER_LOG_INFO("[MASTER][GIMBAL] track drive hold active=%u valid=%u frozen=%u timeout=%u\r\n",
+                            observation->tracking_active ? 1u : 0u,
+                            observation->valid ? 1u : 0u,
+                            observation->frozen ? 1u : 0u,
+                            observation->freeze_timed_out ? 1u : 0u);
+        }
+        s_last_tracking_drive_active = false;
+        return;
+    }
+
+    if ((s_last_tracking_control_ms != 0u) &&
+        ((uint32_t)(now_ms - s_last_tracking_control_ms) < GIMBAL_TRACK_CONTROL_INTERVAL_MS)) {
+        return;
+    }
+
+    yaw_delta_deg = clamp_f32(observation->yaw_cmd, -1.0f, 1.0f) * GIMBAL_TRACK_CONTROL_YAW_STEP_DEG;
+    pitch_delta_deg = clamp_f32(observation->pitch_cmd, -1.0f, 1.0f) * GIMBAL_TRACK_CONTROL_PITCH_STEP_DEG;
+    next_yaw_deg = clamp_f32(s_last_yaw_angle_deg + yaw_delta_deg,
+                             GIMBAL_YAW_MIN_ANGLE_DEG,
+                             GIMBAL_YAW_MAX_ANGLE_DEG);
+    next_pitch_deg = clamp_f32(s_last_pitch_angle_deg + pitch_delta_deg,
+                               GIMBAL_PITCH_MIN_ANGLE_DEG,
+                               GIMBAL_PITCH_MAX_ANGLE_DEG);
+
+    if ((abs_f32(next_yaw_deg - s_last_yaw_angle_deg) < 0.01f) &&
+        (abs_f32(next_pitch_deg - s_last_pitch_angle_deg) < 0.01f)) {
+        s_last_tracking_drive_active = true;
+        return;
+    }
+
+    if (gimbal_apply_angles(next_yaw_deg,
+                            next_pitch_deg,
+                            GIMBAL_TRACK_CONTROL_MOVE_TIME_MS,
+                            false,
+                            NULL) != APP_GIMBAL_CONTROL_ACCEPTED) {
+        return;
+    }
+
+    should_log = !s_last_tracking_drive_active ||
+                 (s_last_tracking_control_log_ms == 0u) ||
+                 ((uint32_t)(now_ms - s_last_tracking_control_log_ms) >= GIMBAL_TRACK_CONTROL_LOG_INTERVAL_MS);
+    if (should_log) {
+        MASTER_LOG_INFO("[MASTER][GIMBAL] track drive valid=%u frozen=%u timeout=%u cmd=(%.3f,%.3f) delta=(%.2f,%.2f) aim=(%.1f,%.1f)\r\n",
+                        observation->valid ? 1u : 0u,
+                        observation->frozen ? 1u : 0u,
+                        observation->freeze_timed_out ? 1u : 0u,
+                        (double)observation->yaw_cmd,
+                        (double)observation->pitch_cmd,
+                        (double)yaw_delta_deg,
+                        (double)pitch_delta_deg,
+                        (double)s_last_yaw_angle_deg,
+                        (double)s_last_pitch_angle_deg);
+        s_last_tracking_control_log_ms = now_ms;
+    }
+
+    s_last_tracking_control_ms = now_ms;
+    s_last_tracking_drive_active = true;
+#endif
 }
 
 const char *app_gimbal_control_preset_name(app_gimbal_preset_t preset)
@@ -278,6 +451,10 @@ app_gimbal_control_result_t app_gimbal_control_set_tracking(bool enabled)
         }
     }
 
+    s_last_tracking_control_ms = 0u;
+    s_last_tracking_control_log_ms = 0u;
+    s_last_tracking_drive_active = false;
+
     MASTER_LOG_INFO("[MASTER][GIMBAL] tracking %s, pose=%s\r\n",
                     enabled ? "START" : "STOP",
                     app_gimbal_control_preset_name(enabled ? APP_GIMBAL_PRESET_TRACKING : APP_GIMBAL_PRESET_PARKING));
@@ -289,30 +466,11 @@ app_gimbal_control_result_t app_gimbal_control_move_to_angles(float yaw_angle_de
                                                               float pitch_angle_deg,
                                                               uint16_t time_ms)
 {
-    uint16_t yaw_pulse;
-    uint16_t pitch_pulse;
-
-    if (!s_ready) {
-        MASTER_LOG_WARN("[MASTER][GIMBAL] move request ignored, servo backend unavailable\r\n");
-        return APP_GIMBAL_CONTROL_NO_CHANGE;
-    }
-
-    yaw_pulse = yaw_angle_deg_to_pulse(yaw_angle_deg);
-    pitch_pulse = pitch_angle_deg_to_pulse(pitch_angle_deg);
-
-    if (gimbal_move_raw(yaw_pulse, pitch_pulse, time_ms) != 0) {
-        return APP_GIMBAL_CONTROL_NO_CHANGE;
-    }
-
-    s_last_yaw_angle_deg = clamp_f32(yaw_angle_deg, GIMBAL_YAW_MIN_ANGLE_DEG, GIMBAL_YAW_MAX_ANGLE_DEG);
-    s_last_pitch_angle_deg = clamp_f32(pitch_angle_deg, GIMBAL_PITCH_MIN_ANGLE_DEG, GIMBAL_PITCH_MAX_ANGLE_DEG);
-
-    MASTER_LOG_INFO("[MASTER][GIMBAL] move yaw=%.1fdeg pitch=%.1fdeg time=%u\r\n",
-                    s_last_yaw_angle_deg,
-                    s_last_pitch_angle_deg,
-                    (unsigned)time_ms);
-    gimbal_log_status("move-to-angles");
-    return APP_GIMBAL_CONTROL_ACCEPTED;
+    return gimbal_apply_angles(yaw_angle_deg,
+                               pitch_angle_deg,
+                               time_ms,
+                               true,
+                               "move-to-angles");
 }
 
 bool app_gimbal_control_read_status(app_gimbal_control_status_t *status)
@@ -350,6 +508,8 @@ void app_gimbal_control_observe_tracking_input(const app_gimbal_tracking_observa
     s_have_tracking_observation = true;
     now_ms = gimbal_tracking_observation_now_ms();
 
+    gimbal_apply_tracking_drive(observation);
+
     should_log = (observation->valid != s_last_tracking_observation_valid) ||
                  (observation->frozen != s_last_tracking_observation_frozen) ||
                  (observation->freeze_timed_out != s_last_tracking_observation_timeout);
@@ -363,7 +523,8 @@ void app_gimbal_control_observe_tracking_input(const app_gimbal_tracking_observa
         return;
     }
 
-    MASTER_LOG_INFO("[MASTER][GIMBAL] track observe-only active=%u valid=%u lost=%u frozen=%u timeout=%u err=(%ld,%ld) box=%ldx%ld cmd=(%.3f,%.3f) conf=%u\r\n",
+    MASTER_LOG_INFO("[MASTER][GIMBAL] track input source=%s active=%u valid=%u lost=%u frozen=%u timeout=%u err=(%ld,%ld) box=%ldx%ld cmd=(%.3f,%.3f) conf=%u\r\n",
+                    gimbal_tracking_source_name(observation->from_tracking_summary),
                     observation->tracking_active ? 1u : 0u,
                     observation->valid ? 1u : 0u,
                     observation->lost ? 1u : 0u,

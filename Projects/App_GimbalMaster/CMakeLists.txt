@@ -23,8 +23,6 @@ set(MASTER_SUBBOARD_WAIT_TIMEOUT_MS "3000" CACHE STRING "Milliseconds to wait fo
 set(MASTER_KWS_STATUS_LOG_STRIDE "0" CACHE STRING "Print every Nth KWS STATUS report; 0 disables periodic STATUS logs")
 set(MASTER_KWS_HEARTBEAT_LOG_STRIDE "0" CACHE STRING "Print every Nth KWS heartbeat TX/RX; 0 disables periodic heartbeat logs")
 set(MASTER_KWS_STREAM_STATS_LOG_INTERVAL "1024" CACHE STRING "Print KWS stream chunk/result statistics every N chunks; 0 disables periodic stream stats")
-set(MASTER_GIMBAL_DEBUG_BOOT_DEMO "OFF" CACHE STRING "Enable gimbal boot demo inside App_GimbalMaster: ON or OFF")
-set(MASTER_GIMBAL_DEBUG_STEP_INTERVAL_MS "2500" CACHE STRING "Milliseconds between App_GimbalMaster gimbal boot demo steps")
 
 if(MASTER_KWS_STATUS_LOG_STRIDE STREQUAL "8" OR MASTER_KWS_STATUS_LOG_STRIDE STREQUAL "32")
     set(MASTER_KWS_STATUS_LOG_STRIDE "0" CACHE STRING "Print every Nth KWS STATUS report; 0 disables periodic STATUS logs" FORCE)
@@ -88,7 +86,6 @@ s300_add_executable(
         Src/app_card3_result_handler.c
         Src/app_card3_subboard.c
         Src/app_gimbal_control.c
-        Src/app_gimbal_debug.c
         Src/app_gimbal_tracking_input.c
         Src/app_media_control.c
         Src/app_runtime_state.c
@@ -127,8 +124,6 @@ target_compile_definitions(s300_gimbal_master PRIVATE
     MASTER_KWS_STATUS_LOG_STRIDE=${MASTER_KWS_STATUS_LOG_STRIDE}
     MASTER_KWS_HEARTBEAT_LOG_STRIDE=${MASTER_KWS_HEARTBEAT_LOG_STRIDE}
     MASTER_KWS_STREAM_STATS_LOG_INTERVAL=${MASTER_KWS_STREAM_STATS_LOG_INTERVAL}
-    $<$<STREQUAL:${MASTER_GIMBAL_DEBUG_BOOT_DEMO},ON>:MASTER_GIMBAL_DEBUG_BOOT_DEMO=1>
-    MASTER_GIMBAL_DEBUG_STEP_INTERVAL_MS=${MASTER_GIMBAL_DEBUG_STEP_INTERVAL_MS}
     APP_GIMBAL_MASTER_MODEL_ID=\"${APP_GIMBAL_MASTER_MODEL_ID}\"
     APP_GIMBAL_MASTER_MODEL_VERSION=\"${APP_GIMBAL_MASTER_MODEL_VERSION}\"
     APP_GIMBAL_MASTER_MODEL_DATE=\"${APP_GIMBAL_MASTER_MODEL_DATE}\"
@@ -157,5 +152,3 @@ message(STATUS "App_GimbalMaster: subboard wait timeout = ${MASTER_SUBBOARD_WAIT
 message(STATUS "App_GimbalMaster: KWS status log stride = ${MASTER_KWS_STATUS_LOG_STRIDE}")
 message(STATUS "App_GimbalMaster: KWS heartbeat log stride = ${MASTER_KWS_HEARTBEAT_LOG_STRIDE}")
 message(STATUS "App_GimbalMaster: KWS stream stats interval = ${MASTER_KWS_STREAM_STATS_LOG_INTERVAL}")
-message(STATUS "App_GimbalMaster: gimbal boot demo = ${MASTER_GIMBAL_DEBUG_BOOT_DEMO}")
-message(STATUS "App_GimbalMaster: gimbal boot demo interval = ${MASTER_GIMBAL_DEBUG_STEP_INTERVAL_MS} ms")

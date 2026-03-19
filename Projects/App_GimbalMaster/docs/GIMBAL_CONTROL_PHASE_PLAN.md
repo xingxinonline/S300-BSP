@@ -19,6 +19,7 @@
 3. `TRACK_START` / `TRACK_STOP` 已经映射为真实的 tracking pose / parking pose 切换。
 4. 已经支持绝对角度命令 `app_gimbal_control_move_to_angles(...)`。
 5. 已经支持位置读回 `app_gimbal_control_read_status(...)`，读失败时保留最近一次命令姿态。
+6. 已经支持基于 tracking 输入的小步进开环控制，当前可在舵机读回不可用时继续推进控制联调。
 
 这意味着主板侧已经有了“执行底座”，下一步不该直接跳到复杂跟踪，而应先建立 App 内的调试和验证闭环。
 
@@ -36,26 +37,7 @@
 1. 单独验证 UART3 半双工链路和总线舵机动作。
 2. 验证主板 App 的角度映射、姿态日志和读回逻辑。
 3. 在相机未安装到云台上之前，完成舵机侧的基础联调。
-
-## 4. 构建开关
-
-在 `Projects/App_GimbalMaster/CMakeLists.txt` 中提供以下构建参数：
-
-1. `MASTER_GIMBAL_DEBUG_BOOT_DEMO`
-   含义：是否启用主板开机云台调试序列。
-   默认值：`OFF`
-2. `MASTER_GIMBAL_DEBUG_STEP_INTERVAL_MS`
-   含义：相邻两个固定姿态之间的等待时间。
-   默认值：`2500`
-
-典型配置示例：
-
-```bash
-cmake -B build -G Ninja -DBOARD=gimbal_master -DMASTER_GIMBAL_DEBUG_BOOT_DEMO=ON
-ninja -C build s300_gimbal_master img_s300_gimbal_master
-```
-
-## 5. 近期顺序
+## 4. 近期顺序
 
 当前建议的近期顺序固定为：
 
@@ -64,7 +46,7 @@ ninja -C build s300_gimbal_master img_s300_gimbal_master
 3. 再接入 Card2、UWB、IMU 等上游输入模块。
 4. 最后再做真正依赖相机安装方式的 tracking 联调。
 
-## 6. 下一步实现边界
+## 5. 下一步实现边界
 
 本阶段之后，建议优先追加以下能力，而不是直接做完整闭环：
 
