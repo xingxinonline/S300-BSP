@@ -93,6 +93,21 @@ typedef enum {
 #define TRACKER_FLAG_COASTING     0x04u
 #define TRACKER_FLAG_APPEAR_VALID 0x08u
 
+/** DetectionBox.reserved 中编码的原始 tracker 状态（低 4 bit） */
+#define DETECTION_TRACKER_RAW_DISABLED   0u
+#define DETECTION_TRACKER_RAW_TRACKED    1u
+#define DETECTION_TRACKER_RAW_PREDICTED  2u
+#define DETECTION_TRACKER_RAW_LOST       3u
+
+/** DetectionBox.reserved 中编码的原始 tracker 标志（高 4 bit） */
+#define DETECTION_TRACKER_FLAG_FOLLOW_ACTIVE  (1u << 0)
+#define DETECTION_TRACKER_FLAG_LOCKED         (1u << 1)
+#define DETECTION_TRACKER_FLAG_LOW_SCORE      (1u << 2)
+#define DETECTION_TRACKER_FLAG_EDGE_NEAR      (1u << 3)
+
+#define DETECTION_TRACKER_META_STATE(meta)  ((uint8_t)((meta) & 0x0Fu))
+#define DETECTION_TRACKER_META_FLAGS(meta)  ((uint8_t)(((meta) >> 4) & 0x0Fu))
+
 /** 协议版本支持检查（兼容 v3.x：0x0300 ~ 0x03FF） */
 #define DETECTION_PROTOCOL_IS_SUPPORTED(ver) \
     ((((uint32_t)(ver)) >> 8) == 0x03u)

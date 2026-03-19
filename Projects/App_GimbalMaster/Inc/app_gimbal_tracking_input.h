@@ -50,6 +50,7 @@ typedef struct {
     bool raw_state_valid;
     bool valid;
     bool tracking_active;
+    bool from_tracking_summary;
     bool predicted;
     bool lost;
     bool command_pending;

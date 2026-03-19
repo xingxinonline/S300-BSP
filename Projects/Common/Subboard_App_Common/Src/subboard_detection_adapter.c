@@ -47,6 +47,50 @@ static uint8_t score_to_u8(float score)
     return (uint8_t)value;
 }
 
+static bool detection_protocol_supports_tracker_meta(uint32_t version)
+{
+    return DETECTION_PROTOCOL_IS_SUPPORTED(version);
+}
+
+static void decode_tracker_meta_from_box(uint8_t *out_state,
+                                         uint8_t *out_flags,
+                                         bool *out_valid,
+                                         const DetectionResult_t *result,
+                                         const DetectionBox_t *box,
+                                         bool has_target)
+{
+    uint8_t meta;
+
+    if (out_state != NULL) {
+        *out_state = DETECTION_TRACKER_RAW_DISABLED;
+    }
+    if (out_flags != NULL) {
+        *out_flags = 0u;
+    }
+    if (out_valid != NULL) {
+        *out_valid = false;
+    }
+
+    if ((result == NULL) || (box == NULL) || !has_target) {
+        return;
+    }
+
+    if (!detection_protocol_supports_tracker_meta(result->version)) {
+        return;
+    }
+
+    meta = box->reserved;
+    if (out_state != NULL) {
+        *out_state = DETECTION_TRACKER_META_STATE(meta);
+    }
+    if (out_flags != NULL) {
+        *out_flags = DETECTION_TRACKER_META_FLAGS(meta);
+    }
+    if (out_valid != NULL) {
+        *out_valid = true;
+    }
+}
+
 static bool raw_tracking_state_is_meaningful(const DetectionResult_t *result, bool has_target)
 {
     if (result == NULL) {
@@ -156,14 +200,29 @@ static void update_tracking_summary_from_result(const DetectionResult_t *result,
 {
     subboard_tracking_summary_t next;
     bool has_selected = (selected_idx >= 0) && ((uint32_t)selected_idx < result->count);
+    bool raw_meta_valid = false;
 
     memset(&next, 0, sizeof(next));
     next.frame_id = result->frame_id;
     next.selected_idx = has_selected ? (uint8_t)selected_idx : 0xFFu;
     next.count = (uint8_t)((result->count > 255u) ? 255u : result->count);
-    next.tracker_state_raw = result->tracker_state;
-    next.tracker_flags_raw = result->tracker_flags;
-    if (raw_tracking_state_is_meaningful(result, has_selected)) {
+
+    if (has_selected) {
+        decode_tracker_meta_from_box(&next.tracker_state_raw,
+                                     &next.tracker_flags_raw,
+                                     &raw_meta_valid,
+                                     result,
+                                     &result->boxes[selected_idx],
+                                     true);
+    }
+
+    if (!raw_meta_valid && raw_tracking_state_is_meaningful(result, has_selected)) {
+        next.tracker_state_raw = result->tracker_state;
+        next.tracker_flags_raw = result->tracker_flags;
+        raw_meta_valid = true;
+    }
+
+    if (raw_meta_valid) {
         next.tracking_flags |= SUBBOARD_TRACKING_FLAG_RAW_STATE_VALID;
     }
 
@@ -179,17 +238,29 @@ static void update_tracking_summary_from_result(const DetectionResult_t *result,
         next.y2 = to_i16_clamped(box->y2);
         next.vx = box->vx;
         next.vy = box->vy;
-        next.confidence = score_to_u8(box->score);
+        next.confidence = box->kf_confidence;
         next.target_id = box->track_id;
         next.miss_count = box->miss_count;
         next.tracking_flags |= SUBBOARD_TRACKING_FLAG_HAS_TARGET;
-        if ((box->miss_count > 0u) || ((result->tracker_flags & TRACKER_FLAG_COASTING) != 0u)) {
+
+        if (raw_meta_valid) {
+            if (next.tracker_state_raw == DETECTION_TRACKER_RAW_PREDICTED) {
+                next.tracking_flags |= SUBBOARD_TRACKING_FLAG_PREDICTED;
+            }
+            if (next.tracker_state_raw == DETECTION_TRACKER_RAW_LOST) {
+                next.tracking_flags |= SUBBOARD_TRACKING_FLAG_LOST;
+            }
+        } else if ((box->miss_count > 0u) || ((result->tracker_flags & TRACKER_FLAG_COASTING) != 0u)) {
             next.tracking_flags |= SUBBOARD_TRACKING_FLAG_PREDICTED;
         }
     }
 
-    if ((result->tracker_flags & TRACKER_FLAG_COASTING) != 0u) {
+    if (!has_selected && ((result->tracker_flags & TRACKER_FLAG_COASTING) != 0u)) {
         next.tracking_flags |= SUBBOARD_TRACKING_FLAG_PREDICTED;
+    }
+
+    if (!has_selected && (result->tracker_state == TRACKER_STATE_LOST)) {
+        next.tracking_flags |= SUBBOARD_TRACKING_FLAG_LOST;
     }
 
     next.tracking_state = normalize_tracking_state(result->tracker_state, has_selected);
@@ -278,6 +349,8 @@ void subboard_detection_adapter_update_from_multi(const DetectionResult_t *resul
 void subboard_detection_adapter_update_from_single(const DetectionBox_t *box)
 {
     subboard_tracking_summary_t next;
+    bool raw_meta_valid = false;
+    DetectionResult_t fake_result;
 
     if ((box == NULL) || !is_publishable_detection_type(box->type)) {
         subboard_detection_adapter_clear();
@@ -300,10 +373,29 @@ void subboard_detection_adapter_update_from_single(const DetectionBox_t *box)
     next.vx = box->vx;
     next.vy = box->vy;
     next.count = 1u;
-    next.confidence = score_to_u8(box->score);
+    next.confidence = box->kf_confidence;
     next.target_id = box->track_id;
     next.miss_count = box->miss_count;
-    if (box->miss_count > 0u) {
+
+    memset(&fake_result, 0, sizeof(fake_result));
+    fake_result.version = DETECTION_PROTOCOL_VERSION;
+    decode_tracker_meta_from_box(&next.tracker_state_raw,
+                                 &next.tracker_flags_raw,
+                                 &raw_meta_valid,
+                                 &fake_result,
+                                 box,
+                                 true);
+    if (raw_meta_valid) {
+        next.tracking_flags |= SUBBOARD_TRACKING_FLAG_RAW_STATE_VALID;
+        if (next.tracker_state_raw == DETECTION_TRACKER_RAW_PREDICTED) {
+            next.tracking_flags |= SUBBOARD_TRACKING_FLAG_PREDICTED;
+        }
+        if (next.tracker_state_raw == DETECTION_TRACKER_RAW_LOST) {
+            next.tracking_flags |= SUBBOARD_TRACKING_FLAG_LOST;
+        }
+    }
+
+    if ((next.tracking_flags & SUBBOARD_TRACKING_FLAG_RAW_STATE_VALID) == 0u && box->miss_count > 0u) {
         next.tracking_flags |= SUBBOARD_TRACKING_FLAG_PREDICTED;
     }
     s_latest_tracking = next;

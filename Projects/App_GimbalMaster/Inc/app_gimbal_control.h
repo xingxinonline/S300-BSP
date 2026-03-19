@@ -44,6 +44,7 @@ typedef struct {
     uint8_t confidence;
     bool valid;
     bool tracking_active;
+    bool from_tracking_summary;
     bool lost;
     bool frozen;
     bool freeze_timed_out;
