@@ -1,0 +1,16 @@
+{
+    "name": "Human Tracking State Machine Demo Local Override",
+    "id": "human_tracking_state_machine_demo_local_override",
+    "version": "0.0.0-local",
+    "date": "2026-03-19",
+    "description": "Local override DSP bins for Human_Tracking_State_Machine_Demo. This directory is reserved for tracking-capable DSP demo images based on the human state-machine control path.",
+    "source": "Local override human-tracking state-machine demo bins; upstream version not recorded",
+    "compatibility": {
+        "dsp_fw": "Unknown"
+    },
+    "notes": [
+        "These local bins are selected before any shared Human_Detection model directory.",
+        "The first scaffold version may still reuse pure human-detection DSP bins before tracking semantics are added on DSP side.",
+        "Replace this metadata together with the bin files when switching to a formal human-tracking demo bin set."
+    ]
+}
