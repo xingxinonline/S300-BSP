@@ -679,7 +679,7 @@ void board_init(void);
 void board_clock_init(void);
 
 /**
- * @brief  初始化调试 UART (UART3)
+ * @brief  初始化调试 UART (UART2)
  * @note   仅当 BOARD_DEBUG_UART_ENABLE=1 时有效
  */
 void board_debug_uart_init(void);

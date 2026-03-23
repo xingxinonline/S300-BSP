@@ -45,6 +45,7 @@ typedef struct {
     bool valid;
     bool tracking_active;
     bool from_tracking_summary;
+    bool predicted;
     bool lost;
     bool frozen;
     bool freeze_timed_out;

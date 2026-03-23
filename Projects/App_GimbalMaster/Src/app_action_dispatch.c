@@ -12,6 +12,7 @@
 #define APP_ACTION_DEBOUNCE_RECORD_STOP_CHUNKS   120u
 #define APP_ACTION_DEBOUNCE_TRACK_START_CHUNKS   120u
 #define APP_ACTION_DEBOUNCE_TRACK_STOP_CHUNKS    120u
+#define APP_ACTION_TRACK_TOGGLE_GUARD_CHUNKS     120u
 #define APP_ACTION_DEBOUNCE_FILL_LIGHT_CHUNKS    90u
 
 #define KWS_KEYWORD_PHOTO          1u
@@ -110,6 +111,34 @@ static bool should_suppress_kws_action(const app_action_t *action)
 
     delta = action->chunk_idx - last_chunk;
     return delta < cooldown_chunks;
+}
+
+static bool should_suppress_opposite_track_kws_action(const app_action_t *action)
+{
+    app_action_type_t opposite_type;
+    uint32_t last_chunk;
+    uint32_t delta;
+
+    if ((action == NULL) ||
+        (action->source != APP_ACTION_SOURCE_KWS)) {
+        return false;
+    }
+
+    if (action->type == APP_ACTION_TRACK_START) {
+        opposite_type = APP_ACTION_TRACK_STOP;
+    } else if (action->type == APP_ACTION_TRACK_STOP) {
+        opposite_type = APP_ACTION_TRACK_START;
+    } else {
+        return false;
+    }
+
+    last_chunk = s_last_kws_action_chunk[opposite_type];
+    if (last_chunk == 0u) {
+        return false;
+    }
+
+    delta = action->chunk_idx - last_chunk;
+    return delta < APP_ACTION_TRACK_TOGGLE_GUARD_CHUNKS;
 }
 
 static void remember_kws_action(const app_action_t *action)
@@ -246,6 +275,15 @@ void app_action_dispatch(const app_action_t *action)
                          app_action_name(action->type),
                          (unsigned)action->source_id,
                          (unsigned long)action->chunk_idx);
+        return;
+    }
+
+    if (should_suppress_opposite_track_kws_action(action)) {
+        MASTER_LOG_INFO("[MASTER][ACTION] suppress opposite kws action=%s source_id=%u chunk=%lu guard=%lu\r\n",
+                        app_action_name(action->type),
+                        (unsigned)action->source_id,
+                        (unsigned long)action->chunk_idx,
+                        (unsigned long)APP_ACTION_TRACK_TOGGLE_GUARD_CHUNKS);
         return;
     }
 

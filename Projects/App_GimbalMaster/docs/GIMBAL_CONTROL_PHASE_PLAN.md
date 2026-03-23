@@ -15,7 +15,7 @@
 截至当前版本，主板 App 已经具备：
 
 1. `app_gimbal_control` 直接使用 S300 原生 `BusServo` 驱动初始化云台。
-2. 主板启动后自动落到 parking pose。
+2. 主板启动后先完成 5 舵机全体复位，再自动落到 Demo 对齐的初始化姿态 `(yaw=0, pitch=-45)`。
 3. `TRACK_START` / `TRACK_STOP` 已经映射为真实的 tracking pose / parking pose 切换。
 4. 已经支持绝对角度命令 `app_gimbal_control_move_to_angles(...)`。
 5. 已经支持位置读回 `app_gimbal_control_read_status(...)`，读失败时保留最近一次命令姿态。

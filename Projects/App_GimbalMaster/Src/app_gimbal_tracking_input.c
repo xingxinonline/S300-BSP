@@ -8,14 +8,26 @@
 #include "detection_proto.h"
 #include "master_log.h"
 
-#define MASTER_TRACK_INPUT_LOG_INTERVAL_MS   1000u
+#define MASTER_TRACK_INPUT_LOG_INTERVAL_MS   1500u
 #define MASTER_TRACK_INPUT_FREEZE_MS          600u
 #define MASTER_TRACK_INPUT_SOURCE_TIMEOUT_MS  500u
 #define MASTER_TRACK_INPUT_IDLE_HOLD_MS       420u
 #define MASTER_TRACK_INPUT_IDLE_MIN_CONF      96u
 #define MASTER_TRACK_INPUT_TRACKING_MIN_CONF  70u
-#define MASTER_TRACK_INPUT_DZ_X               0.08f
-#define MASTER_TRACK_INPUT_DZ_Y               0.10f
+#define MASTER_TRACK_INPUT_DZ_X               0.05f
+#define MASTER_TRACK_INPUT_DZ_Y               0.06f
+#define MASTER_TRACK_INPUT_ADAPTIVE_ERR_LOW_PX    10.0f
+#define MASTER_TRACK_INPUT_ADAPTIVE_ERR_HIGH_PX   40.0f
+#define MASTER_TRACK_INPUT_GAIN_MIN_X            0.70f
+#define MASTER_TRACK_INPUT_GAIN_MAX_X            1.35f
+#define MASTER_TRACK_INPUT_GAIN_MIN_Y            0.75f
+#define MASTER_TRACK_INPUT_GAIN_MAX_Y            1.25f
+#define MASTER_TRACK_INPUT_BOX_RATIO_LARGE       0.25f
+#define MASTER_TRACK_INPUT_BOX_RATIO_SMALL       0.05f
+#define MASTER_TRACK_INPUT_BOX_GAIN_NEAR         0.55f
+#define MASTER_TRACK_INPUT_BOX_GAIN_FAR          1.15f
+#define MASTER_TRACK_INPUT_EDGE_RATIO            0.15f
+#define MASTER_TRACK_INPUT_EDGE_GAIN_MIN         0.35f
 
 static app_gimbal_tracking_input_millis_fn_t s_millis_fn = NULL;
 static bool s_ready = false;
@@ -66,6 +78,11 @@ static float with_sign_f32(float magnitude, float sign_source)
     return (sign_source < 0.0f) ? -magnitude : magnitude;
 }
 
+static float lerp_f32(float from, float to, float t)
+{
+    return from + ((to - from) * t);
+}
+
 static float soft_deadzone(float error, float deadzone)
 {
     float half_deadzone = deadzone * 0.5f;
@@ -79,6 +96,79 @@ static float soft_deadzone(float error, float deadzone)
         return with_sign_f32(t * abs_error, error);
     }
     return error;
+}
+
+static float adaptive_gain_from_error(float error_px, float gain_min, float gain_max)
+{
+    float abs_error_px = abs_f32(error_px);
+
+    if (abs_error_px <= MASTER_TRACK_INPUT_ADAPTIVE_ERR_LOW_PX) {
+        return gain_min;
+    }
+
+    if (abs_error_px >= MASTER_TRACK_INPUT_ADAPTIVE_ERR_HIGH_PX) {
+        return gain_max;
+    }
+
+    return lerp_f32(gain_min,
+                    gain_max,
+                    (abs_error_px - MASTER_TRACK_INPUT_ADAPTIVE_ERR_LOW_PX) /
+                    (MASTER_TRACK_INPUT_ADAPTIVE_ERR_HIGH_PX - MASTER_TRACK_INPUT_ADAPTIVE_ERR_LOW_PX));
+}
+
+static float gain_from_box_size(int32_t box_w, int32_t box_h)
+{
+    float box_ratio;
+
+    if ((box_w <= 0) || (box_h <= 0)) {
+        return 1.0f;
+    }
+
+    box_ratio = ((float)box_w * (float)box_h) /
+                ((float)BOARD_DISPLAY_WIDTH * (float)BOARD_DISPLAY_HEIGHT);
+
+    if (box_ratio >= MASTER_TRACK_INPUT_BOX_RATIO_LARGE) {
+        return MASTER_TRACK_INPUT_BOX_GAIN_NEAR;
+    }
+
+    if (box_ratio <= MASTER_TRACK_INPUT_BOX_RATIO_SMALL) {
+        return MASTER_TRACK_INPUT_BOX_GAIN_FAR;
+    }
+
+    return lerp_f32(MASTER_TRACK_INPUT_BOX_GAIN_FAR,
+                    MASTER_TRACK_INPUT_BOX_GAIN_NEAR,
+                    (box_ratio - MASTER_TRACK_INPUT_BOX_RATIO_SMALL) /
+                    (MASTER_TRACK_INPUT_BOX_RATIO_LARGE - MASTER_TRACK_INPUT_BOX_RATIO_SMALL));
+}
+
+static float gain_from_edge_distance(int32_t target_coord, int32_t image_size)
+{
+    float edge_margin;
+    float target_coord_f;
+
+    if (image_size <= 0) {
+        return 1.0f;
+    }
+
+    edge_margin = (float)image_size * MASTER_TRACK_INPUT_EDGE_RATIO;
+    target_coord_f = (float)target_coord;
+
+    if (target_coord_f < edge_margin) {
+        return clamp_f32(MASTER_TRACK_INPUT_EDGE_GAIN_MIN +
+                         ((1.0f - MASTER_TRACK_INPUT_EDGE_GAIN_MIN) * (target_coord_f / edge_margin)),
+                         MASTER_TRACK_INPUT_EDGE_GAIN_MIN,
+                         1.0f);
+    }
+
+    if (target_coord_f > ((float)image_size - edge_margin)) {
+        return clamp_f32(MASTER_TRACK_INPUT_EDGE_GAIN_MIN +
+                         ((1.0f - MASTER_TRACK_INPUT_EDGE_GAIN_MIN) *
+                          (((float)image_size - target_coord_f) / edge_margin)),
+                         MASTER_TRACK_INPUT_EDGE_GAIN_MIN,
+                         1.0f);
+    }
+
+    return 1.0f;
 }
 
 static bool result_is_trackable(const subboard_detection_result_t *result)
@@ -234,6 +324,11 @@ static void build_output(app_gimbal_tracking_input_output_t *out_output)
     bool use_tracking_summary;
     uint8_t source_confidence;
     uint32_t now_ms;
+    float base_yaw_cmd;
+    float base_pitch_cmd;
+    float box_gain;
+    float yaw_gain;
+    float pitch_gain;
 
     if (out_output == NULL) {
         return;
@@ -277,8 +372,8 @@ static void build_output(app_gimbal_tracking_input_output_t *out_output)
     actual_output.tracking_active = tracking_active;
     actual_output.from_tracking_summary = use_tracking_summary;
     actual_output.valid = valid;
-    actual_output.predicted = predicted;
-    actual_output.command_pending = command_pending;
+    actual_output.predicted = tracking_active && predicted;
+    actual_output.command_pending = tracking_active && command_pending;
     actual_output.effective_view = effective_tracking_view(tracking_active, valid);
 
     if (valid) {
@@ -329,8 +424,21 @@ static void build_output(app_gimbal_tracking_input_output_t *out_output)
 
         actual_output.norm_error_x = clamp_f32((float)actual_output.error_x / half_w, -1.0f, 1.0f);
         actual_output.norm_error_y = clamp_f32((float)actual_output.error_y / half_h, -1.0f, 1.0f);
-        actual_output.yaw_cmd = -soft_deadzone(actual_output.norm_error_x, MASTER_TRACK_INPUT_DZ_X);
-        actual_output.pitch_cmd = -soft_deadzone(actual_output.norm_error_y, MASTER_TRACK_INPUT_DZ_Y);
+        base_yaw_cmd = -soft_deadzone(actual_output.norm_error_x, MASTER_TRACK_INPUT_DZ_X);
+        base_pitch_cmd = -soft_deadzone(actual_output.norm_error_y, MASTER_TRACK_INPUT_DZ_Y);
+        box_gain = gain_from_box_size(actual_output.box_w, actual_output.box_h);
+        yaw_gain = adaptive_gain_from_error((float)actual_output.error_x,
+                            MASTER_TRACK_INPUT_GAIN_MIN_X,
+                            MASTER_TRACK_INPUT_GAIN_MAX_X) *
+               box_gain *
+               gain_from_edge_distance(actual_output.target_cx, (int32_t)BOARD_DISPLAY_WIDTH);
+        pitch_gain = adaptive_gain_from_error((float)actual_output.error_y,
+                              MASTER_TRACK_INPUT_GAIN_MIN_Y,
+                              MASTER_TRACK_INPUT_GAIN_MAX_Y) *
+                 box_gain *
+                 gain_from_edge_distance(actual_output.target_cy, (int32_t)BOARD_DISPLAY_HEIGHT);
+        actual_output.yaw_cmd = clamp_f32(base_yaw_cmd * yaw_gain, -1.0f, 1.0f);
+        actual_output.pitch_cmd = clamp_f32(base_pitch_cmd * pitch_gain, -1.0f, 1.0f);
 
         if (tracking_active && !predicted) {
             s_last_valid_control_ms = now_ms;
@@ -387,6 +495,7 @@ static void maybe_log_output(const app_gimbal_tracking_input_output_t *output)
 {
     uint32_t now_ms;
     bool should_log;
+    bool periodic_log_allowed;
 
     if (output == NULL) {
         return;
@@ -399,7 +508,9 @@ static void maybe_log_output(const app_gimbal_tracking_input_output_t *output)
                  (output->freeze_timed_out != s_last_timeout) ||
                  (output->effective_view != s_last_effective_view);
 
-    if (!should_log && output->tracking_active) {
+    periodic_log_allowed = output->tracking_active && output->valid;
+
+    if (!should_log && periodic_log_allowed) {
         should_log = ((s_last_log_ms == 0u) ||
                      ((uint32_t)(now_ms - s_last_log_ms) >= MASTER_TRACK_INPUT_LOG_INTERVAL_MS));
     }
@@ -463,6 +574,7 @@ static void publish_output_to_gimbal_control(const app_gimbal_tracking_input_out
     observation.valid = output->valid;
     observation.tracking_active = output->tracking_active;
     observation.from_tracking_summary = output->from_tracking_summary;
+    observation.predicted = output->predicted;
     observation.lost = output->lost;
     observation.frozen = output->frozen;
     observation.freeze_timed_out = output->freeze_timed_out;

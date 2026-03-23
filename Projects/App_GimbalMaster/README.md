@@ -42,7 +42,7 @@
 1. `Src/main.c` 负责先调度子板协调服务，再在子板进入 `RUNNING` 后启动主板 KWS 状态机。
 2. `Src/master_demo_app.c` 负责 I2C 启动协调，以及对 Card1/Card2/Card3 子板模块的统一装配与调度。
 3. `Src/app_card1_result_handler.c`、`Src/app_card2_result_handler.c` 与 `Src/app_card3_result_handler.c` 分别负责 Card1/2 检测结果呈现和 Card3 手势结果动作映射。
-4. `Src/app_gimbal_control.c` 负责云台底层执行接口，当前已支持 parking/tracking pose、绝对角度移动、preset，以及基于 tracking 输入的小步进开环控制；在读回不可用时会退化到最近一次命令姿态缓存。
+4. `Src/app_gimbal_control.c` 负责云台底层执行接口，启动时会先做一次 5 舵机全体复位，再切到 Demo 对齐的初始化姿态 `(yaw=0, pitch=-45)`；运行期已支持 parking/tracking pose、绝对角度移动、preset，以及基于 tracking 输入的小步进开环控制；在读回不可用时会退化到最近一次命令姿态缓存。
 5. `Projects/Demo/KWS_Control_Protocol_Demo/Src/kws_control_stream.c` 负责 KWS 数据面缓冲与流控制。
 6. `Projects/Demo/Audio_KWS_Demo/Src/audio_app.c` 与 `audio_codec.c` 负责音频采集路径。
 
