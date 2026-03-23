@@ -517,47 +517,25 @@ int main(void)
     /* 测试循环 */
     int loop = 0;
     while (1) {
+        uint16_t pos6, pos4;
+
         loop++;
         printf("\r\n===== Loop %d =====\r\n", loop);
-        
-        /* 两个舵机同时移动到位置A */
-        printf("\r\n[TEST] Moving to Position A (Yaw=500, Pitch=400)\r\n");
-        servo_move(6, 500, 500);  /* Yaw 中间 */
-        servo_move(4, 400, 500);  /* Pitch 稍低 */
-        delay_ms(600);
-        
-        uint16_t pos6, pos4;
+
+        printf("[TEST] Read-only polling (no motion)\r\n");
+
         if (servo_read_position(6, &pos6) == 0) {
             printf("[READ] ID=6 (Yaw),   POS=%d\r\n", pos6);
+        } else {
+            printf("[READ] ID=6 (Yaw),   POS=[READ FAILED]\r\n");
         }
+
+        delay_ms(10);
+
         if (servo_read_position(4, &pos4) == 0) {
             printf("[READ] ID=4 (Pitch), POS=%d\r\n", pos4);
-        }
-        
-        /* 两个舵机同时移动到位置B */
-        printf("\r\n[TEST] Moving to Position B (Yaw=300, Pitch=500)\r\n");
-        servo_move(6, 300, 500);  /* Yaw 左转 */
-        servo_move(4, 500, 500);  /* Pitch 中间 */
-        delay_ms(600);
-        
-        if (servo_read_position(6, &pos6) == 0) {
-            printf("[READ] ID=6 (Yaw),   POS=%d\r\n", pos6);
-        }
-        if (servo_read_position(4, &pos4) == 0) {
-            printf("[READ] ID=4 (Pitch), POS=%d\r\n", pos4);
-        }
-        
-        /* 两个舵机同时移动到位置C */
-        printf("\r\n[TEST] Moving to Position C (Yaw=700, Pitch=300)\r\n");
-        servo_move(6, 700, 500);  /* Yaw 右转 */
-        servo_move(4, 300, 500);  /* Pitch 稍高 */
-        delay_ms(600);
-        
-        if (servo_read_position(6, &pos6) == 0) {
-            printf("[READ] ID=6 (Yaw),   POS=%d\r\n", pos6);
-        }
-        if (servo_read_position(4, &pos4) == 0) {
-            printf("[READ] ID=4 (Pitch), POS=%d\r\n", pos4);
+        } else {
+            printf("[READ] ID=4 (Pitch), POS=[READ FAILED]\r\n");
         }
         
         /* 每 5 轮打印一次完整信息 */
@@ -568,7 +546,7 @@ int main(void)
         }
         
         printf("[Loop %d done]\r\n", loop);
-        delay_ms(2000);
+        delay_ms(1000);
     }
     
     return 0;

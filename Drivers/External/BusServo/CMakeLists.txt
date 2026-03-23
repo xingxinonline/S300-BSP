@@ -6,8 +6,14 @@ if(TARGET bus_servo)
     return()
 endif()
 
+set(BUS_SERVO_DEBUG_LOG "OFF" CACHE STRING "Enable low-level BusServo TX/RX debug log: ON or OFF")
+
 add_library(bus_servo STATIC
     Source/bus_servo.c
+)
+
+target_compile_definitions(bus_servo PUBLIC
+    $<$<STREQUAL:${BUS_SERVO_DEBUG_LOG},ON>:BUS_SERVO_DEBUG=1>
 )
 
 target_include_directories(bus_servo PUBLIC

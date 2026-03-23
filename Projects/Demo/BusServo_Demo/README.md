@@ -13,7 +13,7 @@
 
 ## 硬件连接
 
-```
+```text
 S300 主板                     总线舵机
 +----------+                 +--------+
 | GPIO26 --|-- SN74LVC1G3157 |        |
@@ -57,6 +57,14 @@ ninja -C build s300_bus_servo_demo
 
 # 下载运行
 python tools/s300_download.py build/Projects/Demo/BusServo_Demo/s300_bus_servo_demo.bin
+
+# 如需抓取底层半双工收发日志，可重新配置并打开驱动调试
+cmake -B build -G Ninja -DBOARD=gimbal_master -DBUS_SERVO_DEBUG_LOG=ON .
+ninja -C build s300_bus_servo_demo
+
+# 如需只做一次极简位置读诊断，可切到最小诊断入口
+cmake -B build -G Ninja -DBOARD=gimbal_master -DBUS_SERVO_DEBUG_LOG=ON -DBUS_SERVO_POS_READ_DIAG_MAIN=ON .
+ninja -C build s300_bus_servo_demo
 ```
 
 ## API 使用示例
