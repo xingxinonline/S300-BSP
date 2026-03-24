@@ -15,6 +15,10 @@ int init_psram(uint32_t ahbclock,uint32_t psramclock)
 	PSRAM_SSI_TXFTLR = 0;
 	PSRAM_SSI_RXFTLR = 0;
 	// PSRAM_SSI_AXIAWLEN = 0;
+    temp = DSP_SCTRL_CFG5;
+    temp &= ~DSP_SCTRL_CFG5_DLYSEL_MASK;
+    temp |= DSP_SCTRL_CFG5_PSRAM_DLYSEL_DEFAULT << DSP_SCTRL_CFG5_PSRAM_DLYSEL_SHIFT;
+    DSP_SCTRL_CFG5 = temp;
     set_psram_state();
 
 	// Instruction phase

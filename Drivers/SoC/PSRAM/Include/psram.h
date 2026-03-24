@@ -67,9 +67,13 @@
 #define PSRAM_FIFO_MAX_LV      16
 
 
-#define DSP_SCTRL_XIP	        (*((volatile uint32_t*)(DSP_SYSCTL_BASE + 0x0014))) // RW 
-#define PSRAM_XIP_DIS	        DSP_SCTRL_XIP &= ~1
-#define PSRAM_XIP_EN	        DSP_SCTRL_XIP |= 1
+#define DSP_SCTRL_CFG5                     (*((volatile uint32_t*)(DSP_SYSCTL_BASE + 0x0014)))
+#define DSP_SCTRL_CFG5_XIP_EN_MASK         (1U << 0)
+#define DSP_SCTRL_CFG5_DLYSEL_MASK         (0xffU << 8)
+#define DSP_SCTRL_CFG5_PSRAM_DLYSEL_SHIFT  8U
+#define DSP_SCTRL_CFG5_PSRAM_DLYSEL_DEFAULT 0x0aU
+#define PSRAM_XIP_DIS                      DSP_SCTRL_CFG5 &= ~DSP_SCTRL_CFG5_XIP_EN_MASK
+#define PSRAM_XIP_EN                       DSP_SCTRL_CFG5 |= DSP_SCTRL_CFG5_XIP_EN_MASK
 
 int init_psram(uint32_t ahbclock, uint32_t psramclock);
 void set_psram_state(void);
