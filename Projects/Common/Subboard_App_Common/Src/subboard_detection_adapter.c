@@ -204,7 +204,7 @@ static void update_tracking_summary_from_result(const DetectionResult_t *result,
 
     memset(&next, 0, sizeof(next));
     next.frame_id = result->frame_id;
-    next.selected_idx = has_selected ? (uint8_t)selected_idx : 0xFFu;
+    next.selected_idx = has_selected ? (int8_t)selected_idx : (int8_t)result->selected_idx;
     next.count = (uint8_t)((result->count > 255u) ? 255u : result->count);
 
     if (has_selected) {

@@ -45,6 +45,7 @@ uint8_t app_card2_subboard_get_capabilities(void);
 bool app_card2_subboard_is_init_complete(void);
 bool app_card2_subboard_is_init_successful(void);
 const char *app_card2_subboard_get_init_failure_reason(void);
+int app_card2_subboard_request_face_session_reset(void);
 
 #ifdef __cplusplus
 }

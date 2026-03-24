@@ -3,6 +3,7 @@
 #include <stddef.h>
 
 #include "app_card1_subboard.h"
+#include "app_card2_subboard.h"
 #include "app_fill_light.h"
 #include "app_gimbal_control.h"
 #include "app_media_control.h"
@@ -63,6 +64,7 @@ app_action_execute_result_t app_action_execute(const app_action_t *action)
         return APP_ACTION_EXECUTE_IGNORED;
 
     case APP_ACTION_TRACK_START:
+        (void)app_card2_subboard_request_face_session_reset();
         if (app_card1_subboard_request_track_start() != 0) {
             return APP_ACTION_EXECUTE_IGNORED;
         }

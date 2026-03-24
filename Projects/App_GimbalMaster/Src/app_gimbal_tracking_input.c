@@ -2,6 +2,7 @@
 
 #include <string.h>
 
+#include "app_card2_result_handler.h"
 #include "app_gimbal_control.h"
 #include "app_runtime_state.h"
 #include "board.h"
@@ -11,9 +12,14 @@
 #define MASTER_TRACK_INPUT_LOG_INTERVAL_MS   1500u
 #define MASTER_TRACK_INPUT_FREEZE_MS          600u
 #define MASTER_TRACK_INPUT_SOURCE_TIMEOUT_MS  500u
+#define MASTER_TRACK_INPUT_CARD2_TIMEOUT_MS   500u
 #define MASTER_TRACK_INPUT_IDLE_HOLD_MS       420u
 #define MASTER_TRACK_INPUT_IDLE_MIN_CONF      96u
 #define MASTER_TRACK_INPUT_TRACKING_MIN_CONF  70u
+#define MASTER_TRACK_INPUT_LONG_LOST_VERIFY_TIMEOUT_MS 800u
+#define MASTER_TRACK_INPUT_CARD2_MATCH_CONFIRM_FRAMES 2u
+#define MASTER_TRACK_INPUT_CARD2_NOMATCH_CONFIRM_FRAMES 2u
+#define MASTER_TRACK_INPUT_REACQUIRED_STABLE_FRAMES 3u
 #define MASTER_TRACK_INPUT_DZ_X               0.05f
 #define MASTER_TRACK_INPUT_DZ_Y               0.06f
 #define MASTER_TRACK_INPUT_ADAPTIVE_ERR_LOW_PX    10.0f
@@ -51,6 +57,16 @@ static app_gimbal_tracking_input_output_t s_last_output;
 static bool s_have_idle_latch = false;
 static uint32_t s_last_idle_latch_ms = 0u;
 static app_gimbal_tracking_input_output_t s_idle_latch_output;
+static app_gimbal_follow_state_t s_follow_state = APP_GIMBAL_FOLLOW_STATE_IDLE;
+static app_gimbal_follow_state_t s_last_logged_follow_state = (app_gimbal_follow_state_t)0xFF;
+static uint32_t s_follow_session_id = 0u;
+static uint8_t s_last_locked_track_id = 0u;
+static uint32_t s_verify_deadline_ms = 0u;
+static uint8_t s_last_verify_state = SUBBOARD_FACE_VERIFY_STATE_NONE;
+static uint8_t s_last_verify_score = 0u;
+static uint8_t s_reacquired_stable_frames = 0u;
+static uint8_t s_card2_match_confirm_frames = 0u;
+static uint8_t s_card2_no_match_confirm_frames = 0u;
 
 static uint32_t tracking_input_now_ms(void)
 {
@@ -233,6 +249,16 @@ static bool tracking_summary_command_pending(const subboard_tracking_summary_t *
            ((summary->tracking_flags & SUBBOARD_TRACKING_FLAG_CMD_PENDING) != 0u);
 }
 
+static bool tracking_summary_is_short_lost(const subboard_tracking_summary_t *summary)
+{
+    return (summary != NULL) && (summary->selected_idx == -2);
+}
+
+static bool tracking_summary_is_long_lost(const subboard_tracking_summary_t *summary)
+{
+    return (summary != NULL) && (summary->selected_idx == -3);
+}
+
 static app_gimbal_track_view_t effective_tracking_view(bool tracking_active, bool has_target)
 {
     if (tracking_active) {
@@ -254,6 +280,25 @@ static const char *track_mode_name(bool tracking_active)
 static const char *tracking_source_name(bool use_tracking_summary)
 {
     return use_tracking_summary ? "summary" : "result-fallback";
+}
+
+const char *app_gimbal_tracking_input_follow_state_name(app_gimbal_follow_state_t state)
+{
+    switch (state) {
+    case APP_GIMBAL_FOLLOW_STATE_TRACKING: return "TRACKING";
+    case APP_GIMBAL_FOLLOW_STATE_SHORT_LOST: return "SHORT_LOST";
+    case APP_GIMBAL_FOLLOW_STATE_LONG_LOST_WAIT_VERIFY: return "LONG_LOST_WAIT_VERIFY";
+    case APP_GIMBAL_FOLLOW_STATE_REACQUIRED: return "REACQUIRED";
+    case APP_GIMBAL_FOLLOW_STATE_LOST: return "LOST";
+    case APP_GIMBAL_FOLLOW_STATE_IDLE:
+    default:
+        return "IDLE";
+    }
+}
+
+static const char *verify_state_name(uint8_t verify_state)
+{
+    return app_card2_result_handler_verify_state_name(verify_state);
 }
 
 static const char *raw_tracker_state_name(uint8_t tracker_state)
@@ -311,9 +356,288 @@ static void idle_latch_clear(void)
     memset(&s_idle_latch_output, 0, sizeof(s_idle_latch_output));
 }
 
+static void populate_tracking_commands(app_gimbal_tracking_input_output_t *output)
+{
+    float half_w;
+    float half_h;
+    float base_yaw_cmd;
+    float base_pitch_cmd;
+    float box_gain;
+    float yaw_gain;
+    float pitch_gain;
+
+    if ((output == NULL) || !output->valid) {
+        return;
+    }
+
+    half_w = ((float)BOARD_DISPLAY_WIDTH) * 0.5f;
+    half_h = ((float)BOARD_DISPLAY_HEIGHT) * 0.5f;
+
+    output->error_x = output->target_cx - output->screen_cx;
+    output->error_y = output->target_cy - output->screen_cy;
+    output->norm_error_x = clamp_f32((float)output->error_x / half_w, -1.0f, 1.0f);
+    output->norm_error_y = clamp_f32((float)output->error_y / half_h, -1.0f, 1.0f);
+    base_yaw_cmd = -soft_deadzone(output->norm_error_x, MASTER_TRACK_INPUT_DZ_X);
+    base_pitch_cmd = -soft_deadzone(output->norm_error_y, MASTER_TRACK_INPUT_DZ_Y);
+    box_gain = gain_from_box_size(output->box_w, output->box_h);
+    yaw_gain = adaptive_gain_from_error((float)output->error_x,
+                                        MASTER_TRACK_INPUT_GAIN_MIN_X,
+                                        MASTER_TRACK_INPUT_GAIN_MAX_X) *
+               box_gain *
+               gain_from_edge_distance(output->target_cx, (int32_t)BOARD_DISPLAY_WIDTH);
+    pitch_gain = adaptive_gain_from_error((float)output->error_y,
+                                          MASTER_TRACK_INPUT_GAIN_MIN_Y,
+                                          MASTER_TRACK_INPUT_GAIN_MAX_Y) *
+                 box_gain *
+                 gain_from_edge_distance(output->target_cy, (int32_t)BOARD_DISPLAY_HEIGHT);
+    output->yaw_cmd = clamp_f32(base_yaw_cmd * yaw_gain, -1.0f, 1.0f);
+    output->pitch_cmd = clamp_f32(base_pitch_cmd * pitch_gain, -1.0f, 1.0f);
+}
+
+static void fill_output_from_card2_verify(app_gimbal_tracking_input_output_t *output,
+                                          const app_card2_verify_snapshot_t *snapshot,
+                                          uint32_t now_ms)
+{
+    if ((output == NULL) || (snapshot == NULL)) {
+        return;
+    }
+
+    memset(output, 0, sizeof(*output));
+    output->updated_ms = now_ms;
+    output->screen_w = BOARD_DISPLAY_WIDTH;
+    output->screen_h = BOARD_DISPLAY_HEIGHT;
+    output->screen_cx = (int32_t)BOARD_DISPLAY_WIDTH / 2;
+    output->screen_cy = (int32_t)BOARD_DISPLAY_HEIGHT / 2;
+    output->target_cx = output->screen_cx;
+    output->target_cy = output->screen_cy;
+    output->tracking_active = true;
+    output->valid = snapshot->detection_active;
+    output->from_tracking_summary = false;
+    output->using_card2_verify = true;
+    output->target_id = snapshot->face_id;
+    output->confidence = snapshot->confidence;
+    output->verify_state = snapshot->verify_state;
+    output->verify_score = snapshot->verify_score;
+    output->verify_flags = snapshot->verify_flags;
+    output->target_x1 = snapshot->x1;
+    output->target_y1 = snapshot->y1;
+    output->target_x2 = snapshot->x2;
+    output->target_y2 = snapshot->y2;
+    output->target_cx = snapshot->cx;
+    output->target_cy = snapshot->cy;
+    output->box_w = snapshot->x2 - snapshot->x1;
+    output->box_h = snapshot->y2 - snapshot->y1;
+    output->effective_view = effective_tracking_view(true, output->valid);
+
+    if (output->valid) {
+        populate_tracking_commands(output);
+    }
+}
+
+static void enter_follow_state(app_gimbal_follow_state_t next_state)
+{
+    if (s_follow_state == next_state) {
+        return;
+    }
+
+    if ((next_state == APP_GIMBAL_FOLLOW_STATE_TRACKING) ||
+        (next_state == APP_GIMBAL_FOLLOW_STATE_IDLE) ||
+        (next_state == APP_GIMBAL_FOLLOW_STATE_LOST)) {
+        s_verify_deadline_ms = 0u;
+    }
+
+    if ((next_state == APP_GIMBAL_FOLLOW_STATE_LONG_LOST_WAIT_VERIFY) ||
+        (next_state == APP_GIMBAL_FOLLOW_STATE_REACQUIRED)) {
+        s_verify_deadline_ms = tracking_input_now_ms() + MASTER_TRACK_INPUT_LONG_LOST_VERIFY_TIMEOUT_MS;
+    }
+
+    s_follow_state = next_state;
+}
+
+static void reset_follow_state(void)
+{
+    s_follow_state = APP_GIMBAL_FOLLOW_STATE_IDLE;
+    s_last_logged_follow_state = (app_gimbal_follow_state_t)0xFF;
+    s_last_locked_track_id = 0u;
+    s_verify_deadline_ms = 0u;
+    s_last_verify_state = SUBBOARD_FACE_VERIFY_STATE_NONE;
+    s_last_verify_score = 0u;
+    s_reacquired_stable_frames = 0u;
+    s_card2_match_confirm_frames = 0u;
+    s_card2_no_match_confirm_frames = 0u;
+}
+
+static void update_card2_verify_confirmation(const app_card2_verify_snapshot_t *card2_snapshot,
+                                             bool card2_fresh,
+                                             bool *out_match_confirmed,
+                                             bool *out_no_match_confirmed)
+{
+    bool match_confirmed = false;
+    bool no_match_confirmed = false;
+
+    if (card2_fresh && (card2_snapshot != NULL) && card2_snapshot->detection_active) {
+        if (card2_snapshot->verify_state == SUBBOARD_FACE_VERIFY_STATE_MATCH) {
+            if (s_card2_match_confirm_frames < 255u) {
+                s_card2_match_confirm_frames++;
+            }
+            s_card2_no_match_confirm_frames = 0u;
+        } else if (card2_snapshot->verify_state == SUBBOARD_FACE_VERIFY_STATE_NO_MATCH) {
+            if (s_card2_no_match_confirm_frames < 255u) {
+                s_card2_no_match_confirm_frames++;
+            }
+            s_card2_match_confirm_frames = 0u;
+        } else {
+            s_card2_match_confirm_frames = 0u;
+            s_card2_no_match_confirm_frames = 0u;
+        }
+    } else {
+        s_card2_match_confirm_frames = 0u;
+        s_card2_no_match_confirm_frames = 0u;
+    }
+
+    match_confirmed = (s_card2_match_confirm_frames >= MASTER_TRACK_INPUT_CARD2_MATCH_CONFIRM_FRAMES);
+    no_match_confirmed = (s_card2_no_match_confirm_frames >= MASTER_TRACK_INPUT_CARD2_NOMATCH_CONFIRM_FRAMES);
+
+    if (out_match_confirmed != NULL) {
+        *out_match_confirmed = match_confirmed;
+    }
+    if (out_no_match_confirmed != NULL) {
+        *out_no_match_confirmed = no_match_confirmed;
+    }
+}
+
+static bool card2_snapshot_can_drive_reacquire(const app_card2_verify_snapshot_t *card2_snapshot,
+                                               bool card2_fresh)
+{
+    if (!card2_fresh || (card2_snapshot == NULL) || !card2_snapshot->detection_active) {
+        return false;
+    }
+
+    return (card2_snapshot->verify_state == SUBBOARD_FACE_VERIFY_STATE_MATCH) ||
+           (card2_snapshot->verify_state == SUBBOARD_FACE_VERIFY_STATE_UNCERTAIN) ||
+           (card2_snapshot->verify_state == SUBBOARD_FACE_VERIFY_STATE_WAIT_ANCHOR);
+}
+
+static bool verify_deadline_reached(uint32_t now_ms)
+{
+    return (s_verify_deadline_ms != 0u) &&
+           ((uint32_t)(now_ms - s_verify_deadline_ms) < 0x80000000u);
+}
+
+static bool update_follow_state_machine(bool tracking_active,
+                                        bool summary_fresh,
+                                        bool card1_valid,
+                                        bool card1_lost,
+                                        int32_t selected_idx,
+                                        uint8_t target_id,
+                                        const app_card2_verify_snapshot_t *card2_snapshot,
+                                        bool card2_fresh)
+{
+    uint32_t now_ms = tracking_input_now_ms();
+    bool use_card2_verify = false;
+    bool card2_match_confirmed = false;
+    bool card2_no_match_confirmed = false;
+
+    if (!tracking_active) {
+        enter_follow_state(APP_GIMBAL_FOLLOW_STATE_IDLE);
+        s_reacquired_stable_frames = 0u;
+        s_card2_match_confirm_frames = 0u;
+        s_card2_no_match_confirm_frames = 0u;
+        return false;
+    }
+
+    if (!s_last_tracking_active) {
+        s_follow_session_id++;
+        s_reacquired_stable_frames = 0u;
+        s_last_locked_track_id = 0u;
+        s_card2_match_confirm_frames = 0u;
+        s_card2_no_match_confirm_frames = 0u;
+        enter_follow_state(APP_GIMBAL_FOLLOW_STATE_TRACKING);
+    }
+
+    update_card2_verify_confirmation(card2_snapshot,
+                                     card2_fresh,
+                                     &card2_match_confirmed,
+                                     &card2_no_match_confirmed);
+
+    if (card2_fresh && (card2_snapshot != NULL)) {
+        s_last_verify_state = card2_snapshot->verify_state;
+        s_last_verify_score = card2_snapshot->verify_score;
+    }
+
+    if (card1_valid) {
+        s_last_locked_track_id = target_id;
+
+        if ((s_follow_state == APP_GIMBAL_FOLLOW_STATE_SHORT_LOST) ||
+            (s_follow_state == APP_GIMBAL_FOLLOW_STATE_LONG_LOST_WAIT_VERIFY) ||
+            (s_follow_state == APP_GIMBAL_FOLLOW_STATE_REACQUIRED) ||
+            (s_follow_state == APP_GIMBAL_FOLLOW_STATE_LOST)) {
+            if (s_reacquired_stable_frames < 255u) {
+                s_reacquired_stable_frames++;
+            }
+
+            if (s_reacquired_stable_frames >= MASTER_TRACK_INPUT_REACQUIRED_STABLE_FRAMES) {
+                enter_follow_state(APP_GIMBAL_FOLLOW_STATE_TRACKING);
+                s_reacquired_stable_frames = 0u;
+            } else {
+                enter_follow_state(APP_GIMBAL_FOLLOW_STATE_REACQUIRED);
+            }
+        } else {
+            s_reacquired_stable_frames = 0u;
+            enter_follow_state(APP_GIMBAL_FOLLOW_STATE_TRACKING);
+        }
+
+        return false;
+    }
+
+    s_reacquired_stable_frames = 0u;
+
+    if (summary_fresh && tracking_summary_is_short_lost(&s_last_tracking_summary)) {
+        enter_follow_state(APP_GIMBAL_FOLLOW_STATE_SHORT_LOST);
+        return false;
+    }
+
+    if (summary_fresh && tracking_summary_is_long_lost(&s_last_tracking_summary)) {
+        enter_follow_state(APP_GIMBAL_FOLLOW_STATE_LONG_LOST_WAIT_VERIFY);
+
+        if (card2_match_confirmed) {
+            enter_follow_state(APP_GIMBAL_FOLLOW_STATE_REACQUIRED);
+            return true;
+        }
+
+        if (card2_no_match_confirmed || verify_deadline_reached(now_ms)) {
+            enter_follow_state(APP_GIMBAL_FOLLOW_STATE_LOST);
+        }
+        return false;
+    }
+
+    if (s_follow_state == APP_GIMBAL_FOLLOW_STATE_REACQUIRED) {
+        if (card2_no_match_confirmed) {
+            enter_follow_state(APP_GIMBAL_FOLLOW_STATE_LOST);
+            return false;
+        }
+
+        if (card2_snapshot_can_drive_reacquire(card2_snapshot, card2_fresh)) {
+            use_card2_verify = true;
+        }
+
+        if (!use_card2_verify && verify_deadline_reached(now_ms)) {
+            enter_follow_state(APP_GIMBAL_FOLLOW_STATE_LOST);
+        }
+        return use_card2_verify;
+    }
+
+    if (card1_lost || summary_fresh || (selected_idx == -1)) {
+        enter_follow_state(APP_GIMBAL_FOLLOW_STATE_LOST);
+    }
+
+    return false;
+}
+
 static void build_output(app_gimbal_tracking_input_output_t *out_output)
 {
     app_gimbal_tracking_input_output_t actual_output;
+    app_card2_verify_snapshot_t card2_snapshot;
     bool predicted = false;
     bool command_pending = false;
     bool lost = false;
@@ -322,13 +646,10 @@ static void build_output(app_gimbal_tracking_input_output_t *out_output)
     bool summary_fresh;
     bool result_fresh;
     bool use_tracking_summary;
+    bool card2_fresh;
+    bool use_card2_verify;
     uint8_t source_confidence;
     uint32_t now_ms;
-    float base_yaw_cmd;
-    float base_pitch_cmd;
-    float box_gain;
-    float yaw_gain;
-    float pitch_gain;
 
     if (out_output == NULL) {
         return;
@@ -346,6 +667,8 @@ static void build_output(app_gimbal_tracking_input_output_t *out_output)
     tracking_active = app_runtime_state_is_tracking();
     summary_fresh = s_have_tracking_summary && source_is_fresh(now_ms, s_last_tracking_summary_ms);
     result_fresh = s_have_last_result && source_is_fresh(now_ms, s_last_result_ms);
+    card2_fresh = app_card2_result_handler_get_snapshot(&card2_snapshot) &&
+                  ((uint32_t)(now_ms - card2_snapshot.updated_ms) <= MASTER_TRACK_INPUT_CARD2_TIMEOUT_MS);
     use_tracking_summary = summary_fresh;
 
     valid = use_tracking_summary ?
@@ -375,11 +698,13 @@ static void build_output(app_gimbal_tracking_input_output_t *out_output)
     actual_output.predicted = tracking_active && predicted;
     actual_output.command_pending = tracking_active && command_pending;
     actual_output.effective_view = effective_tracking_view(tracking_active, valid);
+    actual_output.follow_state = s_follow_state;
+    actual_output.follow_session_id = s_follow_session_id;
+    actual_output.verify_state = card2_fresh ? card2_snapshot.verify_state : SUBBOARD_FACE_VERIFY_STATE_NONE;
+    actual_output.verify_score = card2_fresh ? card2_snapshot.verify_score : 0u;
+    actual_output.verify_flags = card2_fresh ? card2_snapshot.verify_flags : 0u;
 
     if (valid) {
-        float half_w = ((float)BOARD_DISPLAY_WIDTH) * 0.5f;
-        float half_h = ((float)BOARD_DISPLAY_HEIGHT) * 0.5f;
-
         if (use_tracking_summary) {
             actual_output.frame_id = s_last_tracking_summary.frame_id;
             actual_output.target_x1 = s_last_tracking_summary.x1;
@@ -418,29 +743,32 @@ static void build_output(app_gimbal_tracking_input_output_t *out_output)
             actual_output.selected_idx = s_last_result.selected_idx;
             actual_output.confidence = s_last_result.confidence;
         }
+        populate_tracking_commands(&actual_output);
+    }
 
-        actual_output.error_x = actual_output.target_cx - actual_output.screen_cx;
-        actual_output.error_y = actual_output.target_cy - actual_output.screen_cy;
+    use_card2_verify = update_follow_state_machine(tracking_active,
+                                                   summary_fresh,
+                                                   valid,
+                                                   lost,
+                                                   actual_output.selected_idx,
+                                                   actual_output.target_id,
+                                                   &card2_snapshot,
+                                                   card2_fresh);
 
-        actual_output.norm_error_x = clamp_f32((float)actual_output.error_x / half_w, -1.0f, 1.0f);
-        actual_output.norm_error_y = clamp_f32((float)actual_output.error_y / half_h, -1.0f, 1.0f);
-        base_yaw_cmd = -soft_deadzone(actual_output.norm_error_x, MASTER_TRACK_INPUT_DZ_X);
-        base_pitch_cmd = -soft_deadzone(actual_output.norm_error_y, MASTER_TRACK_INPUT_DZ_Y);
-        box_gain = gain_from_box_size(actual_output.box_w, actual_output.box_h);
-        yaw_gain = adaptive_gain_from_error((float)actual_output.error_x,
-                            MASTER_TRACK_INPUT_GAIN_MIN_X,
-                            MASTER_TRACK_INPUT_GAIN_MAX_X) *
-               box_gain *
-               gain_from_edge_distance(actual_output.target_cx, (int32_t)BOARD_DISPLAY_WIDTH);
-        pitch_gain = adaptive_gain_from_error((float)actual_output.error_y,
-                              MASTER_TRACK_INPUT_GAIN_MIN_Y,
-                              MASTER_TRACK_INPUT_GAIN_MAX_Y) *
-                 box_gain *
-                 gain_from_edge_distance(actual_output.target_cy, (int32_t)BOARD_DISPLAY_HEIGHT);
-        actual_output.yaw_cmd = clamp_f32(base_yaw_cmd * yaw_gain, -1.0f, 1.0f);
-        actual_output.pitch_cmd = clamp_f32(base_pitch_cmd * pitch_gain, -1.0f, 1.0f);
+    actual_output.follow_state = s_follow_state;
+    actual_output.follow_session_id = s_follow_session_id;
+    actual_output.verify_state = card2_fresh ? card2_snapshot.verify_state : SUBBOARD_FACE_VERIFY_STATE_NONE;
+    actual_output.verify_score = card2_fresh ? card2_snapshot.verify_score : 0u;
+    actual_output.verify_flags = card2_fresh ? card2_snapshot.verify_flags : 0u;
 
-        if (tracking_active && !predicted) {
+    if (use_card2_verify) {
+        fill_output_from_card2_verify(&actual_output, &card2_snapshot, now_ms);
+        actual_output.follow_state = s_follow_state;
+        actual_output.follow_session_id = s_follow_session_id;
+    }
+
+    if (actual_output.valid) {
+        if (tracking_active && !actual_output.predicted) {
             s_last_valid_control_ms = now_ms;
             s_last_valid_yaw_cmd = actual_output.yaw_cmd;
             s_last_valid_pitch_cmd = actual_output.pitch_cmd;
@@ -453,6 +781,9 @@ static void build_output(app_gimbal_tracking_input_output_t *out_output)
             idle_latch_clear();
         }
 
+        actual_output.lost = (s_follow_state == APP_GIMBAL_FOLLOW_STATE_SHORT_LOST) ||
+                             (s_follow_state == APP_GIMBAL_FOLLOW_STATE_LONG_LOST_WAIT_VERIFY) ||
+                             (s_follow_state == APP_GIMBAL_FOLLOW_STATE_LOST);
         *out_output = actual_output;
         return;
     }
@@ -467,6 +798,7 @@ static void build_output(app_gimbal_tracking_input_output_t *out_output)
         out_output->command_pending = false;
         out_output->frozen = false;
         out_output->freeze_timed_out = false;
+        out_output->follow_state = APP_GIMBAL_FOLLOW_STATE_IDLE;
         out_output->effective_view = APP_GIMBAL_TRACK_VIEW_TARGET_READY;
         return;
     }
@@ -475,7 +807,11 @@ static void build_output(app_gimbal_tracking_input_output_t *out_output)
         idle_latch_clear();
     }
 
-    actual_output.lost = tracking_active && (lost || !valid);
+    actual_output.follow_state = s_follow_state;
+    actual_output.follow_session_id = s_follow_session_id;
+    actual_output.lost = tracking_active &&
+                         ((s_follow_state != APP_GIMBAL_FOLLOW_STATE_TRACKING) &&
+                          (s_follow_state != APP_GIMBAL_FOLLOW_STATE_REACQUIRED));
     if (tracking_active && s_has_last_valid_control) {
         uint32_t freeze_age_ms = now_ms - s_last_valid_control_ms;
 
@@ -506,7 +842,8 @@ static void maybe_log_output(const app_gimbal_tracking_input_output_t *output)
                  (output->valid != s_last_valid) ||
                  (output->frozen != s_last_frozen) ||
                  (output->freeze_timed_out != s_last_timeout) ||
-                 (output->effective_view != s_last_effective_view);
+                 (output->effective_view != s_last_effective_view) ||
+                 (output->follow_state != s_last_logged_follow_state);
 
     periodic_log_allowed = output->tracking_active && output->valid;
 
@@ -519,19 +856,24 @@ static void maybe_log_output(const app_gimbal_tracking_input_output_t *output)
         return;
     }
 
-    MASTER_LOG_INFO("[MASTER][TRACK-IN] card1 mode=%s source=%s effective=%s raw_tracker=%s raw_flags=0x%02X target=%u frame=%lu count=%u selected=%u id=%u conf=%u miss=%u cx=%ld cy=%ld err_x=%ld err_y=%ld box=%ldx%ld pred=%u lost=%u pending=%u frozen=%u timeout=%u ycmd=%.3f pcmd=%.3f\r\n",
+    MASTER_LOG_INFO("[MASTER][TRACK-IN] card1 mode=%s source=%s follow=%s session=%lu effective=%s raw_tracker=%s raw_flags=0x%02X target=%u frame=%lu count=%u selected=%ld id=%u conf=%u miss=%u verify=%s vscore=%u vflags=0x%02X cx=%ld cy=%ld err_x=%ld err_y=%ld box=%ldx%ld pred=%u lost=%u pending=%u frozen=%u timeout=%u ycmd=%.3f pcmd=%.3f\r\n",
                     track_mode_name(output->tracking_active),
-                    tracking_source_name(output->from_tracking_summary),
+                    output->using_card2_verify ? "card2-verify" : tracking_source_name(output->from_tracking_summary),
+                    app_gimbal_tracking_input_follow_state_name(output->follow_state),
+                    (unsigned long)output->follow_session_id,
                     app_gimbal_tracking_input_view_name(output->effective_view),
                     raw_tracker_state_label(output),
                     (unsigned)output->tracker_flags_raw,
                     output->valid ? 1u : 0u,
                     (unsigned long)output->frame_id,
                     (unsigned)output->count,
-                    (unsigned)output->selected_idx,
+                    (long)output->selected_idx,
                     (unsigned)output->target_id,
                     (unsigned)output->confidence,
                     (unsigned)output->miss_count,
+                    verify_state_name(output->verify_state),
+                    (unsigned)output->verify_score,
+                    (unsigned)output->verify_flags,
                     (long)output->target_cx,
                     (long)output->target_cy,
                     (long)output->error_x,
@@ -551,6 +893,7 @@ static void maybe_log_output(const app_gimbal_tracking_input_output_t *output)
     s_last_frozen = output->frozen;
     s_last_timeout = output->freeze_timed_out;
     s_last_effective_view = output->effective_view;
+    s_last_logged_follow_state = output->follow_state;
     s_last_log_ms = now_ms;
 }
 
@@ -621,6 +964,8 @@ void app_gimbal_tracking_input_reset(void)
     s_last_output.screen_cy = (int32_t)BOARD_DISPLAY_HEIGHT / 2;
     s_last_output.target_cx = s_last_output.screen_cx;
     s_last_output.target_cy = s_last_output.screen_cy;
+    s_follow_session_id = 0u;
+    reset_follow_state();
     idle_latch_clear();
 }
 

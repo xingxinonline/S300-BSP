@@ -89,11 +89,11 @@ void app_card1_result_handler_tick(void)
     if (!s_overlay_active && overlay_now_active) {
         if ((s_last_overlay_log_ms == 0u) ||
             ((uint32_t)(now_ms - s_last_overlay_log_ms) >= CARD1_OVERLAY_LOG_MIN_INTERVAL_MS)) {
-            MASTER_LOG_INFO("[MASTER][CARD1][OVL] source=%s frame=%lu target=%u selected=%u effective=%s raw_tracker=%s raw_flags=0x%02X id=%u conf=%u miss=%u pred=%u box=(%ld,%ld)-(%ld,%ld)\r\n",
+            MASTER_LOG_INFO("[MASTER][CARD1][OVL] source=%s frame=%lu target=%u selected=%ld effective=%s raw_tracker=%s raw_flags=0x%02X id=%u conf=%u miss=%u pred=%u box=(%ld,%ld)-(%ld,%ld)\r\n",
                             output.from_tracking_summary ? "summary" : "result-fallback",
                             (unsigned long)output.frame_id,
                             output.valid ? 1u : 0u,
-                            (unsigned)output.selected_idx,
+                            (long)output.selected_idx,
                             app_gimbal_tracking_input_view_name(output.effective_view),
                             output.raw_state_valid ? app_gimbal_tracking_input_raw_tracker_name(output.tracker_state_raw) : "UNKNOWN",
                             (unsigned)output.tracker_flags_raw,
@@ -110,11 +110,11 @@ void app_card1_result_handler_tick(void)
     } else if (s_overlay_active && !overlay_now_active) {
         if ((s_last_overlay_log_ms == 0u) ||
             ((uint32_t)(now_ms - s_last_overlay_log_ms) >= CARD1_OVERLAY_LOG_MIN_INTERVAL_MS)) {
-            MASTER_LOG_INFO("[MASTER][CARD1][OVL] cleared source=%s frame=%lu target=%u selected=%u effective=%s raw_tracker=%s raw_flags=0x%02X id=%u conf=%u miss=%u pred=%u\r\n",
+            MASTER_LOG_INFO("[MASTER][CARD1][OVL] cleared source=%s frame=%lu target=%u selected=%ld effective=%s raw_tracker=%s raw_flags=0x%02X id=%u conf=%u miss=%u pred=%u\r\n",
                             output.from_tracking_summary ? "summary" : "result-fallback",
                             (unsigned long)output.frame_id,
                             output.valid ? 1u : 0u,
-                            (unsigned)output.selected_idx,
+                            (long)output.selected_idx,
                             app_gimbal_tracking_input_view_name(output.effective_view),
                             output.raw_state_valid ? app_gimbal_tracking_input_raw_tracker_name(output.tracker_state_raw) : "UNKNOWN",
                             (unsigned)output.tracker_flags_raw,

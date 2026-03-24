@@ -234,6 +234,19 @@ static int send_start_dsp_cmd(void)
     return 0;
 }
 
+static int send_face_session_reset_cmd(void)
+{
+    if (write_reg8(SUBBOARD_STARTUP_REG_CMD_ARG, 0u) != 0) {
+        return -1;
+    }
+
+    if (write_reg8(SUBBOARD_STARTUP_REG_CMD, SUBBOARD_STARTUP_CMD_FACE_SESSION_RESET) != 0) {
+        return -1;
+    }
+
+    return 0;
+}
+
 static void log_snapshot(uint8_t state,
                          uint8_t error,
                          uint8_t heartbeat,
@@ -507,4 +520,25 @@ bool app_card2_subboard_is_init_successful(void)
 const char *app_card2_subboard_get_init_failure_reason(void)
 {
     return s_init_failure_reason;
+}
+
+int app_card2_subboard_request_face_session_reset(void)
+{
+    if ((s_capabilities & SUBBOARD_STARTUP_CAP_FACE_VERIFY) == 0u) {
+        MASTER_LOG_DEBUG("[MASTER][CARD2] face session reset ignored, capability unavailable\r\n");
+        return -1;
+    }
+
+    if (s_public_state != SUBBOARD_STARTUP_STATE_RUNNING) {
+        MASTER_LOG_DEBUG("[MASTER][CARD2] face session reset ignored, subboard not running\r\n");
+        return -1;
+    }
+
+    if (send_face_session_reset_cmd() != 0) {
+        MASTER_LOG_WARN("[MASTER][CARD2] failed to send FACE_SESSION_RESET\r\n");
+        return -1;
+    }
+
+    MASTER_LOG_INFO("[MASTER][CARD2] sent FACE_SESSION_RESET\r\n");
+    return 0;
 }
