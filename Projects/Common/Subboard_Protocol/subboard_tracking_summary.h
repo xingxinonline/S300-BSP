@@ -22,7 +22,7 @@ typedef struct __attribute__((packed)) {
     uint8_t valid;
     uint8_t tracking_state;
     uint8_t tracking_flags;
-    uint8_t selected_idx;
+    int8_t selected_idx;
     uint32_t updated_ms;
     uint32_t frame_id;
     int16_t cx;

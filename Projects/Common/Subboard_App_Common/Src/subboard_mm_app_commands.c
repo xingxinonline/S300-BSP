@@ -226,6 +226,19 @@ static void handle_tracking_cmd(uint8_t cmd, uint8_t track_opcode, const char *l
     finish_command(cmd, result);
 }
 
+static void handle_face_session_reset_cmd(uint8_t cmd)
+{
+    if ((SUBBOARD_CAPABILITIES & SUBBOARD_STARTUP_CAP_FACE_VERIFY) == 0u) {
+        finish_command(cmd, SUBBOARD_STARTUP_RESULT_NOT_SUPPORTED);
+        return;
+    }
+
+    SUB_LOG_INFO(SUBBOARD_APP_TAG " CMD FACE_SESSION_RESET\r\n");
+    subboard_dsp_ctrl_reset_face_session();
+    subboard_startup_i2c_set_error_code(SUBBOARD_STARTUP_ERR_NONE);
+    finish_command(cmd, SUBBOARD_STARTUP_RESULT_OK);
+}
+
 void subboard_mm_app_handle_command(SubboardMmAppContext *ctx, uint8_t cmd)
 {
     if ((ctx == NULL) || (cmd == SUBBOARD_STARTUP_CMD_NONE)) {
@@ -259,6 +272,10 @@ void subboard_mm_app_handle_command(SubboardMmAppContext *ctx, uint8_t cmd)
 
     case SUBBOARD_STARTUP_CMD_TRACK_RESET:
         handle_tracking_cmd(cmd, CONTROL_CMD_TRACK_RESET, "TRACK_RESET");
+        break;
+
+    case SUBBOARD_STARTUP_CMD_FACE_SESSION_RESET:
+        handle_face_session_reset_cmd(cmd);
         break;
 
     case SUBBOARD_STARTUP_CMD_STOP_PIPELINE:

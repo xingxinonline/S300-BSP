@@ -11,8 +11,25 @@
 #include "subboard_detection_adapter.h"
 #include "subboard_dsp_control_plane.h"
 #include "subboard_dsp_mailbox.h"
+#include "subboard_face_recognition_adapter.h"
 #include "subboard_log.h"
 #include "subboard_startup_proto.h"
+
+#if defined(SUBBOARD_USE_FACE_RECOGNITION_RESULT) && (SUBBOARD_USE_FACE_RECOGNITION_RESULT != 0)
+#define SUBBOARD_RESULT_ADAPTER_RESET() subboard_face_recognition_adapter_reset()
+#define SUBBOARD_RESULT_ADAPTER_CLEAR() subboard_face_recognition_adapter_clear()
+#define SUBBOARD_RESULT_ADAPTER_UPDATE_FROM_MULTI(payload) subboard_face_recognition_adapter_update_from_multi(payload)
+#define SUBBOARD_RESULT_ADAPTER_GET_LATEST(out_result) subboard_face_recognition_adapter_get_latest(out_result)
+#define SUBBOARD_RESULT_ADAPTER_GET_LATEST_TRACKING(out_summary) subboard_face_recognition_adapter_get_latest_tracking(out_summary)
+#define SUBBOARD_RESULT_ADAPTER_RESET_FACE_SESSION() subboard_face_recognition_adapter_reset_session()
+#else
+#define SUBBOARD_RESULT_ADAPTER_RESET() subboard_detection_adapter_reset()
+#define SUBBOARD_RESULT_ADAPTER_CLEAR() subboard_detection_adapter_clear()
+#define SUBBOARD_RESULT_ADAPTER_UPDATE_FROM_MULTI(payload) subboard_detection_adapter_update_from_multi((const DetectionResult_t *)(payload))
+#define SUBBOARD_RESULT_ADAPTER_GET_LATEST(out_result) subboard_detection_adapter_get_latest(out_result)
+#define SUBBOARD_RESULT_ADAPTER_GET_LATEST_TRACKING(out_summary) subboard_detection_adapter_get_latest_tracking(out_summary)
+#define SUBBOARD_RESULT_ADAPTER_RESET_FACE_SESSION() ((void)0)
+#endif
 
 #define SUB_DSP_HELLO_RETRY_MS        200u
 #define SUB_DSP_RESOURCE_RETRY_MS     300u
@@ -216,12 +233,12 @@ static void process_mailbox(void)
 
         if (MAILBOX_GET_MSG_TYPE(msg) == MAILBOX_MSG_TYPE_MULTI) {
             uintptr_t addr = (uintptr_t)DSP_DETECTION_BASE_ADDR + (uintptr_t)MAILBOX_GET_PAYLOAD(msg);
-            subboard_detection_adapter_update_from_multi((const DetectionResult_t *)addr);
+            SUBBOARD_RESULT_ADAPTER_UPDATE_FROM_MULTI((const void *)addr);
         } else if (MAILBOX_GET_MSG_TYPE(msg) == MAILBOX_MSG_TYPE_SINGLE) {
             uintptr_t addr = (uintptr_t)DSP_DETECTION_BASE_ADDR + (uintptr_t)MAILBOX_GET_PAYLOAD(msg);
             subboard_detection_adapter_update_from_single((const DetectionBox_t *)addr);
         } else if (MAILBOX_GET_MSG_TYPE(msg) == MAILBOX_MSG_TYPE_NO_RESULT) {
-            subboard_detection_adapter_clear();
+            SUBBOARD_RESULT_ADAPTER_CLEAR();
         } else {
             SUB_LOG_WARN(SUBBOARD_APP_DSP_TAG " RX data/runtime msg=0x%08lX\r\n", (unsigned long)msg);
         }
@@ -282,7 +299,7 @@ void subboard_dsp_ctrl_reset(void)
     s_pending = SUB_DSP_PENDING_NONE;
     s_heartbeat_seq = 0u;
     s_pending_master_requests = 0u;
-    subboard_detection_adapter_reset();
+    SUBBOARD_RESULT_ADAPTER_RESET();
     s_state_since_ms = millis();
     s_last_hello_ms = 0u;
     s_last_resource_ms = 0u;
@@ -391,12 +408,17 @@ void subboard_dsp_ctrl_complete_master_request(uint8_t request)
 
 bool subboard_dsp_ctrl_get_latest_result(subboard_detection_result_t *out_result)
 {
-    return subboard_detection_adapter_get_latest(out_result);
+    return SUBBOARD_RESULT_ADAPTER_GET_LATEST(out_result);
 }
 
 bool subboard_dsp_ctrl_get_latest_tracking_summary(subboard_tracking_summary_t *out_summary)
 {
-    return subboard_detection_adapter_get_latest_tracking(out_summary);
+    return SUBBOARD_RESULT_ADAPTER_GET_LATEST_TRACKING(out_summary);
+}
+
+void subboard_dsp_ctrl_reset_face_session(void)
+{
+    SUBBOARD_RESULT_ADAPTER_RESET_FACE_SESSION();
 }
 
 uint8_t subboard_dsp_ctrl_send_tracking_command(uint8_t track_opcode)

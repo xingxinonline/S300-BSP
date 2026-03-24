@@ -12,11 +12,11 @@
 #endif
 
 #ifndef SUBBOARD_APP_TITLE
-#define SUBBOARD_APP_TITLE "App_Card2_FaceDetection"
+#define SUBBOARD_APP_TITLE "App_Card2_FaceRecognition"
 #endif
 
 #ifndef SUBBOARD_APP_DESCRIPTION
-#define SUBBOARD_APP_DESCRIPTION "Card2 face-detection subboard app"
+#define SUBBOARD_APP_DESCRIPTION "Card2 face-recognition subboard app"
 #endif
 
 #ifndef SUBBOARD_SLAVE_ADDR
@@ -36,7 +36,12 @@
 #endif
 
 #ifndef SUBBOARD_CAPABILITIES
-#define SUBBOARD_CAPABILITIES SUBBOARD_STARTUP_CAP_DETECTION_RESULT
+#define SUBBOARD_CAPABILITIES (SUBBOARD_STARTUP_CAP_DETECTION_RESULT | \
+							  SUBBOARD_STARTUP_CAP_FACE_VERIFY)
+#endif
+
+#ifndef SUBBOARD_USE_FACE_RECOGNITION_RESULT
+#define SUBBOARD_USE_FACE_RECOGNITION_RESULT 1
 #endif
 
 #endif

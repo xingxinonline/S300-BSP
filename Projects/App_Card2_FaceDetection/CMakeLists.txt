@@ -29,8 +29,8 @@ else()
 endif()
 
 cmake_path(ABSOLUTE_PATH CMAKE_SOURCE_DIR NORMALIZE OUTPUT_VARIABLE ROOT_ABS)
-set(FACE_DETECTION_MODEL_DIR ${ROOT_ABS}/Algorithm_Models/Face_Detection)
-set(APP_CARD2_DSP_IMAGE_DIR ${FACE_DETECTION_MODEL_DIR})
+set(FACE_RECOGNITION_MODEL_DIR ${ROOT_ABS}/Algorithm_Models/Face_Recognition)
+set(APP_CARD2_DSP_IMAGE_DIR ${FACE_RECOGNITION_MODEL_DIR})
 set(APP_CARD2_USE_LOCAL_MODEL FALSE)
 
 if(EXISTS ${DSP_BIN_DIR}/model_dtcm_boot.bin AND
@@ -61,6 +61,7 @@ s300_add_executable(
         ${SUBBOARD_COMMON_DIR}/Src/subboard_dsp_mailbox.c
         ${SUBBOARD_COMMON_DIR}/Src/subboard_startup_i2c.c
         ${SUBBOARD_COMMON_DIR}/Src/subboard_detection_adapter.c
+        ${SUBBOARD_COMMON_DIR}/Src/subboard_face_recognition_adapter.c
     DRIVERS rcc gpio uart mm mailbox psram i2c
     INCLUDES . Inc ${SUBBOARD_COMMON_DIR}/Inc ${CMAKE_SOURCE_DIR}/Projects/Common/Subboard_Protocol ${CMAKE_SOURCE_DIR}/Algorithm_Models/protocol
     DBG_SCRIPT ${SUBBOARD_GDB_SCRIPT}
