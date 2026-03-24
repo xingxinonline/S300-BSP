@@ -3,6 +3,9 @@
 
 #include <stdint.h>
 
+#include "subboard_detection_result.h"
+#include "subboard_tracking_summary.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -23,11 +26,23 @@ extern "C" {
 #define SUBBOARD_STARTUP_REG_REQUEST_ACK      0x07u
 #define SUBBOARD_STARTUP_REG_CAPABILITIES     0x08u
 #define SUBBOARD_STARTUP_REG_RESULT           0x10u
-#define SUBBOARD_STARTUP_REG_TRACKING         0x20u
+#define SUBBOARD_STARTUP_REG_TRACKING         0x30u
 #define SUBBOARD_STARTUP_REG_CMD              0x80u
 #define SUBBOARD_STARTUP_REG_CMD_ARG          0x81u
 #define SUBBOARD_STARTUP_REG_CMD_ACK          0x82u
 #define SUBBOARD_STARTUP_REG_CMD_RESULT       0x83u
+
+#if defined(__cplusplus)
+static_assert((SUBBOARD_STARTUP_REG_RESULT + sizeof(subboard_detection_result_t)) <= SUBBOARD_STARTUP_REG_TRACKING,
+			  "subboard result/tracking register regions must not overlap");
+static_assert((SUBBOARD_STARTUP_REG_TRACKING + sizeof(subboard_tracking_summary_t)) <= SUBBOARD_STARTUP_REG_CMD,
+			  "subboard tracking/cmd register regions must not overlap");
+#else
+_Static_assert((SUBBOARD_STARTUP_REG_RESULT + sizeof(subboard_detection_result_t)) <= SUBBOARD_STARTUP_REG_TRACKING,
+			   "subboard result/tracking register regions must not overlap");
+_Static_assert((SUBBOARD_STARTUP_REG_TRACKING + sizeof(subboard_tracking_summary_t)) <= SUBBOARD_STARTUP_REG_CMD,
+			   "subboard tracking/cmd register regions must not overlap");
+#endif
 
 #define SUBBOARD_STARTUP_STATUS_NONE          0x00u
 
