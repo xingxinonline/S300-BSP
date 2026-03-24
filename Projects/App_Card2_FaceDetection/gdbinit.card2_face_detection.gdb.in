@@ -7,10 +7,22 @@ set remotetimeout 20
 # Ensure we operate on Cortex-M4 core
 monitor targets ne005.m4
 
-# Halt and soft-reset only the selected core, then load the image into SRAM
+# Halt and soft-reset only the selected core.
 monitor halt
 monitor soft_reset_halt
 monitor wait_halt 2000
+
+echo \n>>> Holding DSP in domain reset...\n
+set {unsigned int}0x4000a018 = 0
+monitor sleep 100
+
+echo \n>>> Loading DSP binary files for Card2_Face_Detection...\n
+@GDB_RESTORE_DTCM@
+@GDB_RESTORE_PTCM@
+@GDB_RESTORE_SRAM0@
+@GDB_RESTORE_SRAM1@
+
+echo \n>>> Loading CM4 program...\n
 load
 
 # Vector table is linked at 0x20000000 (SRAM1). Set SP and PC from vector.
@@ -20,24 +32,15 @@ set $pc = *(unsigned int*)0x20000004
 # Set VTOR to SRAM vector base for proper exception handling
 set {unsigned int}0xE000ED08 = 0x20000000
 
-# Enable required bitfields and give DSP time to bootload
-set {unsigned int}0x4000a018 = (*(unsigned int*)0x4000a018) & ~1
-monitor sleep 100
-
-echo \n>>> Loading S300 AI Model: Card2_Face_Detection\n
-@GDB_RESTORE_DTCM@
-@GDB_RESTORE_PTCM@
-@GDB_RESTORE_SRAM0@
-@GDB_RESTORE_SRAM1@
-
-echo \n>>> Starting with Card2_Face_Detection model initialized...\n
-
-tbreak subboard_dsp_image_load_point
+tbreak card2_dsp_image_load_point
 commands
   echo \n>>> PSRAM initialized. Loading PSRAM image for Card2_Face_Detection...\n
   @GDB_RESTORE_PSRAM@
   continue
 end
 
+echo \n>>> Releasing DSP domain reset...\n
 set {unsigned int}0x4000a018 = 1
+
+echo \n>>> Starting CM4 program...\n
 continue
