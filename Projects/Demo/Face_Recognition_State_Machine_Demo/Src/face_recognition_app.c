@@ -48,6 +48,7 @@ typedef enum {
     FR_PENDING_CONFIG_ACK,
     FR_PENDING_BUFFER_ACK,
     FR_PENDING_START_ACK,
+    FR_PENDING_SESSION_START_ACK,
 } FaceRecognitionPending_t;
 
 static uint32_t (*s_get_millis)(void) = 0;
@@ -60,6 +61,7 @@ static uint32_t s_last_hello_ms = 0u;
 static uint32_t s_last_resource_ms = 0u;
 static uint32_t s_last_heartbeat_ms = 0u;
 static uint8_t s_video_resource_flags = 0u;
+static bool s_fr_session_started = false;
 
 static uint32_t millis(void)
 {
@@ -102,17 +104,21 @@ static void enter_state(FaceRecognitionState_t next_state)
 
 static void fill_overlay_buffers(void)
 {
-    volatile uint16_t *framebuffer = (volatile uint16_t *)DISP_RFRAME0_ADDR;
-    volatile uint16_t *alpha16 = (volatile uint16_t *)DISP_RALPHA0_ADDR;
+    volatile uint16_t *framebuffer0 = (volatile uint16_t *)DISP_RFRAME0_ADDR;
+    volatile uint16_t *framebuffer1 = (volatile uint16_t *)DISP_RFRAME1_ADDR;
+    volatile uint16_t *alpha0 = (volatile uint16_t *)DISP_RALPHA0_ADDR;
+    volatile uint16_t *alpha1 = (volatile uint16_t *)DISP_RALPHA1_ADDR;
     uint32_t pixels = DISP_IMAGE_WIDTH * DISP_IMAGE_HEIGHT;
     uint32_t alpha_words = pixels / 2u;
 
     for (uint32_t index = 0; index < pixels; index++) {
-        framebuffer[index] = 0x07E0u;
+        framebuffer0[index] = 0x07E0u;
+        framebuffer1[index] = 0x07E0u;
     }
 
     for (uint32_t index = 0; index < alpha_words; index++) {
-        alpha16[index] = 0x0000u;
+        alpha0[index] = 0x0000u;
+        alpha1[index] = 0x0000u;
     }
 
     *(volatile uint32_t *)(DSP_VIDEO_SS_BASE + 0x50u) = 1u;
@@ -309,6 +315,14 @@ static void send_start_stream(void)
     s_pending = FR_PENDING_START_ACK;
 }
 
+static void send_fr_start_session(void)
+{
+    send_control_msg(
+        CONTROL_CMD_FR(s_session_id, CONTROL_CMD_FR_START_SESSION, 0u),
+        "CMD.FR_START_SESSION");
+    s_pending = FR_PENDING_SESSION_START_ACK;
+}
+
 static void send_heartbeat(void)
 {
     send_control_msg(
@@ -350,9 +364,20 @@ static void handle_ack(uint32_t msg)
         if ((s_pending == FR_PENDING_START_ACK) &&
             (code == CONTROL_SYS_SUBTYPE_START_STREAM) &&
             (status == CONTROL_ACK_OK)) {
-            s_pending = FR_PENDING_NONE;
             enter_state(FR_STATE_RUNNING);
-            printf("[FR-SM] Stream start ACK received, waiting for detection result mailbox\r\n");
+            printf("[FR-SM] Stream start ACK received, starting FR session\r\n");
+            send_fr_start_session();
+            return;
+        }
+    }
+
+    if (kind == CONTROL_RSP_KIND_CMD) {
+        if ((s_pending == FR_PENDING_SESSION_START_ACK) &&
+            (code == CONTROL_CMD_FR_START_SESSION) &&
+            (status == CONTROL_ACK_OK)) {
+            s_pending = FR_PENDING_NONE;
+            s_fr_session_started = true;
+            printf("[FR-SM] FR session started, waiting for v2.4 detection summaries\r\n");
         }
     }
 }
@@ -485,6 +510,7 @@ static void step_state_machine(void)
     case FR_STATE_RESET:
         dsp_start_new_session();
         s_pending = FR_PENDING_NONE;
+        s_fr_session_started = false;
         send_hello();
         enter_state(FR_STATE_HANDSHAKING);
         break;

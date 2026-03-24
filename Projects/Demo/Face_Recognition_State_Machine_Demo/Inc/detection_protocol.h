@@ -14,11 +14,27 @@ extern "C" {
 
 #define MAX_DETECTION_COUNT              10u
 #define DETECTION_RESULT_MAGIC           0x44455446u
-#define DETECTION_PROTOCOL_VERSION       0x0203u
+#define DETECTION_PROTOCOL_VERSION       0x0204u
 #define FACE_FEATURE_DIMENSION           128u
 #define FACE_FEATURE_VECTOR_DIM          FACE_FEATURE_DIMENSION
 #define DETECTION_RESULT_FLAG_HAS_FEATURE 0x00000001u
 #define DSP_PTCM_M4_BASE_OFFSET          0x44800000u
+
+typedef enum {
+    DETECTION_VERIFY_STATE_NONE = 0,
+    DETECTION_VERIFY_STATE_WAIT_ANCHOR = 1,
+    DETECTION_VERIFY_STATE_MATCH = 2,
+    DETECTION_VERIFY_STATE_UNCERTAIN = 3,
+    DETECTION_VERIFY_STATE_NO_MATCH = 4,
+} DetectionVerifyState_e;
+
+#define DETECTION_CANDIDATE_FLAG_PRESENT         (1u << 0)
+#define DETECTION_CANDIDATE_FLAG_ALLOW_EXTRACT   (1u << 1)
+#define DETECTION_CANDIDATE_FLAG_ALLOW_UPDATE    (1u << 2)
+#define DETECTION_CANDIDATE_FLAG_FEATURE_VALID   (1u << 3)
+#define DETECTION_CANDIDATE_FLAG_TEMPLATE_MATCH  (1u << 4)
+#define DETECTION_CANDIDATE_FLAG_TEMPLATE_ENROLL (1u << 5)
+#define DETECTION_CANDIDATE_FLAG_TEMPLATE_FUSE   (1u << 6)
 
 typedef enum {
     DETECTION_TYPE_UNKNOWN  = 0,
@@ -54,8 +70,14 @@ typedef struct __attribute__((packed)) {
     int32_t        selected_idx;
     DetectionBox_t boxes[MAX_DETECTION_COUNT];
     uint32_t       feature_flags;
-    uint16_t       feature_dim;
+    uint32_t       feature_dim;
     int8_t         feature_vector[FACE_FEATURE_DIMENSION];
+    uint8_t        verify_state;
+    uint8_t        verify_score;
+    uint8_t        template_count;
+    uint8_t        candidate_confidence;
+    uint8_t        candidate_flags;
+    uint8_t        reserved[3];
 } DetectionResult_t;
 
 #define MAILBOX_MSG_TYPE_SINGLE     0x00000000u
@@ -80,7 +102,7 @@ typedef struct __attribute__((packed)) {
 #endif
 
 COMPILE_TIME_ASSERT(sizeof(DetectionBox_t) == 68, DetectionBox_size_mismatch);
-COMPILE_TIME_ASSERT(sizeof(DetectionResult_t) == 838, DetectionResult_size_mismatch);
+COMPILE_TIME_ASSERT(sizeof(DetectionResult_t) == 848, DetectionResult_size_mismatch);
 
 #ifdef __cplusplus
 }
